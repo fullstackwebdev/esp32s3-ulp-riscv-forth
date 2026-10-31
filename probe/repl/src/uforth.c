@@ -640,7 +640,10 @@ static u16 mkhdr_pad(u8 cf, u8 imm)
     /* GUARDRAIL: one exit for both dictionary-state failures. They carried the same message code and the
      * same recovery, so two errf_msg call sites only cost bytes; the distinct reasons stay in the comments
      * below rather than in the code. */
-    if (x + 2u > h || x >= 2048u || (x & 1u)) { errf_msg(MSG_ERR_DICT); return 0; }
+    /* GUARDRAIL: no `x >= 2048u` test here. The line above proves x < h <= HDRTOP <= MEMSZ, and
+     * _Static_assert(MEMSZ <= 2048) pins the other end, so the bound was dead code — the assert is what
+     * keeps it honest, and it fires at compile time instead of costing a compare per definition. */
+    if (x + 2u > h || (x & 1u)) { errf_msg(MSG_ERR_DICT); return 0; }
     /* GUARDRAIL: xt is stored as xt/2, so an odd x would be halved into a wrong-word dispatch with no
      * trace anywhere. Nothing but cw()'s +2 and a4()'s round-up-to-4 writes V_HERE, so odd is an engine
      * bug, not user input — but this is the only place an offset becomes a header field, so this is

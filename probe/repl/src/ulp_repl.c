@@ -32,7 +32,7 @@
  * mem[]: the link succeeds, the boot assert is the only thing between that and "every word is unknown"
  * (E-079). Re-bake with tools/bake.sh <MEMSZ>, which owns the flag set, whenever this number moves.
  * 1 200 -> 1 400 is paid for exactly by the mailbox shrink in uforth.c (216 B -> 16 B of .bss). */
-#define MEMSZ    1934          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+#define MEMSZ    1990          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
@@ -118,8 +118,12 @@ volatile u32 repl_cmd_tail;      /* written by the ULP */
 volatile u32 repl_out_head;      /* written by the ULP */
 volatile u32 repl_out_tail;      /* written by the HP */
 volatile u32 repl_wake_count;
-volatile u32 repl_line_count;
-volatile u32 repl_err_count;
+/* GUARDRAIL: the line/error counters are gone. Both were incremented (per line, per error) and reset at
+ * boot, and NOTHING read them — not the HP, not the suite, not the bench, not any tool in the tree. Same
+ * class as the depth counters and the switch counters: an increment whose value nobody reads is pure cost
+ * (a load, an add, a store per event, plus 4 B of .bss each). `repl_status` deliberately STAYS: it is the
+ * only record of why the ULP halted, and the right fix for a diagnostic nobody reads is to make the HP read
+ * it, not to delete it. */
 volatile u32 repl_out_drop;
 volatile u32 repl_status;        /* 1 = booted, 0xE0+rc = error, see below */
 volatile u32 repl_cyc_start;
@@ -172,7 +176,6 @@ static void run_line(void)
     ti = 0;
     interpret();
     if (errf) {
-        repl_err_count = repl_err_count + 1u;
         /* GUARDRAIL: the engine's err() already printed the offending word and '\n'. Printing
          * another message here produced "BOGUS?\n ?\n" — two reports for one error, which teaches
          * a user to distrust both. The engine's report is the one that names the word, so it wins. */
@@ -183,7 +186,6 @@ static void run_line(void)
     } else {
         msg(MSG_OK);
     }
-    repl_line_count = repl_line_count + 1u;
     tl = 0;
     ti = 0;
 }
@@ -379,7 +381,7 @@ int main(void)
         repl_magic = REPL_MAGIC_RAN;
         repl_cmd_head = 0; repl_cmd_tail = 0;
         repl_out_head = 0; repl_out_tail = 0;
-        repl_wake_count = 0; repl_line_count = 0; repl_err_count = 0;
+        repl_wake_count = 0;
         repl_out_drop = 0; repl_status = 1;
         tl = 0; ti = 0; sp = 0; rsp = 0;
         /* GUARDRAIL: these two globals exist for the MAIN CORE to compare against its own constants,
