@@ -27,7 +27,7 @@ def seed(blk,txt):
     return False
 src=re.sub(r"\\.*","",pathlib.Path("tests/ph1.fsx").read_text())
 src=" ".join(re.sub(r"\([^)]*\)","",src).split())
-ch=split_defs(src); per=len(ch)
+ch=split_defs(src,128); per=len(ch)
 time.sleep(1.2); drain(0.8)
 line("0 BLOCK CONSTANT W"); line(": BLKBLANK 0 BEGIN DUP 128 < WHILE 32 OVER W + C! 1 + REPEAT DROP ;")
 line("2 BLOCK DROP BLKBLANK UPDATE SAVE DROP"); line("SEAL")

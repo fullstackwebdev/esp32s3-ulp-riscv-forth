@@ -53,6 +53,10 @@ fail=0
 # have failed on the bug that cost six probes: an oversized definition was silently split, the machine stayed in
 # compile state across the boundary, and every later `N LOAD` was COMPILED instead of executed.
 python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1; }
+# GUARDRAIL: the loader must hand over a WHOLE block even when a pass ends on padding. That cannot be tested with the
+# shipping host flags (128-byte pass), so the test builds its own engine at the chip's 96-byte pass and asserts both
+# ways a boundary bites: a closing ';' past the pass, and a name parsed across it.
+bash tests/block_boundary.sh || { echo "FAIL  block_boundary" >&2; fail=1; }
 for f in tests/*.fs; do
     name=$(basename "$f" .fs)
     want="tests/$name.expected"

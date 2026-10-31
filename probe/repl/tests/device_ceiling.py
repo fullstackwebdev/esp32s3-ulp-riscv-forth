@@ -33,9 +33,12 @@ def chunk(text, size=128):
     # state, so the next `N LOAD` is COMPILED into the open definition instead of executed - the remaining blocks
     # are never loaded, no error is raised and LATEST never moves. Measured on the chip (block 10 -> S2?, blocks
     # 11/12 -> ERR_STACK) and traced on the host (last tokens `10 LOAD 11 LOAD ...` all with ST=1, refusals 0).
+    # GUARDRAIL: the size limit is 128 (the whole block) again. It had been lowered to 92 to dodge the loader's
+    # lost-tail defect; word() now refills until a token is available, so a block longer than one tib pass is safe
+    # and only the interpret-state boundary matters.
     sys.path.insert(0, "tools")
     from fsplit import split_defs
-    return split_defs(text, size)
+    return split_defs(text, min(size, 128))
 
 
 def open_port():

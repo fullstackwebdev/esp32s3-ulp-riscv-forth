@@ -21,20 +21,8 @@ run() {
         echo "DEFECT  $name: want '$want', got '$got'"
     fi
 }
-# ---- F-BLK-TAIL: a block longer than one tib pass loses its tail --------------------------------------------
-# GUARDRAIL: expected output states the CORRECT behaviour (42), not the current behaviour. The closing ';' of the
-# definition in this probe sits at offset 96, past the chip's 96-byte tib pass, so the block is delivered in two
-# chunks and the tail can arrive after the next line has started - measured on the trace as the following line being
-# read at STATE=1 with the stray ';' arriving afterwards.
-run_block() {
-    local name=$1 file=$2 want=$3 got
-    local bin=artifacts/host_blk
-    [ -x "$bin" ] || { echo "known_defects: $bin missing — run tests/run.sh first"; exit 2; }
-    got=$("$bin" -k "$PRELUDE" src/p39b_overlay.fs "$file" 2>/dev/null | grep -av '^SRV ' | ./artifacts/expand | tr -d '\n')
-    if [ "$got" = "$want" ]; then
-        echo "FIXED   $name (got '$got') — remove the probe and add a real test"
-    else
-        echo "DEFECT  $name: want '$want', got '$got'"
-    fi
-}
-run_block F-BLK-TAIL tests/fixtures/known_defect_tail.fs 42
+# F-BLK-TAIL was reported FIXED in this session: word() now refills when a pass ends on the padding it wrote
+# itself, so a block longer than one pass delivers its remainder. Per this file's own rule the probe was
+# PROMOTED, not deleted: tests/block_boundary.sh builds an engine at the chip's 96-byte pass and asserts both
+# boundary cases (closing ';' past the pass, and a name parsed across it).
+echo "no open-defect probes"

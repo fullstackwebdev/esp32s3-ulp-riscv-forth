@@ -39,6 +39,10 @@ BLKBLANK
 69 W 18 + C! 32 W 19 + C! 50 W 20 + C! 32 W 21 + C! 46 W 22 + C! 32 W 23 + C!
 59 W 24 + C! 32 W 25 + C!
 UPDATE SAVE DROP
+\ GUARDRAIL: blank block 2 before rewinding through it. The rewind target must hold NOTHING; with the loader fixed
+\ to deliver a whole block, the fake server's filler (byte k = k + 14 here) is executed in full and prints garbage -
+\ the old loader dropped most of it, which is why this test passed while the loader was wrong.
+2 BLOCK DROP BLKBLANK UPDATE SAVE DROP
 2 OVL                        \ rewind to the sealed state
 3 OVL                        \ the second DUPE must be refused: prints DUPE?
 DUPE                         \ must print 1 - the FIRST definition survived

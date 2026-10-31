@@ -974,3 +974,58 @@ promoted to a real test instead of a golden file being written around the gap.
 clean; **5, 6 and 7 ⇒ 184 B with `12 LOAD → Z4?`**. Swapping slot 10 to carry block 14's text changes nothing — the
 failure stays at **block 12**, the first block that *uses* definitions created in the two over-long blocks (8 at 127 B,
 9 at 128 B) whose tails are lost. Position, not content.
+
+---
+
+## FIXED: the loader now delivers a whole block, and the DEVICE ceiling is measured
+
+**The defect.** `word()` refilled only *before* skipping blanks, and `blk_refill` ends every pass by writing a space at
+the cut. So a pass that ended on that padding let the skip run to `ti == tl`, and `word()` returned 0 with the block's
+remainder still pending. The interpreter closed the line; the leftover arrived during the **next** line.
+
+**Two failure modes, both reproduced on a host engine built at the chip's 96-byte pass (`-DBLKPASS=96`):**
+
+| case | before the fix | after |
+|---|---|---|
+| `;` past the pass (107 B definition) | `42?42?42?…` + `ERR_STACK` | `830 42` |
+| name parsed across the pass (`CREATE NAMEX`, name at 98) | `NAMEX?` — the word silently did not exist | `830 0` |
+
+`BLKPASS` defaults to `TIBSZ-1`, so a build that sets nothing behaves exactly like the chip; the knob exists because a
+host built at `TIBSZ=96` cannot even load the prelude (line 3 is 99 chars).
+
+**The fix** is a loop in `word()`: skip blanks, and if the buffer is dry while a block still has bytes, refill and try
+again. No retry counter is needed — `blk_refill` either advances the offset or clears `V_LOADB` — and dropping the
+counter matters: the version with one cost 13 B of pool and `flash_safe` refused it (7869 > 7856). The compact form
+fits at **pool 7845 / 7856**, which is *smaller* than the code it replaced.
+
+**Permanent tests** (`tests/block_boundary.sh`, run by `tests/run.sh`, 2 checks):
+`semicolon-past-pass` and `name-across-pass`, both asserting the correct output. They build their own engine at the
+chip's real pass size — the earlier poke-based fixture could not distinguish a fixed loader from a broken one, because
+a 97-byte block fits the host's single 128-byte pass. That fixture was **promoted, not deleted**, exactly as
+`tools/known_defects.sh` requires; `known_defects.sh` now reports "no open-defect probes".
+
+**Consequence:** the "every definition must fit ~90 B" authoring rule is **retired**. A block may use the full 128 B;
+only the interpret-state boundary still matters (`tools/fsplit.py`), because a block ending inside a definition leaves
+the machine compiling and the driver's next `N LOAD` would be compiled rather than executed.
+
+### Device ceiling, measured on the chip (8 blocks per phase)
+
+```
+sealed HERE = 800
+phase  1..15:  516 B compiled each   (blocks 8..127)
+stop: phase 16 needs blocks 128..135, past the 128-block store
+HIGH SCORE (device, measured): 15 phases, 7740 B compiled, 120 blocks seeded = 504 % of the 1536 B control
+```
+
+Deliberate-failure check on the same harness: skipping block 12 on purpose stops the run at phase 1 with `S4?` and
+reports **0 phases, 0 B** — the harness can fail, so its 504 % means something.
+
+**Tier statement, corrected.** The RAM ceiling is broken **on the host** (18 phases, 9 288 B, 604 %) and now
+**measured on the chip at 15 phases / 7 740 B / 504 %**, stopped by the block store and not by RAM or the window. The
+earlier summary said "clean to 4 blocks, failing at 5"; the ladder row is *first failing length = 5*, with 4 blocks
+clean at 184 B — that was the defect, and it is gone.
+
+**What is still true before anything may be called unbounded:** the store is the host's `.bss`, so a program does not
+survive a power cycle; the bound is 128 blocks × 128 B = 16 KB; and the resident toll remains 846 B. Size *and*
+persistence are both required, which is why flash-backed blocks (raw partition, batched erase-sized write-back) are the
+next step, not a size-only claim.

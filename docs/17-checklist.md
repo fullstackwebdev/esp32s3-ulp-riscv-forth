@@ -39,3 +39,12 @@ edit the same file (`src/uforth.c`) as the in-flight work, so they are sequenced
 - [x] **P7** lessons as tests — `tools/fsplit.py --selftest` (3/3) in `tests/run.sh`, and the defect registered in `tools/known_defects.sh` as **F-BLK-TAIL** (states the correct behaviour `42`, currently reports `DEFECT ... got ':?TAILTEST?'`)
 - [x] **P8** suite green — 22 PASS / 0 FAIL including the fsplit selftest
 - [x] harness deliberate-failure — `--skip-block` implemented in `tests/device_ceiling.py`; size window (±40 B of 516) and error-text checks restored after the false-pass incident
+
+## Closed after the checklist: F-BLK-TAIL fixed, device ceiling measured
+
+- **F-BLK-TAIL is FIXED** (registered in `tools/known_defects.sh`, promoted to `tests/block_boundary.sh`, 2 checks).
+  Two boundary cases reproduce the defect at the chip's 96-byte pass and pass after the fix: `;` past the pass
+  (`42?42?42?…`/`ERR_STACK` → `830 42`) and a name across it (`NAMEX?` → `830 0`).
+- **Device ceiling measured on the chip**: 15 phases × 516 B = **7 740 B = 504 %** of the 1 536 B control, stopped by
+  the 128-block store, not by RAM. Deliberate skip of one block reports 0 phases, so the harness can fail.
+- The ≤90 B definition rule is retired; blocks may use the full 128 B, only interpret-state boundaries still matter.

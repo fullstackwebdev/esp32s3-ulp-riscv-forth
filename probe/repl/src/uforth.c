@@ -612,6 +612,15 @@ static void err(void)
  * is local: when the current source runs dry, a pending block refills tib chunk by chunk, and when the block
  * is exhausted the saved line continues exactly where it was. No recursion, no lost tail, no extra frame. */
 #if defined(OVL_LOAD)
+/* GUARDRAIL: how much of a block one pass delivers. On the chip this is TIBSZ-1 (96-1 = 95), and that is the whole
+ * problem: a block is 128 B, so it always takes two passes and the boundary lands wherever TIBSZ says. The knob
+ * exists so the HOST can simulate the chip's 95-byte pass while keeping a 128-byte tib - a host built at TIBSZ=96
+ * cannot even load the prelude (line 3 is 99 chars: "line too long"), so the defect could never be reproduced there.
+ * Default is the real thing, so a build that sets nothing behaves exactly as the chip does. */
+#ifndef BLKPASS
+#define BLKPASS (TIBSZ - 1)
+#endif
+
 static void blk_refill(void)
 {
     u32 v = rd32(V_LOADB), blk, off, i, end;
@@ -619,7 +628,7 @@ static void blk_refill(void)
     blk = (v & 0xffu) - 1u;
     off = v >> 8;
     if (off >= BLKSZ) { wr32(V_LOADB, 0); return; }
-    end = off + TIBSZ - 1;
+    end = off + BLKPASS;
     if (end > BLKSZ) end = BLKSZ;
     if (end < BLKSZ) {                      /* not the last chunk: cut back to a token boundary */
         u32 k = end;
@@ -631,6 +640,10 @@ static void blk_refill(void)
         tib[i - off] = (c >= ' ') ? c : ' ';
     }
     tib[end - off] = ' ';
+#ifdef P1_TRACE
+    if (p1_trace) fprintf(stderr, "[P1 REFILL] blk=%u off=%u end=%u loadb_after=%u\n", blk, off, end,
+                          (end >= BLKSZ) ? 0u : ((blk + 1u) | (end << 8)));
+#endif
     ti = 0; tl = (u8)(end - off + 1);
     wr32(V_LOADB, (end >= BLKSZ) ? 0u : ((blk + 1u) | (end << 8)));
 }
@@ -640,9 +653,22 @@ static u8 word(void)
 {
     u8 n = 0, c;
 #if defined(OVL_LOAD)
-    if (ti >= tl) blk_refill();              /* the current source is dry: switch to the pending block */
+    /* GUARDRAIL: refill in a LOOP, not once before the space-skip. blk_refill ends every pass by writing a space at
+     * the cut, so the skip below can run to ti == tl: the old code then returned 0 with the block's remainder still
+     * pending, the interpreter closed the line, and the leftover arrived during the NEXT line - measured as `;`
+     * running inside the next command (ERR_STACK, and `42?42?42?...` in the worst case) and as a NAME parsed across
+     * the boundary being lost outright (`CREATE NAMEX` with NAMEX past offset 95 answered NAMEX? because CREATE was
+     * told the source was dry).
+     * GUARDRAIL: no retry counter is needed. blk_refill either advances the offset (so the loop is bounded by
+     * BLKSZ/BLKPASS passes) or clears V_LOADB, so this cannot spin - and the counter cost 13 bytes of pool, which
+     * flash_safe refused (7869 > 7856). Tested by tests/block_boundary.sh at the chip's 96-byte pass. */
+    for (;;) {
+        while (ti < tl && tib[ti] <= ' ') ti++;
+        if (ti < tl) break;                       /* a token is available */
+        if (!rd32(V_LOADB)) break;                /* no block pending: end of source */
+        blk_refill();                             /* the pass ended on padding: pull the remainder */
+    }
 #endif
-    while (ti < tl && tib[ti] <= ' ') ti++;
     while (ti < tl && tib[ti] > ' ') {
         c = tib[ti++];
         if (n < 31) { if (c >= 'a' && c <= 'z') c -= 32; wr8(PAD + 1 + n, c); n++; }
@@ -1826,7 +1852,7 @@ static int load(const char *file)
     return 0;
 }
 
-#ifdef P1_TRACE
+#if defined(P33_BLOCK) && defined(HOST)
 /* GUARDRAIL: the host fake server answers a FIXED pattern (k + 7n), so a phase's real bytes could never be
  * replayed on the host - only on the chip, which is expensive and where the diagnostic is one line of text.
  * `-B <file>` reads "<blk> <hex>" lines into the store and pads the remainder with spaces, exactly as the
@@ -1870,7 +1896,9 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-k")) keep_going = 1;
 #endif
         else if (!strcmp(argv[i], "-i")) interactive = 1;
-#ifdef P1_TRACE
+#if defined(P33_BLOCK) && defined(HOST)
+        /* GUARDRAIL: -B is a TEST capability, not a trace feature. Gating it behind P1_TRACE meant known_defects.sh
+         * could not drive a block's real bytes without also compiling the tracer. */
         else if (!strcmp(argv[i], "-B") && i + 1 < argc) { if (p1_load_blocks(argv[++i])) return 1; }
 #endif
         else if (load(argv[i])) return 1;
