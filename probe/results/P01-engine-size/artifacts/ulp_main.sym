@@ -1,0 +1,9 @@
+main T 3da a56
+pl_emit T 2de 26
+reset_vector T 0 
+RTCCNTL A 8000 
+SENS A c800 
+__stack_top B 1ff0 
+__start T 4 14
+ulp_riscv_halt T e44 24
+ulp_riscv_rescue_from_monitor T e30 14

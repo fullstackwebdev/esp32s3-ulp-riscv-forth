@@ -1,0 +1,36 @@
+62a63,65
+> FAULT-FAULT w=1408 ip=1488 p=2 addr=1410 retry=8 sp=1 rsp=2
+> CK w=1408 ip=1488 p=1 cf=0 sp=1 rsp=1 ds=537395200, rs=0, olen=0
+> CK w=1408 ip=1488 p=2 cf=0 sp=1 rsp=1 ds=537395200, rs=0, olen=0
+69c72
+< FAULT-FAULT w=234 ip=1414 p=2 addr=537395200 retry=8 sp=2 rsp=2
+---
+> FAULT-FAULT w=234 ip=1414 p=2 addr=537395200 retry=9 sp=2 rsp=2
+105c108
+< FAULT-FAULT w=234 ip=1414 p=2 addr=537395712 retry=9 sp=2 rsp=2
+---
+> FAULT-FAULT w=234 ip=1414 p=2 addr=537395712 retry=10 sp=2 rsp=2
+141c144
+< FAULT-FAULT w=234 ip=1414 p=2 addr=537396224 retry=10 sp=2 rsp=2
+---
+> FAULT-FAULT w=234 ip=1414 p=2 addr=537396224 retry=11 sp=2 rsp=2
+177c180
+< FAULT-FAULT w=234 ip=1414 p=2 addr=537396736 retry=11 sp=2 rsp=2
+---
+> FAULT-FAULT w=234 ip=1414 p=2 addr=537396736 retry=12 sp=2 rsp=2
+207c210
+< FAULT-FAULT w=234 ip=1504 p=2 addr=537395200 retry=12 sp=1 rsp=1
+---
+> FAULT-FAULT w=234 ip=1504 p=2 addr=537395200 retry=13 sp=1 rsp=1
+216c219
+< FAULT-FAULT w=234 ip=1508 p=2 addr=537395712 retry=13 sp=2 rsp=1
+---
+> FAULT-FAULT w=234 ip=1508 p=2 addr=537395712 retry=14 sp=2 rsp=1
+228c231
+< FAULT-FAULT w=234 ip=1514 p=2 addr=537396224 retry=14 sp=2 rsp=1
+---
+> FAULT-FAULT w=234 ip=1514 p=2 addr=537396224 retry=15 sp=2 rsp=1
+240c243
+< FAULT-FAULT w=234 ip=1520 p=2 addr=537396736 retry=15 sp=2 rsp=1
+---
+> FAULT-FAULT w=234 ip=1520 p=2 addr=537396736 retry=16 sp=2 rsp=1

@@ -1,0 +1,1846 @@
+
+/home/user/research/esp32-rv32/probe/repl/build/esp-idf/main/ulp_main/ulp_main.elf:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <reset_vector>:
+       0:	j	4 <__start>
+
+00000004 <__start>:
+       4:	auipc	sp,0x2
+       8:	addi	sp,sp,-20 # 1ff0 <__stack_top>
+       c:	jal	135e <ulp_riscv_rescue_from_monitor>
+      10:	jal	fc4 <main>
+      14:	jal	1372 <ulp_riscv_halt>
+
+00000018 <loop>:
+      18:	j	18 <loop>
+
+0000001a <memset>:
+      1a:	li	t1,15
+      1c:	mv	a4,a0
+      1e:	bgeu	t1,a2,44 <CONTEXT_SIZE>
+      22:	andi	a5,a4,15
+      26:	bnez	a5,a4 <CONTEXT_SIZE+0x60>
+      28:	bnez	a1,92 <CONTEXT_SIZE+0x4e>
+      2a:	andi	a3,a2,-16
+      2e:	andi	a2,a2,15
+      30:	add	a3,a3,a4
+      32:	sw	a1,0(a4)
+      34:	sw	a1,4(a4)
+      36:	sw	a1,8(a4)
+      38:	sw	a1,12(a4)
+      3a:	addi	a4,a4,16
+      3c:	bltu	a4,a3,32 <memset+0x18>
+      40:	bnez	a2,44 <CONTEXT_SIZE>
+      42:	ret
+      44:	sub	a3,t1,a2
+      48:	slli	a3,a3,0x2
+      4a:	auipc	t0,0x0
+      4e:	add	a3,a3,t0
+      50:	jr	10(a3)
+      54:	sb	a1,14(a4)
+      58:	sb	a1,13(a4)
+      5c:	sb	a1,12(a4)
+      60:	sb	a1,11(a4)
+      64:	sb	a1,10(a4)
+      68:	sb	a1,9(a4)
+      6c:	sb	a1,8(a4)
+      70:	sb	a1,7(a4)
+      74:	sb	a1,6(a4)
+      78:	sb	a1,5(a4)
+      7c:	sb	a1,4(a4)
+      80:	sb	a1,3(a4)
+      84:	sb	a1,2(a4)
+      88:	sb	a1,1(a4)
+      8c:	sb	a1,0(a4)
+      90:	ret
+      92:	zext.b	a1,a1
+      96:	slli	a3,a1,0x8
+      9a:	or	a1,a1,a3
+      9c:	slli	a3,a1,0x10
+      a0:	or	a1,a1,a3
+      a2:	j	2a <memset+0x10>
+      a4:	slli	a3,a5,0x2
+      a8:	auipc	t0,0x0
+      ac:	add	a3,a3,t0
+      ae:	mv	t0,ra
+      b0:	jalr	-88(a3)
+      b4:	mv	ra,t0
+      b6:	addi	a5,a5,-16
+      b8:	sub	a4,a4,a5
+      ba:	add	a2,a2,a5
+      bc:	bgeu	t1,a2,44 <CONTEXT_SIZE>
+      c0:	j	28 <memset+0xe>
+
+000000c2 <memcpy>:
+      c2:	xor	a5,a1,a0
+      c6:	andi	a5,a5,3
+      c8:	add	a3,a0,a2
+      cc:	bnez	a5,d4 <memcpy+0x12>
+      ce:	li	a5,3
+      d0:	bltu	a5,a2,ee <memcpy+0x2c>
+      d4:	mv	a5,a0
+      d6:	bltu	a0,a3,e8 <memcpy+0x26>
+      da:	ret
+      dc:	lbu	a4,0(a1)
+      e0:	addi	a5,a5,1
+      e2:	addi	a1,a1,1
+      e4:	sb	a4,-1(a5)
+      e8:	bltu	a5,a3,dc <memcpy+0x1a>
+      ec:	ret
+      ee:	andi	a5,a0,3
+      f2:	bnez	a5,13e <memcpy+0x7c>
+      f4:	mv	a5,a0
+      f6:	andi	a4,a3,-4
+      fa:	sub	a6,a4,a5
+      fe:	li	a2,32
+     102:	blt	a2,a6,192 <memcpy+0xd0>
+     106:	mv	a2,a5
+     108:	mv	a6,a1
+     10a:	bltu	a2,a4,19c <memcpy+0xda>
+     10e:	addi	a6,a5,-3
+     112:	li	a2,0
+     114:	bltu	a4,a6,120 <memcpy+0x5e>
+     118:	addi	a4,a4,3
+     11a:	sub	a4,a4,a5
+     11c:	andi	a2,a4,-4
+     120:	add	a5,a5,a2
+     122:	add	a1,a1,a2
+     124:	bltu	a5,a3,e8 <memcpy+0x26>
+     128:	ret
+     12a:	lbu	a4,0(a1)
+     12e:	addi	a5,a5,1
+     130:	addi	a1,a1,1
+     132:	sb	a4,-1(a5)
+     136:	andi	a4,a5,3
+     13a:	bnez	a4,12a <memcpy+0x68>
+     13c:	j	f6 <memcpy+0x34>
+     13e:	mv	a5,a0
+     140:	j	136 <memcpy+0x74>
+     142:	lw	t2,0(a1)
+     146:	lw	t0,4(a1)
+     14a:	lw	t6,8(a1)
+     14e:	lw	t5,12(a1)
+     152:	lw	t4,16(a1)
+     156:	lw	t3,20(a1)
+     15a:	lw	t1,24(a1)
+     15e:	lw	a7,28(a1)
+     162:	sw	t2,0(a5)
+     166:	sw	t0,4(a5)
+     16a:	lw	a6,32(a1)
+     16e:	sw	t6,8(a5)
+     172:	sw	t5,12(a5)
+     176:	sw	t4,16(a5)
+     17a:	sw	t3,20(a5)
+     17e:	sw	t1,24(a5)
+     182:	sw	a7,28(a5)
+     186:	addi	a1,a1,36
+     18a:	addi	a5,a5,36
+     18e:	sw	a6,-4(a5)
+     192:	sub	a6,a4,a5
+     196:	blt	a2,a6,142 <memcpy+0x80>
+     19a:	j	106 <memcpy+0x44>
+     19c:	lw	a7,0(a6)
+     1a0:	addi	a6,a6,4
+     1a2:	sw	a7,0(a2)
+     1a6:	addi	a2,a2,4
+     1a8:	j	10a <memcpy+0x48>
+
+000001aa <rd8>:
+     1aa:	li	a5,1499
+     1ae:	bltu	a5,a0,1c0 <rd8+0x16>
+     1b2:	lui	a5,0x1
+     1b4:	addi	a5,a5,1268 # 14f4 <mem>
+     1b8:	add	a0,a0,a5
+     1ba:	lbu	a0,0(a0)
+     1be:	ret
+     1c0:	lui	a0,0x2
+     1c2:	addi	a0,a0,-349 # 1ea3 <junk>
+     1c6:	j	1ba <rd8+0x10>
+
+000001c8 <wr8>:
+     1c8:	li	a5,1499
+     1cc:	bltu	a5,a0,1de <wr8+0x16>
+     1d0:	lui	a5,0x1
+     1d2:	addi	a5,a5,1268 # 14f4 <mem>
+     1d6:	add	a0,a0,a5
+     1d8:	sb	a1,0(a0)
+     1dc:	ret
+     1de:	lui	a0,0x2
+     1e0:	addi	a0,a0,-349 # 1ea3 <junk>
+     1e4:	j	1d8 <wr8+0x10>
+
+000001e6 <rd16>:
+     1e6:	addi	a4,a0,1
+     1ea:	li	a5,1499
+     1ee:	bltu	a5,a4,204 <rd16+0x1e>
+     1f2:	lui	a5,0x1
+     1f4:	addi	a5,a5,1268 # 14f4 <mem>
+     1f8:	add	a0,a0,a5
+     1fa:	lhu	a0,0(a0)
+     1fe:	slli	a0,a0,0x10
+     200:	srli	a0,a0,0x10
+     202:	ret
+     204:	li	a0,0
+     206:	ret
+
+00000208 <wr16>:
+     208:	addi	sp,sp,-16
+     20a:	sw	s0,8(sp)
+     20c:	mv	s0,a1
+     20e:	zext.b	a1,a1
+     212:	sw	s1,4(sp)
+     214:	sw	ra,12(sp)
+     216:	mv	s1,a0
+     218:	jal	1c8 <wr8>
+     21a:	srli	a1,s0,0x8
+     21e:	lw	s0,8(sp)
+     220:	lw	ra,12(sp)
+     222:	addi	a0,s1,1
+     226:	lw	s1,4(sp)
+     228:	addi	sp,sp,16
+     22a:	j	1c8 <wr8>
+
+0000022c <rd32>:
+     22c:	addi	sp,sp,-16
+     22e:	sw	ra,12(sp)
+     230:	sw	s0,8(sp)
+     232:	sw	s1,4(sp)
+     234:	mv	s1,a0
+     236:	jal	1e6 <rd16>
+     238:	mv	s0,a0
+     23a:	addi	a0,s1,2
+     23e:	jal	1e6 <rd16>
+     240:	slli	a0,a0,0x10
+     242:	lw	ra,12(sp)
+     244:	or	a0,a0,s0
+     246:	lw	s0,8(sp)
+     248:	lw	s1,4(sp)
+     24a:	addi	sp,sp,16
+     24c:	ret
+
+0000024e <wr32>:
+     24e:	addi	sp,sp,-16
+     250:	sw	s0,8(sp)
+     252:	mv	s0,a1
+     254:	slli	a1,a1,0x10
+     256:	srli	a1,a1,0x10
+     258:	sw	s1,4(sp)
+     25a:	sw	ra,12(sp)
+     25c:	mv	s1,a0
+     25e:	jal	208 <wr16>
+     260:	srli	a1,s0,0x10
+     264:	lw	s0,8(sp)
+     266:	lw	ra,12(sp)
+     268:	addi	a0,s1,2
+     26c:	lw	s1,4(sp)
+     26e:	addi	sp,sp,16
+     270:	j	208 <wr16>
+
+00000272 <PUSH>:
+     272:	lui	a5,0x2
+     274:	addi	a5,a5,-572 # 1dc4 <vm_live>
+     278:	lbu	a3,128(a5)
+     27c:	andi	a4,a3,15
+     280:	slli	a4,a4,0x2
+     282:	add	a4,a4,a5
+     284:	addi	a3,a3,1
+     286:	sw	a0,0(a4)
+     288:	sb	a3,128(a5)
+     28c:	ret
+
+0000028e <RPUSH>:
+     28e:	lui	a4,0x2
+     290:	addi	a4,a4,-572 # 1dc4 <vm_live>
+     294:	lbu	a3,129(a4)
+     298:	andi	a5,a3,15
+     29c:	addi	a5,a5,16
+     29e:	slli	a5,a5,0x2
+     2a0:	add	a5,a5,a4
+     2a2:	addi	a3,a3,1
+     2a4:	sw	a0,0(a5)
+     2a6:	sb	a3,129(a4)
+     2aa:	ret
+
+000002ac <word>:
+     2ac:	addi	sp,sp,-32
+     2ae:	sw	s2,16(sp)
+     2b0:	lui	s2,0x2
+     2b2:	sw	s0,24(sp)
+     2b4:	lbu	s0,-351(s2) # 1ea1 <ti>
+     2b8:	lui	a3,0x2
+     2ba:	lui	a5,0x2
+     2bc:	addi	a4,a3,-700 # 1d44 <tib>
+     2c0:	sw	s3,12(sp)
+     2c2:	sw	s4,8(sp)
+     2c4:	sw	ra,28(sp)
+     2c6:	lbu	s4,-350(a5) # 1ea2 <tl>
+     2ca:	sw	s1,20(sp)
+     2cc:	sw	s5,4(sp)
+     2ce:	sw	s6,0(sp)
+     2d0:	add	a4,a4,s0
+     2d2:	mv	a5,s0
+     2d4:	li	a2,0
+     2d6:	addi	s3,a3,-700
+     2da:	li	a1,32
+     2de:	bltu	a5,s4,31e <word+0x72>
+     2e2:	beqz	a2,2ea <word+0x3e>
+     2e4:	sb	a5,-351(s2)
+     2e8:	mv	s0,a5
+     2ea:	li	s1,0
+     2ec:	li	s5,32
+     2f0:	li	s6,31
+     2f2:	add	a4,s3,s0
+     2f6:	li	a5,0
+     2f8:	bltu	s0,s4,336 <word+0x8a>
+     2fc:	beqz	a5,302 <word+0x56>
+     2fe:	sb	s0,-351(s2)
+     302:	lw	ra,28(sp)
+     304:	lw	s0,24(sp)
+     306:	lui	a5,0x1
+     308:	sb	s1,1292(a5) # 150c <mem+0x18>
+     30c:	lw	s2,16(sp)
+     30e:	lw	s3,12(sp)
+     310:	lw	s4,8(sp)
+     312:	lw	s5,4(sp)
+     314:	lw	s6,0(sp)
+     316:	mv	a0,s1
+     318:	lw	s1,20(sp)
+     31a:	addi	sp,sp,32
+     31c:	ret
+     31e:	lbu	a0,0(a4)
+     322:	addi	a3,a5,1
+     326:	zext.b	a3,a3
+     32a:	addi	a4,a4,1
+     32c:	bltu	a1,a0,2e2 <word+0x36>
+     330:	mv	a5,a3
+     332:	li	a2,1
+     334:	j	2de <word+0x32>
+     336:	lbu	a1,0(a4)
+     33a:	bgeu	s5,a1,2fc <word+0x50>
+     33e:	addi	s0,s0,1
+     340:	zext.b	s0,s0
+     344:	addi	a4,a4,1
+     346:	li	a5,1
+     348:	beq	s1,s6,2f8 <word+0x4c>
+     34c:	addi	a5,a1,-97
+     350:	sb	s0,-351(s2)
+     354:	zext.b	a5,a5
+     358:	li	a4,25
+     35a:	bltu	a4,a5,364 <word+0xb8>
+     35e:	addi	a1,a1,-32
+     360:	zext.b	a1,a1
+     364:	addi	a0,s1,25
+     368:	zext.b	a0,a0
+     36c:	addi	s1,s1,1
+     36e:	jal	1c8 <wr8>
+     370:	zext.b	s1,s1
+     374:	j	2f2 <word+0x46>
+
+00000376 <find>:
+     376:	addi	sp,sp,-48
+     378:	sw	s1,36(sp)
+     37a:	mv	s1,a0
+     37c:	li	a0,8
+     37e:	sw	s5,20(sp)
+     380:	sw	ra,44(sp)
+     382:	sw	s0,40(sp)
+     384:	sw	s2,32(sp)
+     386:	sw	s3,28(sp)
+     388:	sw	s4,24(sp)
+     38a:	sw	s6,16(sp)
+     38c:	sw	s7,12(sp)
+     38e:	mv	s5,a1
+     390:	jal	22c <rd32>
+     392:	mv	s0,a0
+     394:	bnez	a0,39a <find+0x24>
+     396:	li	a0,0
+     398:	j	3ee <find+0x78>
+     39a:	addi	a0,s0,2
+     39e:	jal	1aa <rd8>
+     3a0:	andi	a5,a0,31
+     3a4:	mv	s2,a0
+     3a6:	bne	s1,a5,404 <find+0x8e>
+     3aa:	li	s3,0
+     3ac:	addi	s7,s0,3
+     3b0:	add	a0,s7,s3
+     3b4:	jal	1aa <rd8>
+     3b6:	mv	s6,a0
+     3b8:	addi	a0,s3,25
+     3bc:	zext.b	s4,s3
+     3c0:	jal	1aa <rd8>
+     3c2:	bne	s6,a0,3d2 <find+0x5c>
+     3c6:	addi	s3,s3,1
+     3c8:	bne	s3,s1,3b0 <find+0x3a>
+     3cc:	addi	s4,s4,1
+     3ce:	zext.b	s4,s4
+     3d2:	bne	s1,s4,404 <find+0x8e>
+     3d6:	addi	s1,s1,4
+     3d8:	zext.b	s1,s1
+     3dc:	add	a0,s0,s1
+     3e0:	andi	a0,a0,-2
+     3e2:	srli	s2,s2,0x7
+     3e6:	slli	a0,a0,0x10
+     3e8:	sb	s2,0(s5)
+     3ec:	srli	a0,a0,0x10
+     3ee:	lw	ra,44(sp)
+     3f0:	lw	s0,40(sp)
+     3f2:	lw	s1,36(sp)
+     3f4:	lw	s2,32(sp)
+     3f6:	lw	s3,28(sp)
+     3f8:	lw	s4,24(sp)
+     3fa:	lw	s5,20(sp)
+     3fc:	lw	s6,16(sp)
+     3fe:	lw	s7,12(sp)
+     400:	addi	sp,sp,48
+     402:	ret
+     404:	mv	a0,s0
+     406:	jal	1e6 <rd16>
+     408:	j	392 <find+0x1c>
+
+0000040a <cw>:
+     40a:	addi	sp,sp,-32
+     40c:	sw	a0,12(sp)
+     40e:	li	a0,4
+     410:	sw	ra,28(sp)
+     412:	sw	s0,24(sp)
+     414:	jal	22c <rd32>
+     416:	lw	a1,12(sp)
+     418:	mv	s0,a0
+     41a:	jal	208 <wr16>
+     41c:	addi	a1,s0,2
+     420:	lw	s0,24(sp)
+     422:	lw	ra,28(sp)
+     424:	li	a0,4
+     426:	addi	sp,sp,32
+     428:	j	24e <wr32>
+
+0000042a <clit>:
+     42a:	lui	a5,0x1
+     42c:	addi	sp,sp,-16
+     42e:	addi	a5,a5,1268 # 14f4 <mem>
+     432:	sw	s0,8(sp)
+     434:	mv	s0,a0
+     436:	lhu	a0,16(a5)
+     43a:	sw	ra,12(sp)
+     43c:	jal	40a <cw>
+     43e:	slli	a0,s0,0x10
+     442:	srli	a0,a0,0x10
+     444:	jal	40a <cw>
+     446:	srli	a0,s0,0x10
+     44a:	lw	s0,8(sp)
+     44c:	lw	ra,12(sp)
+     44e:	addi	sp,sp,16
+     450:	j	40a <cw>
+
+00000452 <a4>:
+     452:	addi	sp,sp,-16
+     454:	li	a0,4
+     456:	sw	ra,12(sp)
+     458:	jal	22c <rd32>
+     45a:	lw	ra,12(sp)
+     45c:	addi	a1,a0,3
+     460:	andi	a1,a1,-4
+     462:	li	a0,4
+     464:	addi	sp,sp,16
+     466:	j	24e <wr32>
+
+00000468 <vm_next_ready>:
+     468:	li	a4,1
+     46a:	mv	a3,a0
+     46c:	li	a1,3
+     46e:	lui	a6,0x2
+     470:	li	a7,140
+     474:	mv	t1,a4
+     476:	li	a2,4
+     478:	add	a5,a3,a4
+     47c:	rem	a0,a5,a1
+     480:	addi	a5,a6,-1120 # 1ba0 <tsk>
+     484:	mul	t3,a0,a7
+     488:	add	a5,a5,t3
+     48a:	lbu	a5,138(a5)
+     48e:	beq	a5,t1,49a <vm_next_ready+0x32>
+     492:	addi	a4,a4,1
+     494:	bne	a4,a2,478 <vm_next_ready+0x10>
+     498:	li	a0,-1
+     49a:	ret
+
+0000049c <vm_switch>:
+     49c:	lui	a4,0x2
+     49e:	addi	sp,sp,-32
+     4a0:	lw	a5,-364(a4) # 1e94 <vm_switches>
+     4a4:	sw	s3,12(sp)
+     4a6:	lui	s3,0x2
+     4a8:	sw	s0,24(sp)
+     4aa:	mv	s0,a0
+     4ac:	lw	a0,-1316(s3) # 1adc <cur>
+     4b0:	addi	a5,a5,1
+     4b2:	sw	s1,20(sp)
+     4b4:	sw	s2,16(sp)
+     4b6:	lui	s1,0x2
+     4b8:	sw	ra,28(sp)
+     4ba:	sw	a5,-364(a4)
+     4be:	addi	s1,s1,-1120 # 1ba0 <tsk>
+     4c2:	lui	s2,0x2
+     4c4:	bltz	a0,4dc <vm_switch+0x40>
+     4c8:	li	a5,140
+     4cc:	mul	a0,a0,a5
+     4d0:	li	a2,136
+     4d4:	addi	a1,s2,-572 # 1dc4 <vm_live>
+     4d8:	add	a0,a0,s1
+     4da:	jal	c2 <memcpy>
+     4dc:	li	a5,140
+     4e0:	mul	a1,s0,a5
+     4e4:	addi	a0,s2,-572
+     4e8:	li	a2,136
+     4ec:	sw	s0,-1316(s3)
+     4f0:	add	a1,a1,s1
+     4f2:	jal	c2 <memcpy>
+     4f4:	lw	ra,28(sp)
+     4f6:	lw	s0,24(sp)
+     4f8:	lw	s1,20(sp)
+     4fa:	lw	s2,16(sp)
+     4fc:	lw	s3,12(sp)
+     4fe:	addi	sp,sp,32
+     500:	ret
+
+00000502 <vm_task_leave>:
+     502:	addi	sp,sp,-16
+     504:	sw	s0,8(sp)
+     506:	lui	s0,0x2
+     508:	lw	a0,-1316(s0) # 1adc <cur>
+     50c:	sw	ra,12(sp)
+     50e:	bltz	a0,534 <vm_task_leave+0x32>
+     512:	li	a4,140
+     516:	mul	a4,a0,a4
+     51a:	lui	a5,0x2
+     51c:	addi	a5,a5,-1120 # 1ba0 <tsk>
+     520:	add	a5,a5,a4
+     522:	li	a4,2
+     524:	sb	a4,138(a5)
+     528:	jal	468 <vm_next_ready>
+     52a:	bgez	a0,53e <vm_task_leave+0x3c>
+     52e:	li	a5,-1
+     530:	sw	a5,-1316(s0)
+     534:	li	a0,0
+     536:	lw	ra,12(sp)
+     538:	lw	s0,8(sp)
+     53a:	addi	sp,sp,16
+     53c:	ret
+     53e:	lui	a4,0x2
+     540:	lw	a5,-380(a4) # 1e84 <vm_sw_taskexit>
+     544:	addi	a5,a5,1
+     546:	sw	a5,-380(a4)
+     54a:	jal	49c <vm_switch>
+     54c:	li	a0,1
+     54e:	j	536 <vm_task_leave+0x34>
+
+00000550 <pl_emit>:
+     550:	lui	a3,0x2
+     552:	lui	a4,0x2
+     554:	lw	a5,-408(a3) # 1e68 <repl_out_head>
+     558:	lw	a4,-412(a4) # 1e64 <repl_out_tail>
+     55c:	li	a2,127
+     560:	sub	a4,a5,a4
+     564:	bgeu	a2,a4,576 <pl_emit+0x26>
+     568:	lui	a4,0x2
+     56a:	lw	a5,-428(a4) # 1e54 <repl_out_drop>
+     56e:	addi	a5,a5,1
+     570:	sw	a5,-428(a4)
+     574:	ret
+     576:	lui	a4,0x2
+     578:	andi	a2,a5,127
+     57c:	addi	a4,a4,-1312 # 1ae0 <repl_out>
+     580:	zext.b	a0,a0
+     584:	add	a4,a4,a2
+     586:	sb	a0,0(a4)
+     58a:	addi	a5,a5,1
+     58c:	sw	a5,-408(a3)
+     590:	ret
+
+00000592 <err>:
+     592:	addi	sp,sp,-16
+     594:	lui	a5,0x1
+     596:	sw	s1,4(sp)
+     598:	lbu	s1,1292(a5) # 150c <mem+0x18>
+     59c:	sw	s0,8(sp)
+     59e:	sw	ra,12(sp)
+     5a0:	li	s0,25
+     5a2:	addi	a5,s0,-25
+     5a6:	zext.b	a5,a5
+     5aa:	bltu	a5,s1,5ca <err+0x38>
+     5ae:	li	a0,63
+     5b2:	jal	550 <pl_emit>
+     5b4:	li	a0,10
+     5b6:	jal	550 <pl_emit>
+     5b8:	lw	ra,12(sp)
+     5ba:	lw	s0,8(sp)
+     5bc:	lui	a5,0x2
+     5be:	li	a4,1
+     5c0:	sb	a4,-352(a5) # 1ea0 <errf>
+     5c4:	lw	s1,4(sp)
+     5c6:	addi	sp,sp,16
+     5c8:	ret
+     5ca:	mv	a0,s0
+     5cc:	jal	1aa <rd8>
+     5ce:	jal	550 <pl_emit>
+     5d0:	addi	s0,s0,1
+     5d2:	j	5a2 <err+0x10>
+
+000005d4 <mkhdr>:
+     5d4:	addi	sp,sp,-32
+     5d6:	sw	s3,12(sp)
+     5d8:	sw	ra,28(sp)
+     5da:	sw	s0,24(sp)
+     5dc:	sw	s1,20(sp)
+     5de:	sw	s2,16(sp)
+     5e0:	sw	s4,8(sp)
+     5e2:	sw	s5,4(sp)
+     5e4:	mv	s3,a0
+     5e6:	jal	2ac <word>
+     5e8:	bnez	a0,600 <mkhdr+0x2c>
+     5ea:	jal	592 <err>
+     5ec:	li	a0,0
+     5ee:	lw	ra,28(sp)
+     5f0:	lw	s0,24(sp)
+     5f2:	lw	s1,20(sp)
+     5f4:	lw	s2,16(sp)
+     5f6:	lw	s3,12(sp)
+     5f8:	lw	s4,8(sp)
+     5fa:	lw	s5,4(sp)
+     5fc:	addi	sp,sp,32
+     5fe:	ret
+     600:	lui	a5,0x1
+     602:	li	a0,4
+     604:	lbu	s0,1292(a5) # 150c <mem+0x18>
+     608:	jal	22c <rd32>
+     60a:	mv	s1,a0
+     60c:	li	a0,8
+     60e:	jal	22c <rd32>
+     610:	slli	a1,a0,0x10
+     614:	srli	a1,a1,0x10
+     616:	mv	a0,s1
+     618:	jal	208 <wr16>
+     61a:	mv	a1,s0
+     61c:	addi	a0,s1,2
+     620:	jal	1c8 <wr8>
+     622:	li	s2,25
+     624:	addi	s4,s1,-22
+     628:	addi	a5,s2,-25
+     62c:	zext.b	a5,a5
+     630:	bltu	a5,s0,656 <mkhdr+0x82>
+     634:	addi	s0,s0,4
+     636:	add	s0,s0,s1
+     638:	andi	s0,s0,-2
+     63a:	mv	a1,s3
+     63c:	mv	a0,s0
+     63e:	jal	208 <wr16>
+     640:	mv	a1,s1
+     642:	li	a0,8
+     644:	jal	24e <wr32>
+     646:	li	a0,4
+     648:	addi	a1,s0,2
+     64c:	jal	24e <wr32>
+     64e:	slli	a0,s0,0x10
+     652:	srli	a0,a0,0x10
+     654:	j	5ee <mkhdr+0x1a>
+     656:	mv	a0,s2
+     658:	jal	1aa <rd8>
+     65a:	add	s5,s4,s2
+     65e:	mv	a1,a0
+     660:	mv	a0,s5
+     662:	jal	1c8 <wr8>
+     664:	addi	s2,s2,1
+     666:	j	628 <mkhdr+0x54>
+
+00000668 <echo>:
+     668:	addi	sp,sp,-16
+     66a:	sw	s0,8(sp)
+     66c:	sw	ra,12(sp)
+     66e:	mv	s0,a0
+     670:	lbu	a0,0(s0)
+     674:	bnez	a0,67e <echo+0x16>
+     676:	lw	ra,12(sp)
+     678:	lw	s0,8(sp)
+     67a:	addi	sp,sp,16
+     67c:	ret
+     67e:	addi	s0,s0,1
+     680:	jal	550 <pl_emit>
+     682:	j	670 <echo+0x8>
+
+00000684 <vm_enter>:
+     684:	addi	sp,sp,-64
+     686:	sw	s1,52(sp)
+     688:	lui	s1,0x2
+     68a:	lw	a5,-388(s1) # 1e7c <vm_depth>
+     68e:	lui	a4,0x2
+     690:	lw	a3,-392(a4) # 1e78 <vm_max_depth>
+     694:	addi	a5,a5,1
+     696:	sw	ra,60(sp)
+     698:	sw	s0,56(sp)
+     69a:	sw	s2,48(sp)
+     69c:	sw	s3,44(sp)
+     69e:	sw	s4,40(sp)
+     6a0:	sw	s5,36(sp)
+     6a2:	sw	s6,32(sp)
+     6a4:	sw	s7,28(sp)
+     6a6:	sw	s8,24(sp)
+     6a8:	sw	s9,20(sp)
+     6aa:	sw	s10,16(sp)
+     6ac:	sw	a5,-388(s1)
+     6b0:	bge	a3,a5,6b8 <vm_enter+0x34>
+     6b4:	sw	a5,-392(a4)
+     6b8:	lui	s2,0x2
+     6ba:	li	s3,66
+     6be:	lui	s4,0x1
+     6c0:	addi	a5,s2,-572 # 1dc4 <vm_live>
+     6c4:	lhu	s5,130(a5)
+     6c8:	addi	s0,s2,-572
+     6cc:	mv	a0,s5
+     6ce:	jal	1e6 <rd16>
+     6d0:	mv	s6,a0
+     6d2:	bltu	s3,a0,722 <vm_enter+0x9e>
+     6d6:	slli	a5,a0,0x2
+     6da:	addi	a4,s4,920 # 1398 <ulp_riscv_halt+0x26>
+     6de:	add	a5,a5,a4
+     6e0:	lw	a5,0(a5)
+     6e2:	jr	a5
+     6e4:	lui	a5,0x2
+     6e6:	lui	a3,0x2
+     6e8:	lbu	a1,-350(a5) # 1ea2 <tl>
+     6ec:	lbu	a5,-351(a3) # 1ea1 <ti>
+     6f0:	lui	a4,0x2
+     6f2:	addi	a4,a4,-700 # 1d44 <tib>
+     6f6:	add	a4,a4,a5
+     6f8:	li	a2,0
+     6fa:	li	a0,41
+     6fe:	bltu	a5,a1,e98 <vm_enter+0x814>
+     702:	bnez	a2,eaa <vm_enter+0x826>
+     706:	j	722 <vm_enter+0x9e>
+     708:	lhu	a0,132(s0)
+     70c:	jal	28e <RPUSH>
+     70e:	lhu	a5,130(s0)
+     712:	addi	a5,a5,2
+     714:	sh	a5,132(s0)
+     718:	j	722 <vm_enter+0x9e>
+     71a:	addi	a0,s5,5
+     71e:	andi	a0,a0,-4
+     720:	jal	272 <PUSH>
+     722:	lhu	s5,132(s0)
+     726:	beqz	s5,74a <vm_enter+0xc6>
+     72a:	mv	a0,s5
+     72c:	jal	1e6 <rd16>
+     72e:	addi	s5,s5,2
+     730:	sh	a0,130(s0)
+     734:	sh	s5,132(s0)
+     738:	j	6c0 <vm_enter+0x3c>
+     73a:	addi	a0,s5,5
+     73e:	andi	a0,a0,-4
+     740:	jal	22c <rd32>
+     742:	j	720 <vm_enter+0x9c>
+     744:	lhu	a5,132(s0)
+     748:	bnez	a5,774 <vm_enter+0xf0>
+     74a:	jal	502 <vm_task_leave>
+     74c:	bnez	a0,6c0 <vm_enter+0x3c>
+     74e:	lw	a5,-388(s1)
+     752:	lw	ra,60(sp)
+     754:	lw	s0,56(sp)
+     756:	addi	a5,a5,-1
+     758:	sw	a5,-388(s1)
+     75c:	lw	s2,48(sp)
+     75e:	lw	s1,52(sp)
+     760:	lw	s3,44(sp)
+     762:	lw	s4,40(sp)
+     764:	lw	s5,36(sp)
+     766:	lw	s6,32(sp)
+     768:	lw	s7,28(sp)
+     76a:	lw	s8,24(sp)
+     76c:	lw	s9,20(sp)
+     76e:	lw	s10,16(sp)
+     770:	addi	sp,sp,64
+     772:	ret
+     774:	lbu	a5,129(s0)
+     778:	addi	a5,a5,-1
+     77a:	zext.b	a5,a5
+     77e:	sb	a5,129(s0)
+     782:	andi	a5,a5,15
+     784:	addi	a5,a5,16
+     786:	slli	a5,a5,0x2
+     788:	add	a5,a5,s0
+     78a:	lw	a5,0(a5)
+     78c:	j	714 <vm_enter+0x90>
+     78e:	lhu	a0,132(s0)
+     792:	jal	22c <rd32>
+     794:	jal	272 <PUSH>
+     796:	lhu	a5,132(s0)
+     79a:	addi	a5,a5,4
+     79c:	j	714 <vm_enter+0x90>
+     79e:	lhu	a0,132(s0)
+     7a2:	jal	1e6 <rd16>
+     7a4:	sh	a0,132(s0)
+     7a8:	j	722 <vm_enter+0x9e>
+     7aa:	lbu	a5,128(s0)
+     7ae:	lhu	a0,132(s0)
+     7b2:	addi	a5,a5,-1
+     7b4:	zext.b	a5,a5
+     7b8:	sb	a5,128(s0)
+     7bc:	andi	a5,a5,15
+     7be:	slli	a5,a5,0x2
+     7c0:	add	a5,a5,s0
+     7c2:	lw	a5,0(a5)
+     7c4:	beqz	a5,7a2 <vm_enter+0x11e>
+     7c6:	addi	a0,a0,2
+     7c8:	j	7a4 <vm_enter+0x120>
+     7ca:	lbu	a5,128(s0)
+     7ce:	addi	a4,a5,-1
+     7d2:	addi	a5,a5,-2
+     7d4:	zext.b	a5,a5
+     7d8:	sb	a5,128(s0)
+     7dc:	andi	a5,a5,15
+     7de:	andi	a4,a4,15
+     7e0:	slli	a5,a5,0x2
+     7e2:	add	a5,a5,s0
+     7e4:	slli	a4,a4,0x2
+     7e6:	lw	a0,0(a5)
+     7e8:	add	a4,a4,s0
+     7ea:	lw	s5,0(a4)
+     7ee:	jal	28e <RPUSH>
+     7f0:	mv	a0,s5
+     7f2:	jal	28e <RPUSH>
+     7f4:	j	722 <vm_enter+0x9e>
+     7f6:	li	a5,8
+     7f8:	li	a3,1
+     7fa:	beq	a0,a5,814 <vm_enter+0x190>
+     7fe:	lbu	a5,128(s0)
+     802:	addi	a5,a5,-1
+     804:	zext.b	a5,a5
+     808:	sb	a5,128(s0)
+     80c:	andi	a5,a5,15
+     80e:	slli	a5,a5,0x2
+     810:	add	a5,a5,s0
+     812:	lw	a3,0(a5)
+     814:	lbu	a5,129(s0)
+     818:	lhu	a0,132(s0)
+     81c:	addi	a1,a5,-2
+     820:	addi	a5,a5,-1
+     822:	andi	a4,a1,15
+     826:	andi	a5,a5,15
+     828:	addi	a4,a4,16
+     82a:	addi	a5,a5,16
+     82c:	slli	a4,a4,0x2
+     82e:	slli	a5,a5,0x2
+     830:	add	a4,a4,s0
+     832:	add	a5,a5,s0
+     834:	lw	a2,0(a4)
+     836:	lw	a4,0(a5)
+     838:	add	a3,a3,a4
+     83a:	sub	a4,a4,a2
+     83c:	sub	a2,a3,a2
+     840:	xor	a4,a4,a2
+     842:	bgez	a4,84c <vm_enter+0x1c8>
+     846:	sb	a1,129(s0)
+     84a:	j	7c6 <vm_enter+0x142>
+     84c:	sw	a3,0(a5)
+     84e:	j	7a2 <vm_enter+0x11e>
+     850:	lbu	a5,129(s0)
+     854:	addi	a5,a5,-1
+     856:	andi	a5,a5,15
+     858:	addi	a5,a5,16
+     85a:	slli	a5,a5,0x2
+     85c:	add	a5,a5,s0
+     85e:	lw	a0,0(a5)
+     860:	j	720 <vm_enter+0x9c>
+     862:	lbu	a5,129(s0)
+     866:	addi	a5,a5,-3
+     868:	j	856 <vm_enter+0x1d2>
+     86a:	lbu	a5,129(s0)
+     86e:	addi	a5,a5,-2
+     870:	sb	a5,129(s0)
+     874:	j	722 <vm_enter+0x9e>
+     876:	lbu	a5,128(s0)
+     87a:	addi	a5,a5,-1
+     87c:	zext.b	a5,a5
+     880:	sb	a5,128(s0)
+     884:	andi	a5,a5,15
+     886:	slli	a5,a5,0x2
+     888:	add	a5,a5,s0
+     88a:	lw	a5,0(a5)
+     88c:	sh	a5,130(s0)
+     890:	j	6c0 <vm_enter+0x3c>
+     892:	lbu	a5,128(s0)
+     896:	addi	a5,a5,-1
+     898:	andi	a5,a5,15
+     89a:	j	85a <vm_enter+0x1d6>
+     89c:	lbu	a5,128(s0)
+     8a0:	addi	a5,a5,-1
+     8a2:	sb	a5,128(s0)
+     8a6:	j	722 <vm_enter+0x9e>
+     8a8:	lbu	a5,128(s0)
+     8ac:	addi	a4,a5,-1
+     8b0:	addi	a5,a5,-2
+     8b2:	andi	a5,a5,15
+     8b4:	andi	a4,a4,15
+     8b6:	slli	a5,a5,0x2
+     8b8:	add	a5,a5,s0
+     8ba:	slli	a4,a4,0x2
+     8bc:	lw	a2,0(a5)
+     8be:	add	a4,a4,s0
+     8c0:	lw	a3,0(a4)
+     8c2:	sw	a2,0(a4)
+     8c4:	sw	a3,0(a5)
+     8c6:	j	722 <vm_enter+0x9e>
+     8c8:	lbu	a5,128(s0)
+     8cc:	addi	a5,a5,-2
+     8ce:	j	898 <vm_enter+0x214>
+     8d0:	lbu	a5,128(s0)
+     8d4:	addi	a4,a5,-2
+     8d8:	andi	a4,a4,15
+     8da:	slli	a4,a4,0x2
+     8dc:	addi	a3,a5,-3
+     8e0:	add	a4,a4,s0
+     8e2:	lw	a1,0(a4)
+     8e4:	andi	a3,a3,15
+     8e6:	addi	a5,a5,-1
+     8e8:	slli	a3,a3,0x2
+     8ea:	andi	a5,a5,15
+     8ec:	add	a3,a3,s0
+     8ee:	slli	a5,a5,0x2
+     8f0:	lw	a2,0(a3)
+     8f2:	add	a5,a5,s0
+     8f4:	sw	a1,0(a3)
+     8f6:	lw	a3,0(a5)
+     8f8:	sw	a3,0(a4)
+     8fa:	sw	a2,0(a5)
+     8fc:	j	722 <vm_enter+0x9e>
+     8fe:	lbu	a5,128(s0)
+     902:	addi	a5,a5,-1
+     904:	zext.b	a5,a5
+     908:	sb	a5,128(s0)
+     90c:	andi	a5,a5,15
+     90e:	slli	a5,a5,0x2
+     910:	add	a5,a5,s0
+     912:	lw	a0,0(a5)
+     914:	j	7f2 <vm_enter+0x16e>
+     916:	lbu	a5,129(s0)
+     91a:	addi	a5,a5,-1
+     91c:	zext.b	a5,a5
+     920:	sb	a5,129(s0)
+     924:	j	856 <vm_enter+0x1d2>
+     926:	lbu	s5,128(s0)
+     92a:	addi	s5,s5,-1
+     92c:	andi	s5,s5,15
+     930:	slli	s5,s5,0x2
+     932:	add	s5,s5,s0
+     934:	lw	a0,0(s5)
+     938:	jal	22c <rd32>
+     93c:	sw	a0,0(s5)
+     940:	j	722 <vm_enter+0x9e>
+     942:	lbu	a5,128(s0)
+     946:	addi	a4,a5,-1
+     94a:	addi	a5,a5,-2
+     94c:	zext.b	a5,a5
+     950:	andi	a4,a4,15
+     952:	sb	a5,128(s0)
+     956:	andi	a5,a5,15
+     958:	slli	a4,a4,0x2
+     95a:	slli	a5,a5,0x2
+     95c:	add	a4,a4,s0
+     95e:	add	a5,a5,s0
+     960:	lw	a1,0(a5)
+     962:	lw	a0,0(a4)
+     964:	jal	24e <wr32>
+     968:	j	722 <vm_enter+0x9e>
+     96a:	lbu	s5,128(s0)
+     96e:	addi	s5,s5,-1
+     970:	andi	s5,s5,15
+     974:	slli	s5,s5,0x2
+     976:	add	s5,s5,s0
+     978:	lw	a0,0(s5)
+     97c:	jal	1aa <rd8>
+     980:	j	93c <vm_enter+0x2b8>
+     982:	lbu	a5,128(s0)
+     986:	addi	a4,a5,-1
+     98a:	addi	a5,a5,-2
+     98c:	zext.b	a5,a5
+     990:	sb	a5,128(s0)
+     994:	andi	a4,a4,15
+     996:	andi	a5,a5,15
+     998:	slli	a4,a4,0x2
+     99a:	slli	a5,a5,0x2
+     99c:	add	a4,a4,s0
+     99e:	add	a5,a5,s0
+     9a0:	lbu	a1,0(a5)
+     9a4:	lw	a0,0(a4)
+     9a6:	jal	1c8 <wr8>
+     9aa:	j	722 <vm_enter+0x9e>
+     9ac:	lbu	s5,128(s0)
+     9b0:	addi	s5,s5,-1
+     9b2:	andi	s5,s5,15
+     9b6:	slli	s5,s5,0x2
+     9b8:	add	s5,s5,s0
+     9ba:	lw	a0,0(s5)
+     9be:	jal	1e6 <rd16>
+     9c2:	j	93c <vm_enter+0x2b8>
+     9c4:	lbu	a5,128(s0)
+     9c8:	addi	a4,a5,-1
+     9cc:	addi	a5,a5,-2
+     9ce:	zext.b	a5,a5
+     9d2:	sb	a5,128(s0)
+     9d6:	andi	a4,a4,15
+     9d8:	andi	a5,a5,15
+     9da:	slli	a4,a4,0x2
+     9dc:	slli	a5,a5,0x2
+     9de:	add	a4,a4,s0
+     9e0:	add	a5,a5,s0
+     9e2:	lhu	a1,0(a5)
+     9e6:	lw	a0,0(a4)
+     9e8:	jal	208 <wr16>
+     9ec:	j	722 <vm_enter+0x9e>
+     9ee:	lbu	a5,128(s0)
+     9f2:	addi	a5,a5,-1
+     9f4:	zext.b	a5,a5
+     9f8:	addi	a4,a5,-1
+     9fc:	sb	a5,128(s0)
+     a00:	andi	a4,a4,15
+     a02:	andi	a5,a5,15
+     a04:	slli	a4,a4,0x2
+     a06:	slli	a5,a5,0x2
+     a08:	add	a4,a4,s0
+     a0a:	add	a5,a5,s0
+     a0c:	lw	a5,0(a5)
+     a0e:	lw	a3,0(a4)
+     a10:	add	a5,a5,a3
+     a12:	sw	a5,0(a4)
+     a14:	j	722 <vm_enter+0x9e>
+     a16:	lbu	a5,128(s0)
+     a1a:	addi	a5,a5,-1
+     a1c:	zext.b	a5,a5
+     a20:	addi	a4,a5,-1
+     a24:	sb	a5,128(s0)
+     a28:	andi	a4,a4,15
+     a2a:	andi	a5,a5,15
+     a2c:	slli	a4,a4,0x2
+     a2e:	slli	a5,a5,0x2
+     a30:	add	a4,a4,s0
+     a32:	add	a5,a5,s0
+     a34:	lw	a3,0(a4)
+     a36:	lw	a5,0(a5)
+     a38:	sub	a5,a3,a5
+     a3c:	j	a12 <vm_enter+0x38e>
+     a3e:	lbu	a5,128(s0)
+     a42:	addi	a5,a5,-1
+     a44:	zext.b	a5,a5
+     a48:	addi	a4,a5,-1
+     a4c:	sb	a5,128(s0)
+     a50:	andi	a4,a4,15
+     a52:	andi	a5,a5,15
+     a54:	slli	a4,a4,0x2
+     a56:	slli	a5,a5,0x2
+     a58:	add	a4,a4,s0
+     a5a:	add	a5,a5,s0
+     a5c:	lw	a5,0(a5)
+     a5e:	lw	a3,0(a4)
+     a60:	mul	a5,a5,a3
+     a64:	j	a12 <vm_enter+0x38e>
+     a66:	lbu	a5,128(s0)
+     a6a:	addi	a5,a5,-1
+     a6c:	zext.b	a5,a5
+     a70:	andi	a4,a5,15
+     a74:	slli	a4,a4,0x2
+     a76:	add	a4,a4,s0
+     a78:	sb	a5,128(s0)
+     a7c:	lw	a4,0(a4)
+     a7e:	addi	a5,a5,-1
+     a80:	andi	a5,a5,15
+     a82:	slli	a5,a5,0x2
+     a84:	add	a5,a5,s0
+     a86:	bnez	a4,a90 <vm_enter+0x40c>
+     a88:	sw	zero,0(a5)
+     a8c:	li	a0,0
+     a8e:	j	720 <vm_enter+0x9c>
+     a90:	li	a3,-1
+     a92:	lw	a0,0(a5)
+     a94:	bne	a4,a3,aa2 <vm_enter+0x41e>
+     a98:	sw	zero,0(a5)
+     a9c:	neg	a0,a0
+     aa0:	j	720 <vm_enter+0x9c>
+     aa2:	rem	a3,a0,a4
+     aa6:	div	a0,a0,a4
+     aaa:	sw	a3,0(a5)
+     aac:	j	720 <vm_enter+0x9c>
+     aae:	lbu	a5,128(s0)
+     ab2:	addi	a5,a5,-1
+     ab4:	zext.b	a5,a5
+     ab8:	andi	a4,a5,15
+     abc:	slli	a4,a4,0x2
+     abe:	add	a4,a4,s0
+     ac0:	sb	a5,128(s0)
+     ac4:	lw	a4,0(a4)
+     ac6:	addi	a5,a5,-1
+     ac8:	andi	a5,a5,15
+     aca:	slli	a5,a5,0x2
+     acc:	add	a5,a5,s0
+     ace:	beqz	a4,a88 <vm_enter+0x404>
+     ad0:	lw	a0,0(a5)
+     ad2:	remu	a3,a0,a4
+     ad6:	divu	a0,a0,a4
+     ada:	sw	a3,0(a5)
+     adc:	j	720 <vm_enter+0x9c>
+     ade:	lbu	a5,128(s0)
+     ae2:	addi	a5,a5,-1
+     ae4:	zext.b	a5,a5
+     ae8:	addi	a4,a5,-1
+     aec:	sb	a5,128(s0)
+     af0:	andi	a4,a4,15
+     af2:	andi	a5,a5,15
+     af4:	slli	a4,a4,0x2
+     af6:	slli	a5,a5,0x2
+     af8:	add	a4,a4,s0
+     afa:	add	a5,a5,s0
+     afc:	lw	a5,0(a5)
+     afe:	lw	a3,0(a4)
+     b00:	and	a5,a5,a3
+     b02:	j	a12 <vm_enter+0x38e>
+     b04:	lbu	a5,128(s0)
+     b08:	addi	a5,a5,-1
+     b0a:	zext.b	a5,a5
+     b0e:	addi	a4,a5,-1
+     b12:	sb	a5,128(s0)
+     b16:	andi	a4,a4,15
+     b18:	andi	a5,a5,15
+     b1a:	slli	a4,a4,0x2
+     b1c:	slli	a5,a5,0x2
+     b1e:	add	a4,a4,s0
+     b20:	add	a5,a5,s0
+     b22:	lw	a5,0(a5)
+     b24:	lw	a3,0(a4)
+     b26:	or	a5,a5,a3
+     b28:	j	a12 <vm_enter+0x38e>
+     b2a:	lbu	a5,128(s0)
+     b2e:	addi	a5,a5,-1
+     b30:	zext.b	a5,a5
+     b34:	addi	a4,a5,-1
+     b38:	sb	a5,128(s0)
+     b3c:	andi	a4,a4,15
+     b3e:	andi	a5,a5,15
+     b40:	slli	a4,a4,0x2
+     b42:	slli	a5,a5,0x2
+     b44:	add	a4,a4,s0
+     b46:	add	a5,a5,s0
+     b48:	lw	a5,0(a5)
+     b4a:	lw	a3,0(a4)
+     b4c:	xor	a5,a5,a3
+     b4e:	j	a12 <vm_enter+0x38e>
+     b50:	lbu	a5,128(s0)
+     b54:	addi	a5,a5,-1
+     b56:	andi	a5,a5,15
+     b58:	slli	a5,a5,0x2
+     b5a:	add	a5,a5,s0
+     b5c:	lw	a4,0(a5)
+     b5e:	not	a4,a4
+     b62:	sw	a4,0(a5)
+     b64:	j	722 <vm_enter+0x9e>
+     b66:	lbu	a5,128(s0)
+     b6a:	addi	a5,a5,-1
+     b6c:	zext.b	a5,a5
+     b70:	addi	a4,a5,-1
+     b74:	sb	a5,128(s0)
+     b78:	andi	a4,a4,15
+     b7a:	andi	a5,a5,15
+     b7c:	slli	a4,a4,0x2
+     b7e:	slli	a5,a5,0x2
+     b80:	add	a5,a5,s0
+     b82:	add	a4,a4,s0
+     b84:	lw	a3,0(a5)
+     b86:	lw	a5,0(a4)
+     b88:	sll	a5,a5,a3
+     b8c:	j	a12 <vm_enter+0x38e>
+     b8e:	lbu	a5,128(s0)
+     b92:	addi	a5,a5,-1
+     b94:	zext.b	a5,a5
+     b98:	addi	a4,a5,-1
+     b9c:	sb	a5,128(s0)
+     ba0:	andi	a4,a4,15
+     ba2:	andi	a5,a5,15
+     ba4:	slli	a4,a4,0x2
+     ba6:	slli	a5,a5,0x2
+     ba8:	add	a5,a5,s0
+     baa:	add	a4,a4,s0
+     bac:	lw	a3,0(a5)
+     bae:	lw	a5,0(a4)
+     bb0:	srl	a5,a5,a3
+     bb4:	j	a12 <vm_enter+0x38e>
+     bb6:	lbu	a5,128(s0)
+     bba:	addi	a5,a5,-1
+     bbc:	andi	a5,a5,15
+     bbe:	slli	a5,a5,0x2
+     bc0:	add	a5,a5,s0
+     bc2:	lw	a4,0(a5)
+     bc4:	seqz	a4,a4
+     bc8:	neg	a4,a4
+     bcc:	j	b62 <vm_enter+0x4de>
+     bce:	lbu	a5,128(s0)
+     bd2:	addi	a5,a5,-1
+     bd4:	zext.b	a5,a5
+     bd8:	addi	a4,a5,-1
+     bdc:	sb	a5,128(s0)
+     be0:	andi	a4,a4,15
+     be2:	andi	a5,a5,15
+     be4:	slli	a4,a4,0x2
+     be6:	slli	a5,a5,0x2
+     be8:	add	a4,a4,s0
+     bea:	add	a5,a5,s0
+     bec:	lw	a3,0(a4)
+     bee:	lw	a5,0(a5)
+     bf0:	slt	a5,a3,a5
+     bf4:	neg	a5,a5
+     bf8:	j	a12 <vm_enter+0x38e>
+     bfa:	lbu	a5,128(s0)
+     bfe:	addi	a5,a5,-1
+     c00:	zext.b	a5,a5
+     c04:	addi	a4,a5,-1
+     c08:	sb	a5,128(s0)
+     c0c:	andi	a4,a4,15
+     c0e:	andi	a5,a5,15
+     c10:	slli	a4,a4,0x2
+     c12:	slli	a5,a5,0x2
+     c14:	add	a4,a4,s0
+     c16:	add	a5,a5,s0
+     c18:	lw	a3,0(a4)
+     c1a:	lw	a5,0(a5)
+     c1c:	sltu	a5,a3,a5
+     c20:	j	bf4 <vm_enter+0x570>
+     c22:	li	a0,-1
+     c24:	j	720 <vm_enter+0x9c>
+     c26:	lbu	a5,128(s0)
+     c2a:	addi	a5,a5,-1
+     c2c:	zext.b	a5,a5
+     c30:	sb	a5,128(s0)
+     c34:	andi	a5,a5,15
+     c36:	slli	a5,a5,0x2
+     c38:	add	a5,a5,s0
+     c3a:	lw	a0,0(a5)
+     c3c:	jal	550 <pl_emit>
+     c40:	j	722 <vm_enter+0x9e>
+     c42:	lbu	a5,128(s0)
+     c46:	addi	a4,a5,-1
+     c4a:	addi	a5,a5,-2
+     c4c:	zext.b	a5,a5
+     c50:	andi	a4,a4,15
+     c52:	sb	a5,128(s0)
+     c56:	andi	a5,a5,15
+     c58:	slli	a4,a4,0x2
+     c5a:	slli	a5,a5,0x2
+     c5c:	add	a4,a4,s0
+     c5e:	add	a5,a5,s0
+     c60:	lw	s5,0(a4)
+     c64:	lw	a0,0(a5)
+     c66:	add	s5,s5,a0
+     c68:	beq	a0,s5,722 <vm_enter+0x9e>
+     c6c:	addi	s6,a0,1
+     c70:	jal	1aa <rd8>
+     c74:	jal	550 <pl_emit>
+     c78:	mv	a0,s6
+     c7a:	j	c68 <vm_enter+0x5e4>
+     c7c:	lbu	a5,128(s0)
+     c80:	addi	a5,a5,-1
+     c82:	zext.b	a5,a5
+     c86:	sb	a5,128(s0)
+     c8a:	andi	a5,a5,15
+     c8c:	slli	a5,a5,0x2
+     c8e:	add	a5,a5,s0
+     c90:	lhu	a0,0(a5)
+     c94:	jal	40a <cw>
+     c98:	j	722 <vm_enter+0x9e>
+     c9a:	li	a0,4
+     c9c:	jal	22c <rd32>
+     ca0:	lbu	a5,128(s0)
+     ca4:	mv	s5,a0
+     ca6:	addi	a5,a5,-1
+     ca8:	zext.b	a5,a5
+     cac:	sb	a5,128(s0)
+     cb0:	andi	a5,a5,15
+     cb2:	slli	a5,a5,0x2
+     cb4:	add	a5,a5,s0
+     cb6:	lbu	a1,0(a5)
+     cba:	jal	1c8 <wr8>
+     cbe:	addi	a1,s5,1
+     cc2:	li	a0,4
+     cc4:	j	964 <vm_enter+0x2e0>
+     cc6:	li	a0,4
+     cc8:	jal	22c <rd32>
+     ccc:	lui	a5,0x2
+     cce:	sw	a0,-356(a5) # 1e9c <savehere>
+     cd2:	li	a0,8
+     cd4:	jal	22c <rd32>
+     cd8:	lui	a5,0x2
+     cda:	sw	a0,-360(a5) # 1e98 <savelatest>
+     cde:	li	a0,0
+     ce0:	jal	5d4 <mkhdr>
+     ce4:	li	a1,1
+     ce6:	beqz	a0,722 <vm_enter+0x9e>
+     cea:	li	a0,0
+     cec:	j	964 <vm_enter+0x2e0>
+     cee:	lui	a5,0x1
+     cf0:	addi	a5,a5,1268 # 14f4 <mem>
+     cf4:	lhu	a0,18(a5)
+     cf8:	jal	40a <cw>
+     cfc:	li	a1,0
+     cfe:	j	cea <vm_enter+0x666>
+     d00:	li	a0,1
+     d02:	jal	5d4 <mkhdr>
+     d06:	beqz	a0,722 <vm_enter+0x9e>
+     d0a:	jal	452 <a4>
+     d0e:	j	722 <vm_enter+0x9e>
+     d10:	li	a0,2
+     d12:	jal	5d4 <mkhdr>
+     d16:	beqz	a0,722 <vm_enter+0x9e>
+     d1a:	jal	452 <a4>
+     d1e:	li	a0,4
+     d20:	jal	22c <rd32>
+     d24:	lbu	a5,128(s0)
+     d28:	mv	s5,a0
+     d2a:	addi	a5,a5,-1
+     d2c:	zext.b	a5,a5
+     d30:	sb	a5,128(s0)
+     d34:	andi	a5,a5,15
+     d36:	slli	a5,a5,0x2
+     d38:	add	a5,a5,s0
+     d3a:	lw	a1,0(a5)
+     d3c:	jal	24e <wr32>
+     d40:	addi	a1,s5,4
+     d44:	j	cc2 <vm_enter+0x63e>
+     d46:	jal	2ac <word>
+     d4a:	bnez	a0,d52 <vm_enter+0x6ce>
+     d4c:	jal	592 <err>
+     d50:	j	722 <vm_enter+0x9e>
+     d52:	addi	a1,sp,14
+     d56:	jal	376 <find>
+     d5a:	beqz	a0,d4c <vm_enter+0x6c8>
+     d5c:	li	a5,52
+     d60:	beq	s6,a5,720 <vm_enter+0x9c>
+     d64:	jal	42a <clit>
+     d68:	j	722 <vm_enter+0x9e>
+     d6a:	lbu	a5,128(s0)
+     d6e:	addi	a5,a5,-1
+     d70:	zext.b	a5,a5
+     d74:	sb	a5,128(s0)
+     d78:	andi	a5,a5,15
+     d7a:	slli	a5,a5,0x2
+     d7c:	add	a5,a5,s0
+     d7e:	lw	a0,0(a5)
+     d80:	j	d64 <vm_enter+0x6e0>
+     d82:	lui	a5,0x2
+     d84:	lui	a4,0x2
+     d86:	lbu	s5,-351(a5) # 1ea1 <ti>
+     d8a:	lbu	a4,-350(a4) # 1ea2 <tl>
+     d8e:	bgeu	s5,a4,d9c <vm_enter+0x718>
+     d92:	addi	s5,s5,1
+     d94:	zext.b	s5,s5
+     d98:	sb	s5,-351(a5)
+     d9c:	mv	s7,s5
+     d9e:	li	a3,0
+     da0:	lui	a6,0x2
+     da2:	li	a0,34
+     da6:	zext.b	s6,s7
+     daa:	bltu	s6,a4,dea <vm_enter+0x766>
+     dae:	beqz	a3,db4 <vm_enter+0x730>
+     db0:	sb	s6,-351(a5)
+     db4:	sub	s7,s7,s5
+     db8:	bgeu	s6,a4,dc4 <vm_enter+0x740>
+     dbc:	addi	a4,s6,1
+     dc0:	sb	a4,-351(a5)
+     dc4:	li	a0,0
+     dc6:	jal	22c <rd32>
+     dca:	mv	s8,a0
+     dcc:	bnez	a0,e02 <vm_enter+0x77e>
+     dce:	lui	s6,0x2
+     dd0:	beq	s8,s7,722 <vm_enter+0x9e>
+     dd4:	add	a5,s8,s5
+     dd8:	addi	a4,s6,-700 # 1d44 <tib>
+     ddc:	add	a5,a5,a4
+     dde:	lbu	a0,0(a5)
+     de2:	addi	s8,s8,1
+     de4:	jal	550 <pl_emit>
+     de8:	j	dd0 <vm_enter+0x74c>
+     dea:	addi	a1,s7,1
+     dee:	addi	a2,a6,-700 # 1d44 <tib>
+     df2:	add	a2,a2,a1
+     df4:	lbu	a2,-1(a2)
+     df8:	beq	a2,a0,dae <vm_enter+0x72a>
+     dfc:	mv	s7,a1
+     dfe:	li	a3,1
+     e00:	j	da6 <vm_enter+0x722>
+     e02:	lui	a5,0x1
+     e04:	addi	a5,a5,1268 # 14f4 <mem>
+     e08:	lhu	a0,20(a5)
+     e0c:	lui	s9,0x2
+     e0e:	jal	40a <cw>
+     e12:	li	a0,4
+     e14:	jal	22c <rd32>
+     e18:	sub	a1,s6,s5
+     e1c:	mv	s8,a0
+     e1e:	zext.b	a1,a1
+     e22:	jal	1c8 <wr8>
+     e26:	li	s6,0
+     e28:	addi	s10,s8,1
+     e2c:	bne	s6,s7,e3a <vm_enter+0x7b6>
+     e30:	addi	a1,s6,2
+     e34:	add	a1,a1,s8
+     e36:	andi	a1,a1,-2
+     e38:	j	cc2 <vm_enter+0x63e>
+     e3a:	add	a5,s6,s5
+     e3e:	addi	a4,s9,-700 # 1d44 <tib>
+     e42:	add	a5,a5,a4
+     e44:	lbu	a1,0(a5)
+     e48:	add	a0,s10,s6
+     e4c:	addi	s6,s6,1
+     e4e:	jal	1c8 <wr8>
+     e52:	j	e2c <vm_enter+0x7a8>
+     e54:	lhu	a0,132(s0)
+     e58:	li	s6,0
+     e5a:	jal	1aa <rd8>
+     e5e:	mv	s5,a0
+     e60:	lhu	a0,132(s0)
+     e64:	bltu	s6,s5,e78 <vm_enter+0x7f4>
+     e68:	addi	a0,a0,2
+     e6a:	add	s5,s5,a0
+     e6c:	andi	s5,s5,-2
+     e70:	sh	s5,132(s0)
+     e74:	j	722 <vm_enter+0x9e>
+     e78:	addi	a0,a0,1
+     e7a:	add	a0,a0,s6
+     e7c:	jal	1aa <rd8>
+     e80:	jal	550 <pl_emit>
+     e84:	addi	s6,s6,1
+     e86:	j	e60 <vm_enter+0x7dc>
+     e88:	lui	a5,0x2
+     e8a:	lbu	a4,-350(a5) # 1ea2 <tl>
+     e8e:	lui	a5,0x2
+     e90:	sb	a4,-351(a5) # 1ea1 <ti>
+     e94:	j	722 <vm_enter+0x9e>
+     e98:	lbu	a6,0(a4)
+     e9c:	addi	a5,a5,1
+     e9e:	addi	a4,a4,1
+     ea0:	zext.b	a5,a5
+     ea4:	li	a2,1
+     ea6:	bne	a6,a0,6fe <vm_enter+0x7a>
+     eaa:	sb	a5,-351(a3)
+     eae:	j	722 <vm_enter+0x9e>
+     eb2:	lbu	a5,128(s0)
+     eb6:	addi	a5,a5,-2
+     eb8:	j	8a2 <vm_enter+0x21e>
+     eba:	lbu	a5,128(s0)
+     ebe:	addi	a5,a5,-1
+     ec0:	andi	a5,a5,15
+     ec2:	slli	a5,a5,0x2
+     ec4:	add	a5,a5,s0
+     ec6:	sw	zero,0(a5)
+     eca:	j	722 <vm_enter+0x9e>
+     ece:	lbu	a5,128(s0)
+     ed2:	addi	a5,a5,-1
+     ed4:	sb	a5,128(s0)
+     ed8:	lui	a5,0x2
+     eda:	lw	a5,-416(a5) # 1e60 <repl_wake_count>
+     ede:	j	722 <vm_enter+0x9e>
+     ee2:	lhu	s5,132(s0)
+     ee6:	beqz	s5,722 <vm_enter+0x9e>
+     eea:	mv	a0,s5
+     eec:	jal	1e6 <rd16>
+     ef0:	lui	a5,0x2
+     ef2:	sh	a0,130(s0)
+     ef6:	lw	a0,-1316(a5) # 1adc <cur>
+     efa:	addi	s5,s5,2
+     efc:	sh	s5,132(s0)
+     f00:	jal	468 <vm_next_ready>
+     f04:	bltz	a0,6c0 <vm_enter+0x3c>
+     f08:	lui	a4,0x2
+     f0a:	lw	a5,-368(a4) # 1e90 <vm_sw_pause>
+     f0e:	addi	a5,a5,1
+     f10:	sw	a5,-368(a4)
+     f14:	jal	49c <vm_switch>
+     f18:	j	6c0 <vm_enter+0x3c>
+     f1c:	lui	a4,0x2
+     f1e:	lw	a5,-396(a4) # 1e74 <vm_faults_left>
+     f22:	beqz	a5,722 <vm_enter+0x9e>
+     f26:	addi	a5,a5,-1
+     f28:	sw	a5,-396(a4)
+     f2c:	lui	a4,0x2
+     f2e:	lw	a5,-376(a4) # 1e88 <vm_faults>
+     f32:	addi	a5,a5,1
+     f34:	sw	a5,-376(a4)
+     f38:	lui	a4,0x2
+     f3a:	lw	a5,-372(a4) # 1e8c <vm_sw_fault>
+     f3e:	addi	a5,a5,1
+     f40:	sw	a5,-372(a4)
+     f44:	lui	a5,0x2
+     f46:	lw	a0,-1316(a5) # 1adc <cur>
+     f4a:	not	a5,a0
+     f4e:	srai	a5,a5,0x1f
+     f50:	and	a0,a0,a5
+     f52:	j	f14 <vm_enter+0x890>
+     f54:	jal	2ac <word>
+     f58:	beqz	a0,d4c <vm_enter+0x6c8>
+     f5c:	addi	a1,sp,15
+     f60:	jal	376 <find>
+     f64:	mv	s5,a0
+     f66:	beqz	a0,d4c <vm_enter+0x6c8>
+     f6a:	lui	a5,0x2
+     f6c:	addi	a4,a5,-1120 # 1ba0 <tsk>
+     f70:	lbu	a4,138(a4)
+     f74:	li	a3,1
+     f76:	addi	a5,a5,-1120
+     f7a:	bne	a4,a3,fc0 <vm_enter+0x93c>
+     f7e:	lbu	a3,278(a5)
+     f82:	bne	a3,a4,f90 <vm_enter+0x90c>
+     f86:	lbu	a4,418(a5)
+     f8a:	beq	a4,a3,d4c <vm_enter+0x6c8>
+     f8e:	li	a4,2
+     f90:	li	a3,140
+     f94:	mul	a4,a4,a3
+     f98:	li	a2,128
+     f9c:	li	a1,0
+     f9e:	add	a5,a5,a4
+     fa0:	mv	a0,a5
+     fa2:	jal	1a <memset>
+     fa6:	li	a4,1
+     fa8:	sh	zero,128(a0)
+     fac:	sh	s5,130(a0)
+     fb0:	sh	zero,132(a0)
+     fb4:	sh	s5,136(a0)
+     fb8:	sb	a4,138(a0)
+     fbc:	j	722 <vm_enter+0x9e>
+     fc0:	li	a4,0
+     fc2:	j	f90 <vm_enter+0x90c>
+
+00000fc4 <main>:
+     fc4:	addi	sp,sp,-96
+     fc6:	sw	ra,92(sp)
+     fc8:	sw	s0,88(sp)
+     fca:	sw	s1,84(sp)
+     fcc:	sw	s2,80(sp)
+     fce:	sw	s3,76(sp)
+     fd0:	sw	s4,72(sp)
+     fd2:	sw	s5,68(sp)
+     fd4:	sw	s6,64(sp)
+     fd6:	sw	s7,60(sp)
+     fd8:	sw	s8,56(sp)
+     fda:	sw	s9,52(sp)
+     fdc:	sw	s10,48(sp)
+     fde:	sw	s11,44(sp)
+     fe0:	rdcycle	a4
+     fe4:	lui	a5,0x2
+     fe6:	sw	a4,-436(a5) # 1e4c <repl_cyc_start>
+     fea:	lui	a4,0x2
+     fec:	lw	a3,-1328(a4) # 1ad0 <repl_magic>
+     ff0:	lui	a5,0x52455
+     ff4:	addi	a5,a5,1 # 52455001 <SENS+0x52448801>
+     ff6:	lui	s0,0x2
+     ff8:	lui	s5,0x2
+     ffa:	beq	a3,a5,1076 <main+0xb2>
+     ffe:	sw	a5,-1328(a4)
+    1002:	sw	zero,-400(s0) # 1e70 <repl_cmd_head>
+    1006:	sw	zero,-404(s5) # 1e6c <repl_cmd_tail>
+    100a:	lui	a5,0x2
+    100c:	sw	zero,-408(a5) # 1e68 <repl_out_head>
+    1010:	lui	a5,0x2
+    1012:	sw	zero,-412(a5) # 1e64 <repl_out_tail>
+    1016:	lui	a5,0x2
+    1018:	sw	zero,-416(a5) # 1e60 <repl_wake_count>
+    101c:	lui	a5,0x2
+    101e:	sw	zero,-420(a5) # 1e5c <repl_line_count>
+    1022:	lui	a5,0x2
+    1024:	sw	zero,-424(a5) # 1e58 <repl_err_count>
+    1028:	lui	a5,0x2
+    102a:	sw	zero,-428(a5) # 1e54 <repl_out_drop>
+    102e:	li	a4,1
+    1030:	lui	a5,0x2
+    1032:	sw	a4,-432(a5) # 1e50 <repl_status>
+    1036:	lui	a4,0x2
+    1038:	sb	zero,-350(a4) # 1ea2 <tl>
+    103c:	lui	a4,0x2
+    103e:	sb	zero,-351(a4) # 1ea1 <ti>
+    1042:	lui	a4,0x2
+    1044:	sh	zero,-444(a4) # 1e44 <vm_live+0x80>
+    1048:	lui	a4,0x2
+    104a:	lw	a3,-1320(a4) # 1ad8 <repl_cmd_bytes>
+    104e:	li	a4,64
+    1052:	bne	a3,a4,1064 <main+0xa0>
+    1056:	lui	a4,0x2
+    1058:	lw	a3,-1324(a4) # 1ad4 <repl_out_bytes>
+    105c:	li	a4,128
+    1060:	beq	a3,a4,106c <main+0xa8>
+    1064:	li	a4,352
+    1068:	sw	a4,-432(a5)
+    106c:	lui	a0,0x1
+    106e:	addi	a0,a0,1188 # 14a4 <ulp_riscv_halt+0x132>
+    1072:	jal	668 <echo>
+    1076:	lw	s2,-404(s5)
+    107a:	lw	s1,-400(s0)
+    107e:	li	a5,32
+    1082:	sub	s1,s1,s2
+    1086:	bgeu	a5,s1,108c <main+0xc8>
+    108a:	mv	s1,a5
+    108c:	li	s4,0
+    108e:	li	s10,9
+    1090:	li	s11,25
+    1092:	bne	s1,s4,1120 <main+0x15c>
+    1096:	add	s2,s2,s1
+    1098:	li	a0,-1
+    109a:	sw	s2,-404(s5)
+    109e:	jal	468 <vm_next_ready>
+    10a2:	bltz	a0,10f4 <main+0x130>
+    10a6:	lui	a5,0x2
+    10a8:	lhu	a5,-444(a5) # 1e44 <vm_live+0x80>
+    10ac:	beqz	a5,132e <main+0x36a>
+    10b0:	lui	a5,0x2
+    10b2:	addi	a4,a5,-1120 # 1ba0 <tsk>
+    10b6:	lbu	a3,138(a4)
+    10ba:	li	a4,1
+    10bc:	addi	a5,a5,-1120
+    10c0:	bne	a3,a4,10ca <main+0x106>
+    10c4:	li	a4,2
+    10c6:	sb	a4,138(a5)
+    10ca:	lbu	a3,278(a5)
+    10ce:	li	a4,1
+    10d0:	bne	a3,a4,10da <main+0x116>
+    10d4:	li	a4,2
+    10d6:	sb	a4,278(a5)
+    10da:	lbu	a3,418(a5)
+    10de:	li	a4,1
+    10e0:	bne	a3,a4,10ea <main+0x126>
+    10e4:	li	a4,2
+    10e6:	sb	a4,418(a5)
+    10ea:	lui	a0,0x1
+    10ec:	addi	a0,a0,1240 # 14d8 <ulp_riscv_halt+0x166>
+    10f0:	jal	668 <echo>
+    10f4:	lui	a4,0x2
+    10f6:	lw	a5,-416(a4) # 1e60 <repl_wake_count>
+    10fa:	lw	ra,92(sp)
+    10fc:	lw	s0,88(sp)
+    10fe:	addi	a5,a5,1
+    1100:	sw	a5,-416(a4)
+    1104:	lw	s1,84(sp)
+    1106:	lw	s2,80(sp)
+    1108:	lw	s3,76(sp)
+    110a:	lw	s4,72(sp)
+    110c:	lw	s5,68(sp)
+    110e:	lw	s6,64(sp)
+    1110:	lw	s7,60(sp)
+    1112:	lw	s8,56(sp)
+    1114:	lw	s9,52(sp)
+    1116:	lw	s10,48(sp)
+    1118:	lw	s11,44(sp)
+    111a:	li	a0,0
+    111c:	addi	sp,sp,96
+    111e:	ret
+    1120:	add	a4,s2,s4
+    1124:	lui	a5,0x2
+    1126:	andi	a4,a4,63
+    112a:	addi	a5,a5,-1184 # 1b60 <repl_cmd>
+    112e:	add	a5,a5,a4
+    1130:	lbu	a5,0(a5)
+    1134:	li	a4,13
+    1136:	zext.b	a0,a5
+    113a:	beq	a5,a4,1144 <main+0x180>
+    113e:	li	a5,10
+    1140:	bne	a0,a5,12b8 <main+0x2f4>
+    1144:	li	a0,10
+    1146:	jal	550 <pl_emit>
+    114a:	lui	s6,0x2
+    114c:	lbu	a5,-351(s6) # 1ea1 <ti>
+    1150:	lui	s7,0x2
+    1152:	lui	s8,0x2
+    1154:	sb	a5,-350(s7) # 1ea2 <tl>
+    1158:	sb	zero,-351(s6)
+    115c:	sb	zero,-352(s8) # 1ea0 <errf>
+    1160:	lbu	s0,-352(s8)
+    1164:	bnez	s0,125a <main+0x296>
+    1168:	jal	2ac <word>
+    116c:	mv	s3,a0
+    116e:	bnez	a0,1190 <main+0x1cc>
+    1170:	lui	s0,0x2
+    1172:	addi	s0,s0,-572 # 1dc4 <vm_live>
+    1176:	lbu	a4,128(s0)
+    117a:	li	a5,15
+    117c:	bgeu	a5,a4,12ac <main+0x2e8>
+    1180:	lui	a0,0x1
+    1182:	addi	a0,a0,1204 # 14b4 <ulp_riscv_halt+0x142>
+    1186:	jal	668 <echo>
+    118a:	sh	zero,128(s0)
+    118e:	j	1294 <main+0x2d0>
+    1190:	addi	a1,sp,31
+    1194:	jal	376 <find>
+    1198:	mv	s9,a0
+    119a:	beqz	a0,11c6 <main+0x202>
+    119c:	li	a0,0
+    119e:	jal	22c <rd32>
+    11a2:	beqz	a0,11b2 <main+0x1ee>
+    11a4:	lbu	a4,31(sp)
+    11a8:	bnez	a4,11b2 <main+0x1ee>
+    11aa:	mv	a0,s9
+    11ac:	jal	40a <cw>
+    11b0:	j	1160 <main+0x19c>
+    11b2:	lui	a4,0x2
+    11b4:	addi	a4,a4,-572 # 1dc4 <vm_live>
+    11b8:	sh	s9,130(a4)
+    11bc:	sh	zero,132(a4)
+    11c0:	jal	684 <vm_enter>
+    11c4:	j	1160 <main+0x19c>
+    11c6:	li	a0,12
+    11c8:	jal	22c <rd32>
+    11cc:	li	a5,1
+    11ce:	mv	a2,a0
+    11d0:	beq	s3,a5,11e2 <main+0x21e>
+    11d4:	lui	a5,0x1
+    11d6:	lbu	s0,1293(a5) # 150d <mem+0x19>
+    11da:	addi	s0,s0,-45
+    11de:	seqz	s0,s0
+    11e2:	addi	a3,s0,25
+    11e6:	zext.b	a3,a3
+    11ea:	li	s9,0
+    11ec:	j	122a <main+0x266>
+    11ee:	mv	a0,a3
+    11f0:	sw	a2,12(sp)
+    11f2:	sw	a3,8(sp)
+    11f4:	jal	1aa <rd8>
+    11f8:	addi	a4,a0,-48
+    11fc:	zext.b	a1,a4
+    1200:	lw	a3,8(sp)
+    1202:	lw	a2,12(sp)
+    1204:	bgeu	s10,a1,121c <main+0x258>
+    1208:	addi	a1,a0,-65
+    120c:	zext.b	a1,a1
+    1210:	li	a4,99
+    1214:	bltu	s11,a1,121c <main+0x258>
+    1218:	addi	a4,a0,-55
+    121c:	addi	a3,a3,1
+    121e:	bgeu	a4,a2,124c <main+0x288>
+    1222:	mul	a5,a2,s9
+    1226:	add	s9,a4,a5
+    122a:	addi	a4,a3,-25
+    122e:	zext.b	a4,a4
+    1232:	bltu	a4,s3,11ee <main+0x22a>
+    1236:	beqz	s0,123c <main+0x278>
+    1238:	neg	s9,s9
+    123c:	li	a0,0
+    123e:	jal	22c <rd32>
+    1242:	beqz	a0,1252 <main+0x28e>
+    1244:	mv	a0,s9
+    1246:	jal	42a <clit>
+    124a:	j	1160 <main+0x19c>
+    124c:	jal	592 <err>
+    1250:	j	1160 <main+0x19c>
+    1252:	mv	a0,s9
+    1254:	jal	272 <PUSH>
+    1258:	j	1160 <main+0x19c>
+    125a:	lui	a5,0x2
+    125c:	li	a0,0
+    125e:	sh	zero,-444(a5) # 1e44 <vm_live+0x80>
+    1262:	jal	22c <rd32>
+    1266:	beqz	a0,1280 <main+0x2bc>
+    1268:	lui	a5,0x2
+    126a:	lw	a1,-356(a5) # 1e9c <savehere>
+    126e:	li	a0,4
+    1270:	jal	24e <wr32>
+    1274:	lui	a5,0x2
+    1276:	lw	a1,-360(a5) # 1e98 <savelatest>
+    127a:	li	a0,8
+    127c:	jal	24e <wr32>
+    1280:	li	a1,0
+    1282:	li	a0,0
+    1284:	jal	24e <wr32>
+    1288:	lui	a4,0x2
+    128a:	lw	a5,-424(a4) # 1e58 <repl_err_count>
+    128e:	addi	a5,a5,1
+    1290:	sw	a5,-424(a4)
+    1294:	lui	a4,0x2
+    1296:	lw	a5,-420(a4) # 1e5c <repl_line_count>
+    129a:	sb	zero,-350(s7)
+    129e:	sb	zero,-351(s6)
+    12a2:	addi	a5,a5,1
+    12a4:	sw	a5,-420(a4)
+    12a8:	addi	s4,s4,1
+    12aa:	j	1092 <main+0xce>
+    12ac:	lui	a0,0x1
+    12ae:	addi	a0,a0,1212 # 14bc <ulp_riscv_halt+0x14a>
+    12b2:	jal	668 <echo>
+    12b6:	j	1294 <main+0x2d0>
+    12b8:	li	a5,8
+    12ba:	beq	a0,a5,12c6 <main+0x302>
+    12be:	li	a5,127
+    12c2:	bne	a0,a5,12e0 <main+0x31c>
+    12c6:	lui	a4,0x2
+    12c8:	lbu	a5,-351(a4) # 1ea1 <ti>
+    12cc:	beqz	a5,12a8 <main+0x2e4>
+    12ce:	lui	a0,0x1
+    12d0:	addi	a5,a5,-1
+    12d2:	addi	a0,a0,1220 # 14c4 <ulp_riscv_halt+0x152>
+    12d6:	sb	a5,-351(a4)
+    12da:	jal	668 <echo>
+    12de:	j	12a8 <main+0x2e4>
+    12e0:	addi	a5,a0,-32
+    12e4:	zext.b	a5,a5
+    12e8:	li	a4,94
+    12ec:	bltu	a4,a5,12a8 <main+0x2e4>
+    12f0:	lui	s0,0x2
+    12f2:	lbu	a4,-351(s0) # 1ea1 <ti>
+    12f6:	li	a5,126
+    12fa:	bltu	a5,a4,1318 <main+0x354>
+    12fe:	addi	a5,a4,1
+    1302:	sb	a5,-351(s0)
+    1306:	lui	a5,0x2
+    1308:	addi	a5,a5,-700 # 1d44 <tib>
+    130c:	add	a5,a5,a4
+    130e:	sb	a0,0(a5)
+    1312:	jal	550 <pl_emit>
+    1316:	j	12a8 <main+0x2e4>
+    1318:	lui	a0,0x1
+    131a:	addi	a0,a0,1224 # 14c8 <ulp_riscv_halt+0x156>
+    131e:	jal	668 <echo>
+    1322:	lui	a5,0x2
+    1324:	sb	zero,-350(a5) # 1ea2 <tl>
+    1328:	sb	zero,-351(s0)
+    132c:	j	12a8 <main+0x2e4>
+    132e:	lui	s0,0x2
+    1330:	lw	a0,-1316(s0) # 1adc <cur>
+    1334:	jal	468 <vm_next_ready>
+    1338:	bltz	a0,10f4 <main+0x130>
+    133c:	lui	a4,0x2
+    133e:	lw	a5,-384(a4) # 1e80 <vm_sw_first>
+    1342:	addi	a5,a5,1
+    1344:	sw	a5,-384(a4)
+    1348:	jal	49c <vm_switch>
+    134c:	jal	684 <vm_enter>
+    1350:	lw	a0,-1316(s0)
+    1354:	jal	468 <vm_next_ready>
+    1358:	bgez	a0,134c <main+0x388>
+    135c:	j	10f4 <main+0x130>
+
+0000135e <ulp_riscv_rescue_from_monitor>:
+    135e:	lui	a5,0x8
+    1360:	addi	a5,a5,260 # 8104 <RTCCNTL+0x104>
+    1364:	lw	a4,0(a5)
+    1366:	lui	a3,0xfdc00
+    136a:	addi	a3,a3,-1 # fdbfffff <SENS+0xfdbf37ff>
+    136c:	and	a4,a4,a3
+    136e:	sw	a4,0(a5)
+    1370:	ret
+
+00001372 <ulp_riscv_halt>:
+    1372:	lui	a5,0x8
+    1374:	addi	a5,a5,260 # 8104 <RTCCNTL+0x104>
+    1378:	lw	a4,0(a5)
+    137a:	lui	a3,0xffc04
+    137e:	addi	a3,a3,-1 # ffc03fff <SENS+0xffbf77ff>
+    1380:	and	a4,a4,a3
+    1382:	lui	a3,0xfc
+    1386:	or	a4,a4,a3
+    1388:	sw	a4,0(a5)
+    138a:	lw	a4,0(a5)
+    138c:	lui	a3,0x2400
+    1390:	or	a4,a4,a3
+    1392:	sw	a4,0(a5)
+    1394:	j	1394 <ulp_riscv_halt+0x22>

@@ -1,0 +1,7 @@
+SEG-INIT
+1 SEG-BEGIN
+: M 65 EMIT ;
+' M SEG-ENTRY
+1 SEG-SAVE
+1 APP
+." [after]" CR

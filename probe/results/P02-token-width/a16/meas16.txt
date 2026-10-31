@@ -1,0 +1,60 @@
+PRIMS bytes=540
+DEF HERE     start=596 xt=604 end=616 size=20 body=12 lits=1
+DEF LATEST   start=616 xt=626 end=638 size=22 body=12 lits=1
+DEF STATE    start=638 xt=646 end=658 size=20 body=12 lits=1
+DEF IMMEDIATE start=658 xt=670 end=700 size=42 body=30 lits=2
+DEF BASE     start=700 xt=708 end=720 size=20 body=12 lits=1
+DEF HEX      start=720 xt=726 end=740 size=20 body=14 lits=1
+DEF DECIMAL  start=740 xt=750 end=764 size=24 body=14 lits=1
+DEF IF       start=764 xt=770 end=800 size=36 body=30 lits=3
+DEF THEN     start=800 xt=808 end=818 size=18 body=10 lits=0
+DEF ELSE     start=818 xt=826 end=862 size=44 body=36 lits=3
+DEF BEGIN    start=862 xt=870 end=876 size=14 body=6 lits=0
+DEF UNTIL    start=876 xt=884 end=898 size=22 body=14 lits=1
+DEF AGAIN    start=898 xt=906 end=920 size=22 body=14 lits=1
+DEF WHILE    start=920 xt=928 end=958 size=38 body=30 lits=3
+DEF REPEAT   start=958 xt=968 end=990 size=32 body=22 lits=1
+DEF DO       start=990 xt=996 end=1010 size=20 body=14 lits=1
+DEF LOOP     start=1010 xt=1018 end=1032 size=22 body=14 lits=1
+DEF +LOOP    start=1032 xt=1040 end=1054 size=22 body=14 lits=1
+DEF ?DUP     start=1054 xt=1062 end=1074 size=20 body=12 lits=0
+DEF 2DUP     start=1074 xt=1082 end=1090 size=16 body=8 lits=0
+DEF NIP      start=1090 xt=1096 end=1104 size=14 body=8 lits=0
+DEF TUCK     start=1104 xt=1112 end=1120 size=16 body=8 lits=0
+DEF 1+       start=1120 xt=1126 end=1138 size=18 body=12 lits=1
+DEF 1-       start=1138 xt=1144 end=1156 size=18 body=12 lits=1
+DEF 2*       start=1156 xt=1162 end=1174 size=18 body=12 lits=1
+DEF NEGATE   start=1174 xt=1184 end=1198 size=24 body=14 lits=1
+DEF =        start=1198 xt=1202 end=1210 size=12 body=8 lits=0
+DEF <>       start=1210 xt=1216 end=1224 size=14 body=8 lits=0
+DEF >        start=1224 xt=1228 end=1236 size=12 body=8 lits=0
+DEF 0<       start=1236 xt=1242 end=1254 size=18 body=12 lits=1
+DEF 0>       start=1254 xt=1260 end=1274 size=20 body=14 lits=1
+DEF NOT      start=1274 xt=1280 end=1286 size=12 body=6 lits=0
+DEF /        start=1286 xt=1290 end=1300 size=14 body=10 lits=0
+DEF MOD      start=1300 xt=1306 end=1314 size=14 body=8 lits=0
+DEF 2/       start=1314 xt=1320 end=1332 size=18 body=12 lits=1
+DEF */       start=1332 xt=1338 end=1352 size=20 body=14 lits=0
+DEF SUMN     start=1352 xt=1360 end=1388 size=36 body=28 lits=2
+DEF STARS    start=1388 xt=1396 end=1426 size=38 body=30 lits=3
+DEF BANNER   start=1426 xt=1436 end=1462 size=36 body=26 lits=0
+DEF PROMPT   start=1462 xt=1472 end=1490 size=28 body=18 lits=0
+DEF CLAMP    start=1490 xt=1498 end=1550 size=60 body=52 lits=4
+DEF LED      start=1550 xt=1556 end=1588 size=38 body=32 lits=2
+DEF BLINK    start=1588 xt=1596 end=1636 size=48 body=40 lits=4
+DEF MENU     start=1636 xt=1644 end=1666 size=30 body=22 lits=1
+DEF MIX      start=1666 xt=1672 end=1714 size=48 body=42 lits=0
+DEF SPIN     start=1714 xt=1722 end=1750 size=36 body=28 lits=1
+TOTAL bytes=1694 words=46 here=1750
+GROUP boot words=36 bytes=756 mean=21.00 max=44 bodymean=13.78 bodymax=36 over512body=0 over512def=0
+STRADDLE512 boot actual@0=1 actual@DICT=1 pack4@0=1 pack4@DICT=0
+STRADDLE256 boot actual@0=3 actual@DICT=3 pack4@0=3 pack4@DICT=2
+CENSUS boot body=496 lits=30 litbytes=120 branches=1 brbytes=4 strs=0 strbytes=0
+GROUP extra words=10 bytes=398 mean=39.80 max=60 bodymean=31.80 bodymax=52 over512body=0 over512def=0
+STRADDLE512 extra actual@0=1 actual@DICT=1 pack4@0=0 pack4@DICT=0
+STRADDLE256 extra actual@0=1 actual@DICT=1 pack4@0=0 pack4@DICT=1
+CENSUS extra body=318 lits=17 litbytes=68 branches=13 brbytes=52 strs=4 strbytes=32
+GROUP all words=46 bytes=1154 mean=25.09 max=60 bodymean=17.70 bodymax=52 over512body=0 over512def=0
+STRADDLE512 all actual@0=2 actual@DICT=2 pack4@0=2 pack4@DICT=1
+STRADDLE256 all actual@0=4 actual@DICT=4 pack4@0=4 pack4@DICT=3
+CENSUS all body=814 lits=47 litbytes=188 branches=14 brbytes=56 strs=4 strbytes=32

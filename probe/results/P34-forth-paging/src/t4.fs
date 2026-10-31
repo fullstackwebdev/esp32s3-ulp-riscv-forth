@@ -1,0 +1,1 @@
+: A 1 IF 65 EMIT THEN ;

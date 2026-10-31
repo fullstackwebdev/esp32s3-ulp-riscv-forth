@@ -1,0 +1,38 @@
+# GUARDRAIL: build trees are 130+ MB each; an initial commit that includes them makes every later diff
+# unusable and the repo unshareable. Everything below is regenerable from source + sdkconfig.
+build/
+*/build/
+probe/*/build/
+probe/*/artifacts/
+probe/*/artifacts_host/
+probe/*/bake/
+probe/*/flagtest/
+probe/*/asm_dbg/
+probe/research/*/build/
+probe/research/*/artifacts*/
+# agent working copies: keep their FINDINGS.md, drop the duplicated trees
+probe/research/*/src/
+probe/research/*/main/
+probe/research/*/tests/
+probe/research/*/tools/
+probe/research/*/CMakeLists.txt
+probe/research/*/countdown.sh
+probe/research/*/*.fs
+probe/research/*/host
+probe/research/*/bake/
+# logs and sdkconfig churn
+*.log
+sdkconfig.old
+# flash images are small and ARE evidence; keep probe-results/*.bin
+# GUARDRAIL: the first commit carried 79 MB of probe build trees (each build.ninja is 6 MB) because the
+# ignore only matched a directory literally named "build". Build trees are named build_p42, build_stub,
+# build_lhu, build.P23-reused … Match the pattern, and keep evidence (RESULT.md, *.bin, *.dis) out of it.
+probe/repl/build*
+probe/results/*/build*
+probe/*/build*
+cache/objects/
+# GUARDRAIL: the fetched documents (15 MB TRM PDF) and the generated .dis listings are derived artefacts —
+# the cache rule says they must never be DELETED from disk, which is not the same as committing them. Both
+# are reproducible (cache by refetch, listings by probe/repl/tools/disasm.sh), so keep them out of history.
+cache/derived/
+probe/*/probe-results/asm/*.dis

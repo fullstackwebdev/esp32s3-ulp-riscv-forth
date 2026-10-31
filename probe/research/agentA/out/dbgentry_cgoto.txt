@@ -1,0 +1,26 @@
+00000534 <vm_enter>:
+     534:	aefff2ef          	jal	t0,22 <__riscv_save_10>
+     538:	6489                	lui	s1,0x2
+     53a:	dd44a783          	lw	a5,-556(s1) # 1dd4 <vm_depth>
+     53e:	6709                	lui	a4,0x2
+     540:	dd072683          	lw	a3,-560(a4) # 1dd0 <vm_max_depth>
+     544:	0785                	addi	a5,a5,1
+     546:	1141                	addi	sp,sp,-16
+     548:	dcf4aa23          	sw	a5,-556(s1)
+     54c:	00f6d463          	bge	a3,a5,554 <vm_enter+0x20>
+     550:	dcf72823          	sw	a5,-560(a4)
+     554:	6909                	lui	s2,0x2
+     556:	04200993          	li	s3,66
+     55a:	6a05                	lui	s4,0x1
+     55c:	d1c90793          	addi	a5,s2,-740 # 1d1c <vm_live>
+     560:	0827da83          	lhu	s5,130(a5)
+     564:	d1c90413          	addi	s0,s2,-740
+     568:	8556                	mv	a0,s5
+     56a:	3e01                	jal	7a <rd16>
+     56c:	8b2a                	mv	s6,a0
+     56e:	00a9f463          	bgeu	s3,a0,576 <vm_enter+0x42>
+     572:	3701                	jal	472 <err>
+     574:	a02d                	j	59e <vm_enter+0x6a>
+     576:	300a0793          	addi	a5,s4,768 # 1300 <vm_cgoto_tab.0>
+     57a:	00251713          	slli	a4,a0,0x2
+     57e:	97ba                	add	a5,a5,a4

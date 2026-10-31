@@ -1,0 +1,7 @@
+These artifacts are INVALID — kept only as the record of a harness defect.
+
+The first measurement run compared the "coded" tree against itself: the compile-command rewrite hit the
+object path (`.../src/ulp_repl.c.obj` contains the source path as a substring) and left the real `-c`
+argument pointing at the shipping source, so the delta came out as exactly 0 B. measure.sh now rewrites
+`-o` first and asserts that the copy's path — not the shipping path — is on the command line.
+See FINDINGS.md §4.

@@ -1,0 +1,32 @@
+built out/gf_ref.elf
+gf_ref                 elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_mrelax.elf
+gf_mrelax              elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_mrelax_link.elf
+gf_mrelax_link         elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_nojumptab.elf
+gf_nojumptab           elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_swconv.elf
+gf_swconv              elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_noswconv.elf
+gf_noswconv            elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+collect2: error: ld returned 1 exit status
+measure: link of gf_medany failed
+built out/gf_medlow.elf
+gf_medlow              elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_fira_all.elf
+gf_fira_all            elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=929bb243220a5bbf
+built out/gf_align1.elf
+gf_align1              elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_omitfp.elf
+gf_omitfp              elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_no_omitfp.elf
+gf_no_omitfp           elf .text=5190  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=e149bc19f94a5ef9
+built out/gf_Oz.elf
+gf_Oz                  elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_nosave_restore.elf
+gf_nosave_restore      elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7
+built out/gf_nocrossjump.elf
+gf_nocrossjump         elf .text=5094  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=30e0cd52a42d4416
+built out/gf_align2.elf
+gf_align2              elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=bb68a4ce0c30a8b7

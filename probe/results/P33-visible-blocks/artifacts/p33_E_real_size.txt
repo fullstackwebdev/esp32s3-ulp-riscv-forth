@@ -1,0 +1,12 @@
+artifacts/p33_E_real.elf  :
+section             size   addr
+.text               4082      0
+.rodata              228   4084
+.srodata.seed.0        8   4312
+.data                  4   4320
+.bss                2749   4324
+.comment              47      0
+.riscv.attributes     68      0
+Total               7186
+
+

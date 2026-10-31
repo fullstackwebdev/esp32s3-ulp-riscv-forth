@@ -1,0 +1,5 @@
+uforth.c:378:6:forth_quit	0	static
+ulp_stubs.c:23:6:pl_emit	0	static
+ulp_stubs.c:30:5:pl_key	0	static
+ulp_stubs.c:36:5:pl_hw	0	static
+ulp_stubs.c:45:5:main	0	static

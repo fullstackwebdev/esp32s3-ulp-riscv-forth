@@ -1,0 +1,1 @@
+: NOK 1 0= IF 66 EMIT THEN ;

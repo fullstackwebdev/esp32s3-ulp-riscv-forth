@@ -1,0 +1,32 @@
+built out/base_ref.elf
+base_ref               elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_mrelax.elf
+base_mrelax            elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_mrelax_link.elf
+base_mrelax_link       elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_nojumptab.elf
+base_nojumptab         elf .text=5120  .rodata=104   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=442479a96311115f
+built out/base_swconv.elf
+base_swconv            elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_noswconv.elf
+base_noswconv          elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+collect2: error: ld returned 1 exit status
+measure: link of base_medany failed
+built out/base_medlow.elf
+base_medlow            elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_fira_all.elf
+base_fira_all          elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=86368488707d6cd1
+built out/base_align1.elf
+base_align1            elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_omitfp.elf
+base_omitfp            elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_no_omitfp.elf
+base_no_omitfp         elf .text=5140  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=e07ab6bd457a5fc0
+built out/base_Oz.elf
+base_Oz                elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_nosave_restore.elf
+base_nosave_restore    elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61
+built out/base_nocrossjump.elf
+base_nocrossjump       elf .text=5150  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=54eb7d3bb5aee037
+built out/base_align2.elf
+base_align2            elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=0     .rodata=      | sha=3697ed4e58faad61

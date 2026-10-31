@@ -1,0 +1,255 @@
+--- a16/uforth.c	2026-10-30 12:30:47.346503209 -0700
++++ b32/uforth.c	2026-10-30 12:32:48.569074921 -0700
+@@ -34,10 +34,13 @@
+ u32  pl_hw(int op, u32 a, u32 b);        /* 0 gpio_get 1 gpio_set 2 adc 3 ms 4 wake 5 key? */
+ 
+ /* ---- memory map: system variables live inside mem[] ---- */
++/* GUARDRAIL: V_XLIT/V_XEXIT/V_XSTR hold xts, so they widen with the token width; PAD must
++ * follow them or boot_init's saved xts are overwritten by the next parsed word — the symptom
++ * is a crash inside ':' thousands of bytes later, not an error at the overwrite. */
+ enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8, V_BASE = 12,
+-       V_XLIT = 16, V_XEXIT = 18, V_XSTR = 20,   /* xts the C code compiles */
+-       PAD = 24,                                  /* counted string, 32 bytes */
+-       DICT = 56 };
++       V_XLIT = 16, V_XEXIT = 20, V_XSTR = 24,   /* xts the C code compiles (P02: 32-bit) */
++       PAD = 28,                                  /* counted string, 32 bytes */
++       DICT = 64 };
+ 
+ #ifdef IMAGE
+ #include "image.h"
+@@ -50,6 +53,8 @@
+ static u8  rd8(u32 a)            { return *P(a); }
+ static void wr8(u32 a, u8 v)     { *P(a) = v; }
+ static u16 rd16(u32 a)           { return rd8(a) | (u16)rd8(a + 1) << 8; }
++/* GUARDRAIL: with 32-bit tokens every dictionary cell is 4 bytes; a leftover 2-byte fetch does
++ * not fault on the host, it silently returns half an xt and jumps into the middle of a body. */
+ static void wr16(u32 a, u16 v)   { wr8(a, v); wr8(a + 1, v >> 8); }
+ static u32 rd32(u32 a)           { return rd16(a) | (u32)rd16(a + 2) << 16; }
+ static void wr32(u32 a, u32 v)   { wr16(a, v); wr16(a + 2, v >> 16); }
+@@ -118,15 +123,18 @@
+     return n;
+ }
+ 
+-/* dictionary entry: [link:2][flags|len:1][name][pad to even][cf:2][body] */
+-static u16 find(u8 n, u8 *imm)
++/* dictionary entry: [link:2][flags|len:1][name][pad to even][cf:4][body] */
++/* GUARDRAIL: the link field is still 2 bytes here (P02 widens tokens only), so this find()
++ * cannot walk a dictionary larger than 64 KB — the very thing 32-bit xts are for. Widen the
++ * link too before R5 relies on it; see RESULT.md follow-ups. */
++static u32 find(u8 n, u8 *imm)
+ {
+     u32 h; u8 f, i;
+     for (h = rd32(V_LATEST); h; h = rd16(h)) {
+         f = rd8(h + 2);
+         if ((f & 31) != n) continue;
+         for (i = 0; i < n && rd8(h + 3 + i) == rd8(PAD + 1 + i); i++) ;
+-        if (i == n) { *imm = f >> 7; return (h + 3 + n + 1) & ~1u; }
++        if (i == n) { *imm = f >> 7; return (h + 3 + n + 3) & ~3u; }
+     }
+     return 0;
+ }
+@@ -145,53 +153,68 @@
+     return 1;
+ }
+ 
+-static void cw(u16 v) { u32 h = rd32(V_HERE); wr16(h, v); wr32(V_HERE, h + 2); }
+-static void clit(u32 v) { cw(rd16(V_XLIT)); cw(v); cw(v >> 16); }
++/* GUARDRAIL: cw() is the single place that decides token width; two call sites used to write
++ * the halves of a literal separately, so widening one of them silently produced a body that
++ * mixed 2- and 4-byte cells and ran into the next definition. */
++static void cw(u32 v) { u32 h = rd32(V_HERE); wr32(h, v); wr32(V_HERE, h + 4); }
++static void clit(u32 v) { cw(rd32(V_XLIT)); cw(v); }
+ static void a4(void) { wr32(V_HERE, (rd32(V_HERE) + 3) & ~3u); }
+ 
++/* GUARDRAIL: the code field must be found by the SAME padding rule that mkhdr_pad() used to
++ * place it; the 2-byte rule (& ~1) left bodies 2-mod-4 aligned and find() then returned an
++ * address two bytes off, so ' looked up one word and EXECUTE ran the wrong definition. */
++
+ /* build a header from the name currently in PAD; returns the xt */
+-static u16 mkhdr_pad(u8 cf, u8 imm)
++/* GUARDRAIL: HERE must advance by the code field's own width (4 here), because P_DOCOL uses
++ * w+4 as the body address; leaving it at +2 makes every call body start two bytes early.
++ * GUARDRAIL: the code field is padded to 4, not 2, because P_COMMA (used for branch operands
++ * in boot_min.fs) calls a4() first: an unaligned body start made `,` insert 1-3 pad bytes in
++ * front of the operand, and the interpreter read the pad as the branch target — infinite loop. */
++static u32 mkhdr_pad(u8 cf, u8 imm)
+ {
+     u8 n = rd8(PAD), i; u32 h = rd32(V_HERE), x;
+     wr16(h, rd32(V_LATEST)); wr8(h + 2, n | (imm << 7));
+     for (i = 0; i < n; i++) wr8(h + 3 + i, rd8(PAD + 1 + i));
+-    x = (h + 3 + n + 1) & ~1u;
+-    wr16(x, cf);
+-    wr32(V_LATEST, h); wr32(V_HERE, x + 2);
++    x = (h + 3 + n + 3) & ~3u;
++    wr32(x, cf);
++    wr32(V_LATEST, h); wr32(V_HERE, x + 4);
+     return x;
+ }
+-static u16 mkhdr(u8 cf)
++static u32 mkhdr(u8 cf)
+ {
+     if (!word()) { err(); return 0; }
+     return mkhdr_pad(cf, 0);
+ }
+ 
+ /* ---- the inner interpreter ---- */
+-static void run(u16 w)
++/* GUARDRAIL: ip must be u32, not u16: a 32-bit token stream over a >64 KB dictionary wraps the
++ * instruction pointer mid-definition and the interpreter keeps executing garbage instead of
++ * failing — the exact defect 32-bit xts are supposed to remove. */
++static void run(u32 w)
+ {
+-    u16 ip = 0;                       /* 0 = "return to C" */
+-    u32 a, b, n; u8 i, imm; u16 x;
++    u32 ip = 0;                       /* 0 = "return to C" */
++    u32 a, b, n; u8 i, imm; u32 x;
+     for (;;) {
+-        u16 cf = rd16(w);
++        u32 cf = rd32(w);
+         switch (cf) {
+-        case P_DOCOL: RPUSH(ip); ip = w + 2; break;
+-        case P_DOVAR: PUSH((w + 2 + 3) & ~3u); break;
+-        case P_DOCON: PUSH(rd32((w + 2 + 3) & ~3u)); break;
++        case P_DOCOL: RPUSH(ip); ip = w + 4; break;
++        case P_DOVAR: PUSH((w + 4 + 3) & ~3u); break;
++        case P_DOCON: PUSH(rd32((w + 4 + 3) & ~3u)); break;
+         case P_EXIT:  if (!ip) return; ip = RPOP(); break;
+-        case P_LIT:   PUSH(rd16(ip) | (u32)rd16(ip + 2) << 16); ip += 4; break;
+-        case P_BRANCH:  ip = rd16(ip); break;
+-        case P_ZBRANCH: if (POP()) ip += 2; else ip = rd16(ip); break;
++        case P_LIT:   PUSH(rd32(ip)); ip += 4; break;
++        case P_BRANCH:  ip = rd32(ip); break;
++        case P_ZBRANCH: if (POP()) ip += 4; else ip = rd32(ip); break;
+         case P_DO:    a = POP(); b = POP(); RPUSH(b); RPUSH(a); break;
+         case P_LOOP: case P_PLOOP:
+             n = (cf == P_LOOP) ? 1 : POP();
+             a = rs[(rsp - 2) & (SD - 1)]; b = RTOP + n;          /* limit, new index */
+-            if ((i32)((RTOP - a) ^ (b - a)) < 0) { rsp -= 2; ip += 2; }  /* crossed limit */
+-            else { RTOP = b; ip = rd16(ip); }
++            if ((i32)((RTOP - a) ^ (b - a)) < 0) { rsp -= 2; ip += 4; }  /* crossed limit */
++            else { RTOP = b; ip = rd32(ip); }
+             break;
+         case P_I:      PUSH(RTOP); break;
+         case P_J:      PUSH(rs[(rsp - 3) & (SD - 1)]); break;
+         case P_UNLOOP: rsp -= 2; break;
+-        case P_EXEC:   w = (u16)POP(); continue;           /* call without fetching next */
++        case P_EXEC:   w = POP(); continue;                 /* call without fetching next */
+ 
+         case P_DUP:  PUSH(TOS); break;
+         case P_DROP: sp--; break;
+@@ -243,13 +266,13 @@
+             savehere = rd32(V_HERE); savelatest = rd32(V_LATEST);
+             if (mkhdr(P_DOCOL)) wr32(V_STATE, 1);
+             break;
+-        case P_SEMI:   cw(rd16(V_XEXIT)); wr32(V_STATE, 0); break;
++        case P_SEMI:   cw(rd32(V_XEXIT)); wr32(V_STATE, 0); break;
+         case P_CREATE: if (mkhdr(P_DOVAR)) a4(); break;
+         case P_CONSTANT:
+             if (mkhdr(P_DOCON)) { a4(); a = rd32(V_HERE); wr32(a, POP()); wr32(V_HERE, a + 4); }
+             break;
+         case P_TICK: case P_BTICK:
+-            i = word(); x = i ? find(i, &imm) : 0;
++            i = word(); x = i ? find(i, &imm) : (u32)0;
+             if (!x) err();
+             else if (cf == P_TICK) PUSH(x);
+             else clit(x);
+@@ -260,14 +283,17 @@
+             i = ti; while (ti < tl && tib[ti] != '"') ti++;
+             n = ti - i; if (ti < tl) ti++;
+             if (rd32(V_STATE)) {
+-                cw(rd16(V_XSTR)); a = rd32(V_HERE); wr8(a, n);
++                /* GUARDRAIL: the inline string operand is padded to the token width (4), not to 2:
++                 * padding it to 2 leaves the next token 2-byte-misaligned, which only shows up
++                 * when the following token straddles a word boundary on the real core. */
++                cw(rd32(V_XSTR)); a = rd32(V_HERE); wr8(a, n);
+                 for (b = 0; b < n; b++) wr8(a + 1 + b, tib[i + b]);
+-                wr32(V_HERE, (a + n + 2) & ~1u);
++                wr32(V_HERE, (a + n + 4) & ~3u);
+             } else for (b = 0; b < n; b++) pl_emit(tib[i + b]);
+             break;
+         case P_PDOTQ:
+             n = rd8(ip); for (b = 0; b < n; b++) pl_emit(rd8(ip + 1 + b));
+-            ip = (u16)((ip + n + 2) & ~1u);
++            ip = (ip + n + 4) & ~3u;
+             break;
+         case P_BSLASH: ti = tl; break;
+         case P_PAREN:  while (ti < tl) if (tib[ti++] == ')') break; break;
+@@ -279,14 +305,14 @@
+         case P_WAKE:  pl_hw(4, 0, 0); break;
+         }
+         if (!ip) return;
+-        w = rd16(ip); ip += 2;
++        w = rd32(ip); ip += 4;
+     }
+ }
+ 
+ /* ---- outer interpreter ---- */
+ static void interpret(void)
+ {
+-    u8 n, imm; u16 xt; u32 v;
++    u8 n, imm; u32 xt; u32 v;
+     errf = 0;
+     while (!errf && (n = word())) {
+         if ((xt = find(n, &imm))) {
+@@ -348,14 +374,14 @@
+ #ifndef IMAGE
+ static void boot_init(void)
+ {
+-    u16 x;
++    u32 x;
+     wr32(V_HERE, DICT); wr32(V_LATEST, 0); wr32(V_BASE, 10); wr32(V_STATE, 0);
+ #define X(id, name, imm) \
+     { const char *s = name; u8 n = 0; while (s[n]) { wr8(PAD + 1 + n, s[n]); n++; } wr8(PAD, n); \
+       x = mkhdr_pad(P_##id, imm); \
+-      if (P_##id == P_LIT) wr16(V_XLIT, x); \
+-      if (P_##id == P_EXIT) wr16(V_XEXIT, x); \
+-      if (P_##id == P_PDOTQ) wr16(V_XSTR, x); }
++      if (P_##id == P_LIT) wr32(V_XLIT, x); \
++      if (P_##id == P_EXIT) wr32(V_XEXIT, x); \
++      if (P_##id == P_PDOTQ) wr32(V_XSTR, x); }
+     PRIMS
+ #undef X
+ }
+--- a16/boot_min.fs	2026-10-30 12:30:47.347171484 -0700
++++ b32/boot_min.fs	2026-10-30 12:31:23.188212615 -0700
+@@ -27,24 +27,29 @@
+ \ So `HERE W!` stores HERE into the *dictionary*, not into the branch
+ \ placeholder: 2 bytes corrupted, branch unpatched, and the symptom is a
+ \ hang much later. Always: HERE SWAP W! ( val=HERE, addr=placeholder ).
+-: IF     ['] 0BRANCH W,  0 W,  HERE 2 - ; IMMEDIATE
+-: THEN   HERE SWAP W! ;                   IMMEDIATE
+-: ELSE   ['] BRANCH W, 0 W,  HERE SWAP W!  HERE 2 - ; IMMEDIATE
++\ GUARDRAIL: P02 build B - every compiled cell is 4 bytes, so branch operands
++\ use `,` and `!` and the placeholder address is HERE 4 - ; a leftover `W,`
++\ leaves a 2-byte hole that the interpreter then reads as a token.
++\ GUARDRAIL: this file is loaded through a 80-byte line buffer; a comment over
++\ 79 chars aborts the whole boot layer, not just that line.
++: IF     ['] 0BRANCH ,  0 ,  HERE 4 - ;  IMMEDIATE
++: THEN   HERE SWAP ! ;                   IMMEDIATE
++: ELSE   ['] BRANCH , 0 ,  HERE SWAP !  HERE 4 - ;   IMMEDIATE
+ 
+ \ --- indefinite loops ---
+ : BEGIN  HERE ;                            IMMEDIATE
+-: UNTIL  ['] 0BRANCH W, W, ;               IMMEDIATE
+-: AGAIN  ['] BRANCH   W, W, ;              IMMEDIATE
+-: WHILE  ['] 0BRANCH W, 0 W, HERE 2 - ;    IMMEDIATE
+-: REPEAT SWAP ['] BRANCH W, W,  HERE SWAP W! ; IMMEDIATE
++: UNTIL  ['] 0BRANCH , , ;                 IMMEDIATE
++: AGAIN  ['] BRANCH   , , ;                IMMEDIATE
++: WHILE  ['] 0BRANCH , 0 , HERE 4 - ;      IMMEDIATE
++: REPEAT SWAP ['] BRANCH , ,  HERE SWAP ! ; IMMEDIATE
+ 
+ \ --- counted loops ---
+ \ (DO) has no inline operand; the body starts right after its token.
+-\ (LOOP) carries the backward target as a 2-byte operand, so DO leaves
++\ (LOOP) carries the backward target as a 4-byte operand, so DO leaves
+ \ HERE on the compile-time stack for LOOP to consume.
+-: DO     ['] (DO)    W,  HERE ;            IMMEDIATE
+-: LOOP   ['] (LOOP)  W,  W, ;              IMMEDIATE
+-: +LOOP  ['] (+LOOP) W,  W, ;              IMMEDIATE
++: DO     ['] (DO)    ,  HERE ;             IMMEDIATE
++: LOOP   ['] (LOOP)  ,  , ;                IMMEDIATE
++: +LOOP  ['] (+LOOP) ,  , ;                IMMEDIATE
+ 
+ \ --- small words so tests can be written plainly ---
+ : ?DUP   DUP IF DUP THEN ;

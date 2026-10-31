@@ -1,0 +1,2 @@
+   text	   data	    bss	    dec	    hex	filename
+   4824	   1288	   1152	   7264	   1c60	/home/user/research/esp32-rv32/probe/lev/memsz-ceiling/out/base-1280/out.elf

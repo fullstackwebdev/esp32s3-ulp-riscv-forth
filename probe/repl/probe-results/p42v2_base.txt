@@ -1,0 +1,22 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2b (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+Octal Flash Mode Enabled
+For OPI Flash, Use Default Flash Boot Mode
+mode:SLOW_RD, clock div:1
+load:0x3fce2810,len:0x1120
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xb2c
+load:0x403cb700,len:0x2d0c
+entry 0x403c88a8
+W (108) spi_flash: Octal flash chip is using but dio mode is selected, will automatically switch to Octal mode
+W (108) spi_flash: Detected siz
+boot: ulp forth bridge, 6520 B image
+type Forth at the prompt; 'picocom -b 115200 /dev/ttyACM1'
+ulp woke 0 times
+
+ulp forth
+ ok
+
+p42 base e=00000000 s=0002f588 d=00000051 l=00051ad4 L=000000a1

@@ -1,0 +1,8 @@
+src/t_seg.fs:24: stack underflow
+== P36 overlays: five proofs ==
+SEG-BASE 4096resident HERE 3662
+SEG-BEGIN 1 seg1 emitted 68bytes
+(e) token in MAIN for the resident = : 68288512xt of = : 1042
+(e) that token is a resident address: FAIL 
+SEG-SAVE 1blk 1len 80 
+(a) run before save:    A-OK 

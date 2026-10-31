@@ -1,0 +1,50 @@
+== engine shapes (TASK 1 + TASK 2) ==
+base                   elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+base           suite=PASS ntsk=PASS wild=PASS  output=5442615-5-21234564910104927421-1000-7662-1
+cgoto                  elf .text=4758  .rodata=372   .data=1720  .bss=824   | obj .text=5524  .rodata=369   | sha=02ecfc94218c3716
+cgoto          suite=PASS ntsk=PASS wild=PASS  output=5442615-5-21234564910104927421-1000-7662-1
+uc                     elf .text=4804  .rodata=372   .data=1720  .bss=824   | obj .text=5566  .rodata=369   | sha=383b4c61b4ba19df
+uc             suite=PASS ntsk=PASS wild=PASS  output=5442615-5-21234564910104927421-1000-7662-1
+cgoto_uc               elf .text=4794  .rodata=372   .data=1720  .bss=824   | obj .text=5560  .rodata=369   | sha=fe774a540f980c04
+cgoto_uc       suite=PASS ntsk=PASS wild=PASS  output=5442615-5-21234564910104927421-1000-7662-1
+fold                   elf .text=4750  .rodata=372   .data=1720  .bss=824   | obj .text=5542  .rodata=369   | sha=6f0c905cc50bf6c9
+fold           suite=PASS ntsk=PASS wild=PASS  output=5442615-5-21234564910104927421-1000-7662-1
+cgoto_fold             elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=5536  .rodata=369   | sha=bb68a4ce0c30a8b7
+cgoto_fold     suite=PASS ntsk=PASS wild=PASS  output=5442615-5-21234564910104927421-1000-7662-1
+cgoto_fold_f           elf .text=4754  .rodata=372   .data=1720  .bss=824   | obj .text=5494  .rodata=369   | sha=8b6075605f496870
+cgoto_fold_f   suite=PASS ntsk=PASS wild=PASS  output=5442615-5-21234564910104927421-1000-7662-1
+cgoto_uc_ni            elf .text=4798  .rodata=372   .data=1720  .bss=824   | obj .text=5650  .rodata=369   | sha=d945eb2770530260
+cgoto_ucstack          elf .text=4806  .rodata=372   .data=1720  .bss=824   | obj .text=5558  .rodata=369   | sha=bbd18d5f1bed8b87
+cgoto_ucall            elf .text=4706  .rodata=372   .data=1720  .bss=824   | obj .text=5394  .rodata=369   | sha=ebb34c557dc4dffd
+cgoto_ucall_fold       elf .text=4704  .rodata=372   .data=1720  .bss=824   | obj .text=5394  .rodata=369   | sha=ffa460d5d59af490
+== compiler levers on base (TASK 3) ==
+lev_mrelax             elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_fno_jump_tables    elf .text=5120  .rodata=104   .data=1720  .bss=824   | obj .text=5874  .rodata=101   | sha=442479a96311115f
+lev_ftree_switch_conversion elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_fno_tree_switch_conversion elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_mcmodel_medlow     elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+measure: link of lev_mcmodel_medany failed
+lev_fira_region_all    elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=86368488707d6cd1
+lev_falign_functions_1 elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_fomit_frame_pointer elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_fno_omit_frame_pointer elf .text=5140  .rodata=372   .data=1720  .bss=824   | obj .text=5902  .rodata=369   | sha=e07ab6bd457a5fc0
+lev_Oz                 elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_mno_save_restore   elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_fno_crossjumping   elf .text=5150  .rodata=372   .data=1720  .bss=824   | obj .text=6056  .rodata=369   | sha=54eb7d3bb5aee037
+lev_falign_functions_2__falign_jumps_2__falign_loops_2 elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_fno_ipa_icf        elf .text=4786  .rodata=372   .data=1720  .bss=824   | obj .text=5550  .rodata=369   | sha=5ecde4a09a33b130
+lev_fmerge_all_constants elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_fira_algorithm_priority elf .text=4788  .rodata=372   .data=1720  .bss=824   | obj .text=5552  .rodata=369   | sha=43342cea35264fc6
+lev_fno_inline         elf .text=4772  .rodata=372   .data=1720  .bss=824   | obj .text=5776  .rodata=366   | sha=97cb7104594257c5
+lev_finline_functions  elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_fconserve_stack    elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_mrelax_at_link     elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+lev_relax_at_link      elf .text=4764  .rodata=372   .data=1720  .bss=824   | obj .text=5528  .rodata=369   | sha=3697ed4e58faad61
+measure: link of lev_icf_at_link failed
+== compiler levers on the winning shape (cgoto_fold) ==
+gf_mrelax              elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=5536  .rodata=369   | sha=bb68a4ce0c30a8b7
+gf_fno_jump_tables     elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=5536  .rodata=369   | sha=bb68a4ce0c30a8b7
+gf_Oz                  elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=5536  .rodata=369   | sha=bb68a4ce0c30a8b7
+gf_fno_omit_frame_pointer elf .text=5190  .rodata=372   .data=1720  .bss=824   | obj .text=5960  .rodata=369   | sha=e149bc19f94a5ef9
+gf_fno_crossjumping    elf .text=5094  .rodata=372   .data=1720  .bss=824   | obj .text=6014  .rodata=369   | sha=30e0cd52a42d4416
+gf_fira_region_all     elf .text=4742  .rodata=372   .data=1720  .bss=824   | obj .text=5536  .rodata=369   | sha=929bb243220a5bbf

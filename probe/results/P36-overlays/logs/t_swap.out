@@ -1,0 +1,2 @@
+src/t_swap.fs:14: stack underflow
+SEG-BEGIN 1 SEG-SAVE 1blk 1len 16 SEG-BEGIN 2 SEG-SAVE 2blk 2len 18 (c) seg1 entry bytes after seg2 took the window: 16178(seg1's entry was 4100)

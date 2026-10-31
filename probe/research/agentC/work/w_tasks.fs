@@ -1,0 +1,4 @@
+: TA 1 . PAUSE 2 . ;
+: TB 3 . PAUSE 4 . ;
+: TC 5 . PAUSE 6 . ;
+SPAWN TA SPAWN TB SPAWN TC

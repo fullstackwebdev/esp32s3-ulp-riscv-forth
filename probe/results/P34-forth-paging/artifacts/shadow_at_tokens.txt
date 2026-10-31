@@ -1,0 +1,25 @@
+@ -> 2220  RAW@ -> 1251  ! -> 2042  C@ -> 2105
+body tokens of the shadow @ (xt 2220):
+   2222  tok=  174  DUP
+   2224  tok= 1524  ?
+   2226  tok=   96  0BRANCH
+   2228  tok= 2264  ?
+   2230  tok=  174  DUP
+   2232  tok= 1544  F>BLK
+   2234  tok= 1752  ?
+   2236  tok=   96  0BRANCH
+   2238  tok= 2248  ?
+   2240  tok=  194  ?
+   2242  tok=  184  ?
+   2244  tok= 1628  ?
+   2246  tok=   64  ?
+   2248  tok= 1566  F>OFF
+   2250  tok= 1460  ?
+   2252  tok= 1252  ?
+   2254  tok=  278  +
+   2256  tok= 1252  ?
+   2258  tok=   84  ?
+   2260  tok= 2262  ?
+   2262  tok= 1252  ?
+   2264  tok=   64  ?
+tokens 22 body bytes 44

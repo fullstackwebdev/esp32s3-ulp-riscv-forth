@@ -1,0 +1,206 @@
+== dictionary walk from V_LATEST: 120 words, HERE=2258 ==
+== first body token (2 bytes) of every colon word; 21=@ 22=! 23=C@ 24=C! ==
+LIT            hdr@   66 xt@   72 token= 66 FAR-XFER  body=   0
+0BRANCH        hdr@   86 xt@   96 token= 86 86        body=   0
+(+LOOP)        hdr@  120 xt@  130 token=120 120       body=   0
+I              hdr@  132 xt@  136 token=132 132       body=   0
+J              hdr@  138 xt@  142 token=138 138       body=   0
+EXECUTE        hdr@  156 xt@  166 token=156 156       body=   0
+DUP            hdr@  168 xt@  174 token=168 168       body=   0
+ROT            hdr@  206 xt@  212 token=206 206       body=   0
+@              hdr@  230 xt@  234 token=230 230       body=   0
+!              hdr@  236 xt@  240 token=236 236       body=   0
++              hdr@  274 xt@  278 token=274 274       body=   0
+-              hdr@  280 xt@  284 token=280 280       body=   0
+*              hdr@  286 xt@  290 token=286 286       body=   0
+U/MOD          hdr@  302 xt@  310 token=302 302       body=   0
+AND            hdr@  312 xt@  318 token=312 312       body=   0
+XOR            hdr@  328 xt@  334 token=328 328       body=   0
+<              hdr@  380 xt@  384 token=380 380       body=   0
+KEY            hdr@  394 xt@  400 token=394 394       body=   0
+,              hdr@  432 xt@  436 token=432 432       body=   0
+:              hdr@  454 xt@  458 token=454 454       body=   0
+;              hdr@  460 xt@  464 token=460 460       body=   0
+'              hdr@  492 xt@  496 token=492 492       body=   0
+[']            hdr@  498 xt@  504 token=498 498       body=   0
+LITERAL        hdr@  506 xt@  516 token=506 506       body=   0
+\              hdr@  536 xt@  540 token=536 536       body=   0
+(              hdr@  542 xt@  546 token=542 542       body=   0
+GPIO@          hdr@  548 xt@  556 token=548 548       body=   0
+GPIO!          hdr@  558 xt@  566 token=558 558       body=   0
+PAUSE          hdr@  596 xt@  604 token=596 596       body=   0
+FAULT          hdr@  606 xt@  614 token=606 606       body=   0
+HERE           hdr@  630 xt@  637 token=18432 18432     body=  11
+LATEST         hdr@  650 xt@  659 token=18432 18432     body=  11
+STATE          hdr@  672 xt@  680 token= 72 72        body=  10
+IMMEDIATE      hdr@  692 xt@  704 token=660 660       body=  28
+TOK            hdr@  734 xt@  740 token=444 444       body=   4
+PH             hdr@  746 xt@  751 token=18432 18432     body=  21
+IF             hdr@  774 xt@  779 token=18432 18432     body=  13
+THEN           hdr@  794 xt@  801 token=32256 32256     body=   9
+ELSE           hdr@  812 xt@  819 token=18432 18432     body=  19
+BEGIN          hdr@  840 xt@  848 token=638 638       body=   4
+UNTIL          hdr@  854 xt@  862 token= 72 72        body=  12
+AGAIN          hdr@  876 xt@  884 token= 72 72        body=  12
+WHILE          hdr@  898 xt@  906 token= 72 72        body=  12
+REPEAT         hdr@  920 xt@  929 token=49664 49664     body=  21
+?DUP           hdr@  952 xt@  959 token=44544 44544     body=  11
+2DUP           hdr@  972 xt@  979 token=52224 52224     body=   7
+NIP            hdr@  988 xt@  994 token=194 194       body=   6
+1+             hdr@ 1002 xt@ 1007 token=18432 18432     body=  11
+1-             hdr@ 1020 xt@ 1025 token=18432 18432     body=  11
+=              hdr@ 1038 xt@ 1042 token=284 284       body=   6
++!             hdr@ 1050 xt@ 1055 token=44544 44544     body=  15
+SP             hdr@ 1072 xt@ 1077 token=18432 18432     body=  11
+CR             hdr@ 1090 xt@ 1095 token=18432 18432     body=  11
+.              hdr@ 1108 xt@ 1112 token=174 174       body= 130
+RAW@           hdr@ 1244 xt@ 1251 token=59904 59904     body=   5
+RAW!           hdr@ 1258 xt@ 1265 token=61440 61440     body=   5
+RAWC@          hdr@ 1272 xt@ 1280 token=248 248       body=   4
+RAWC!          hdr@ 1286 xt@ 1294 token=256 256       body=   4
+PRE@           hdr@ 1300 xt@ 1307 token=59904 59904     body=   5
+PRE!           hdr@ 1314 xt@ 1321 token=61440 61440     body=   5
+ERR_NO_SERVER  hdr@ 1348 xt@ 1364 token=  0 DOCOL     body=   6
+ERR_CRC        hdr@ 1372 xt@ 1382 token=65532 65532     body=   4
+FABSZ          hdr@ 1404 xt@ 1412 token=  0 DOCOL     body=   6
+FBLKN          hdr@ 1436 xt@ 1444 token=  0 DOCOL     body=   6
+FHERE          hdr@ 1500 xt@ 1508 token=  0 DOCOL     body=   6
+FAR?           hdr@ 1516 xt@ 1523 token=18432 18432     body=  11
+F>BLK          hdr@ 1536 xt@ 1544 token=1398 1398      body=  12
+F>OFF          hdr@ 1558 xt@ 1566 token=1398 1398      body=  14
+FAR            hdr@ 1582 xt@ 1588 token=194 194       body=  26
+FAR-FAIL       hdr@ 1616 xt@ 1627 token=44544 44544     body= 111
+FAR-READ       hdr@ 1740 xt@ 1751 token=44544 44544     body=  79
+FAR-SAVE       hdr@ 1832 xt@ 1843 token=37888 37888     body=  69
+FAR-RESET      hdr@ 1914 xt@ 1926 token= 72 72        body=  32
+FAR-ALLOT      hdr@ 1960 xt@ 1972 token=1508 1508      body=  64
+!              hdr@ 2038 xt@ 2042 token=174 174       body=  56
+C@             hdr@ 2100 xt@ 2105 token=44544 44544     body=  45
+C!             hdr@ 2152 xt@ 2157 token=44544 44544     body=  57
+POST@          hdr@ 2216 xt@ 2224 token=234 234       body=   4
+POSTC@         hdr@ 2230 xt@ 2239 token=14848 14848     body=   5
+RES            hdr@ 2246 xt@ 2252 token=1308 1308      body=   4
+
+paging.fs words, headerless total = 604
+== raw header walk, oldest-last (link chain from V_LATEST) ==
+HERE 2258 LATEST 2246
+EXIT           hdr=   56 xt=   63 flags=  4 code-cell=  768 first-body-token=14336 span=3
+LIT            hdr=   66 xt=   72 flags=  3 code-cell=    4 first-body-token=   66 span=2
+BRANCH         hdr=   74 xt=   83 flags=  6 code-cell= 1280 first-body-token=18944 span=3
+0BRANCH        hdr=   86 xt=   96 flags=  7 code-cell=    6 first-body-token=   86 span=2
+(DO)           hdr=   98 xt=  105 flags=  4 code-cell= 1792 first-body-token=25088 span=3
+(LOOP)         hdr=  108 xt=  117 flags=  6 code-cell= 2048 first-body-token=27648 span=3
+(+LOOP)        hdr=  120 xt=  130 flags=  7 code-cell=    9 first-body-token=  120 span=2
+I              hdr=  132 xt=  136 flags=  1 code-cell=   10 first-body-token=  132 span=2
+J              hdr=  138 xt=  142 flags=  1 code-cell=   11 first-body-token=  138 span=2
+UNLOOP         hdr=  144 xt=  153 flags=  6 code-cell= 3072 first-body-token=36864 span=3
+EXECUTE        hdr=  156 xt=  166 flags=  7 code-cell=   13 first-body-token=  156 span=2
+DUP            hdr=  168 xt=  174 flags=  3 code-cell=   14 first-body-token=  168 span=2
+DROP           hdr=  176 xt=  183 flags=  4 code-cell= 3840 first-body-token=45056 span=3
+SWAP           hdr=  186 xt=  193 flags=  4 code-cell= 4096 first-body-token=47616 span=3
+OVER           hdr=  196 xt=  203 flags=  4 code-cell= 4352 first-body-token=50176 span=3
+ROT            hdr=  206 xt=  212 flags=  3 code-cell=   18 first-body-token=  206 span=2
+>R             hdr=  214 xt=  219 flags=  2 code-cell= 4864 first-body-token=54784 span=3
+R>             hdr=  222 xt=  227 flags=  2 code-cell= 5120 first-body-token=56832 span=3
+@              hdr=  230 xt=  234 flags=  1 code-cell=   21 first-body-token=  230 span=2
+!              hdr=  236 xt=  240 flags=  1 code-cell=   22 first-body-token=  236 span=2
+C@             hdr=  242 xt=  247 flags=  2 code-cell= 5888 first-body-token=61952 span=3
+C!             hdr=  250 xt=  255 flags=  2 code-cell= 6144 first-body-token=64000 span=3
+W@             hdr=  258 xt=  263 flags=  2 code-cell= 6400 first-body-token=  512 span=3
+W!             hdr=  266 xt=  271 flags=  2 code-cell= 6656 first-body-token= 2560 span=3
++              hdr=  274 xt=  278 flags=  1 code-cell=   27 first-body-token=  274 span=2
+-              hdr=  280 xt=  284 flags=  1 code-cell=   28 first-body-token=  280 span=2
+*              hdr=  286 xt=  290 flags=  1 code-cell=   29 first-body-token=  286 span=2
+/MOD           hdr=  292 xt=  299 flags=  4 code-cell= 7680 first-body-token= 9216 span=3
+U/MOD          hdr=  302 xt=  310 flags=  5 code-cell=   31 first-body-token=  302 span=2
+AND            hdr=  312 xt=  318 flags=  3 code-cell=   32 first-body-token=  312 span=2
+OR             hdr=  320 xt=  325 flags=  2 code-cell= 8448 first-body-token=16384 span=3
+XOR            hdr=  328 xt=  334 flags=  3 code-cell=   34 first-body-token=  328 span=2
+INVERT         hdr=  336 xt=  345 flags=  6 code-cell= 8960 first-body-token=20480 span=3
+LSHIFT         hdr=  348 xt=  357 flags=  6 code-cell= 9216 first-body-token=23552 span=3
+RSHIFT         hdr=  360 xt=  369 flags=  6 code-cell= 9472 first-body-token=26624 span=3
+0=             hdr=  372 xt=  377 flags=  2 code-cell= 9728 first-body-token=29696 span=3
+<              hdr=  380 xt=  384 flags=  1 code-cell=   39 first-body-token=  380 span=2
+U<             hdr=  386 xt=  391 flags=  2 code-cell=10240 first-body-token=33280 span=3
+KEY            hdr=  394 xt=  400 flags=  3 code-cell=   41 first-body-token=  394 span=2
+KEY?           hdr=  402 xt=  409 flags=  4 code-cell=10752 first-body-token=37376 span=3
+EMIT           hdr=  412 xt=  419 flags=  4 code-cell=11008 first-body-token=39936 span=3
+TYPE           hdr=  422 xt=  429 flags=  4 code-cell=11264 first-body-token=42496 span=3
+,              hdr=  432 xt=  436 flags=  1 code-cell=   45 first-body-token=  432 span=2
+W,             hdr=  438 xt=  443 flags=  2 code-cell=11776 first-body-token=46592 span=3
+C,             hdr=  446 xt=  451 flags=  2 code-cell=12032 first-body-token=48640 span=3
+:              hdr=  454 xt=  458 flags=  1 code-cell=   48 first-body-token=  454 span=2
+;              hdr=  460 xt=  464 flags=129 code-cell=   49 first-body-token=  460 span=2
+CREATE         hdr=  466 xt=  475 flags=  6 code-cell=12800 first-body-token=53760 span=3
+CONSTANT       hdr=  478 xt=  489 flags=  8 code-cell=13056 first-body-token=56832 span=3
+'              hdr=  492 xt=  496 flags=  1 code-cell=   52 first-body-token=  492 span=2
+[']            hdr=  498 xt=  504 flags=131 code-cell=   53 first-body-token=  498 span=2
+LITERAL        hdr=  506 xt=  516 flags=135 code-cell=   54 first-body-token=  506 span=2
+."             hdr=  518 xt=  523 flags=130 code-cell=14080 first-body-token= 1536 span=3
+(.")           hdr=  526 xt=  533 flags=  4 code-cell=14336 first-body-token= 3584 span=3
+\              hdr=  536 xt=  540 flags=129 code-cell=   57 first-body-token=  536 span=2
+(              hdr=  542 xt=  546 flags=129 code-cell=   58 first-body-token=  542 span=2
+GPIO@          hdr=  548 xt=  556 flags=  5 code-cell=   59 first-body-token=  548 span=2
+GPIO!          hdr=  558 xt=  566 flags=  5 code-cell=   60 first-body-token=  558 span=2
+ADC@           hdr=  568 xt=  575 flags=  4 code-cell=15616 first-body-token=14336 span=3
+MS             hdr=  578 xt=  583 flags=  2 code-cell=15872 first-body-token=16896 span=3
+WAKE           hdr=  586 xt=  593 flags=  4 code-cell=16128 first-body-token=18944 span=3
+PAUSE          hdr=  596 xt=  604 flags=  5 code-cell=   64 first-body-token=  596 span=2
+FAULT          hdr=  606 xt=  614 flags=  5 code-cell=   65 first-body-token=  606 span=2
+FAR-XFER       hdr=  616 xt=  627 flags=  8 code-cell=16896 first-body-token=26624 span=3
+HERE           hdr=  630 xt=  637 flags=  4 code-cell=    0 first-body-token=18432 span=13
+LATEST         hdr=  650 xt=  659 flags=  6 code-cell=    0 first-body-token=18432 span=13
+STATE          hdr=  672 xt=  680 flags=  5 code-cell=    0 first-body-token=   72 span=12
+IMMEDIATE      hdr=  692 xt=  704 flags=  9 code-cell=    0 first-body-token=  660 span=30
+TOK            hdr=  734 xt=  740 flags=  3 code-cell=    0 first-body-token=  444 span=6
+PH             hdr=  746 xt=  751 flags=  2 code-cell=    0 first-body-token=18432 span=23
+IF             hdr=  774 xt=  779 flags=130 code-cell=    0 first-body-token=18432 span=15
+THEN           hdr=  794 xt=  801 flags=132 code-cell=    0 first-body-token=32256 span=11
+ELSE           hdr=  812 xt=  819 flags=132 code-cell=    0 first-body-token=18432 span=21
+BEGIN          hdr=  840 xt=  848 flags=133 code-cell=    0 first-body-token=  638 span=6
+UNTIL          hdr=  854 xt=  862 flags=133 code-cell=    0 first-body-token=   72 span=14
+AGAIN          hdr=  876 xt=  884 flags=133 code-cell=    0 first-body-token=   72 span=14
+WHILE          hdr=  898 xt=  906 flags=133 code-cell=    0 first-body-token=   72 span=14
+REPEAT         hdr=  920 xt=  929 flags=134 code-cell=    0 first-body-token=49664 span=23
+?DUP           hdr=  952 xt=  959 flags=  4 code-cell=    0 first-body-token=44544 span=13
+2DUP           hdr=  972 xt=  979 flags=  4 code-cell=    0 first-body-token=52224 span=9
+NIP            hdr=  988 xt=  994 flags=  3 code-cell=    0 first-body-token=  194 span=8
+1+             hdr= 1002 xt= 1007 flags=  2 code-cell=    0 first-body-token=18432 span=13
+1-             hdr= 1020 xt= 1025 flags=  2 code-cell=    0 first-body-token=18432 span=13
+=              hdr= 1038 xt= 1042 flags=  1 code-cell=    0 first-body-token=  284 span=8
++!             hdr= 1050 xt= 1055 flags=  2 code-cell=    0 first-body-token=44544 span=17
+SP             hdr= 1072 xt= 1077 flags=  2 code-cell=    0 first-body-token=18432 span=13
+CR             hdr= 1090 xt= 1095 flags=  2 code-cell=    0 first-body-token=18432 span=13
+.              hdr= 1108 xt= 1112 flags=  1 code-cell=    0 first-body-token=  174 span=132
+RAW@           hdr= 1244 xt= 1251 flags=  4 code-cell=    0 first-body-token=59904 span=7
+RAW!           hdr= 1258 xt= 1265 flags=  4 code-cell=    0 first-body-token=61440 span=7
+RAWC@          hdr= 1272 xt= 1280 flags=  5 code-cell=    0 first-body-token=  248 span=6
+RAWC!          hdr= 1286 xt= 1294 flags=  5 code-cell=    0 first-body-token=  256 span=6
+PRE@           hdr= 1300 xt= 1307 flags=  4 code-cell=    0 first-body-token=59904 span=7
+PRE!           hdr= 1314 xt= 1321 flags=  4 code-cell=    0 first-body-token=61440 span=7
+ERR_BUSY       hdr= 1328 xt= 1339 flags=  8 code-cell=  512 first-body-token=    0 span=9
+ERR_NO_SERVER  hdr= 1348 xt= 1364 flags= 13 code-cell=    2 first-body-token=    0 span=8
+ERR_CRC        hdr= 1372 xt= 1382 flags=  7 code-cell=    2 first-body-token=65532 span=6
+FAMASK         hdr= 1388 xt= 1397 flags=  6 code-cell=  512 first-body-token=65280 span=7
+FABSZ          hdr= 1404 xt= 1412 flags=  5 code-cell=    2 first-body-token=    0 span=8
+FBLK           hdr= 1420 xt= 1427 flags=  4 code-cell=  256 first-body-token=    0 span=9
+FBLKN          hdr= 1436 xt= 1444 flags=  5 code-cell=    1 first-body-token=    0 span=8
+FBUF           hdr= 1452 xt= 1459 flags=  4 code-cell=  256 first-body-token=    0 span=9
+FERR           hdr= 1468 xt= 1475 flags=  4 code-cell=  256 first-body-token=    0 span=9
+FXFERS         hdr= 1484 xt= 1493 flags=  6 code-cell=  256 first-body-token=    0 span=7
+FHERE          hdr= 1500 xt= 1508 flags=  5 code-cell=    1 first-body-token=    0 span=8
+FAR?           hdr= 1516 xt= 1523 flags=  4 code-cell=    0 first-body-token=18432 span=13
+F>BLK          hdr= 1536 xt= 1544 flags=  5 code-cell=    0 first-body-token= 1398 span=14
+F>OFF          hdr= 1558 xt= 1566 flags=  5 code-cell=    0 first-body-token= 1398 span=16
+FAR            hdr= 1582 xt= 1588 flags=  3 code-cell=    0 first-body-token=  194 span=28
+FAR-FAIL       hdr= 1616 xt= 1627 flags=  8 code-cell=    0 first-body-token=44544 span=113
+FAR-READ       hdr= 1740 xt= 1751 flags=  8 code-cell=    0 first-body-token=44544 span=81
+FAR-SAVE       hdr= 1832 xt= 1843 flags=  8 code-cell=    0 first-body-token=37888 span=71
+FAR-RESET      hdr= 1914 xt= 1926 flags=  9 code-cell=    0 first-body-token=   72 span=34
+FAR-ALLOT      hdr= 1960 xt= 1972 flags=  9 code-cell=    0 first-body-token= 1508 span=66
+!              hdr= 2038 xt= 2042 flags=  1 code-cell=    0 first-body-token=  174 span=58
+C@             hdr= 2100 xt= 2105 flags=  2 code-cell=    0 first-body-token=44544 span=47
+C!             hdr= 2152 xt= 2157 flags=  2 code-cell=    0 first-body-token=44544 span=59
+POST@          hdr= 2216 xt= 2224 flags=  5 code-cell=    0 first-body-token=  234 span=6
+POSTC@         hdr= 2230 xt= 2239 flags=  6 code-cell=    0 first-body-token=14848 span=7
+RES            hdr= 2246 xt= 2252 flags=  3 code-cell=    0 first-body-token= 1308 span=6

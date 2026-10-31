@@ -1,0 +1,82 @@
+
+== boot layer
+  PASS  boot_min.fs fits in 2 KB
+  (info) dictionary at 1350 of 2560 bytes after boot
+
+== arithmetic and stack primitives
+  PASS  add leaves one cell
+  PASS  1 2 + = 3
+  PASS  5 DUP * = 25
+  PASS  1 2 3 ROT -> 2 3 1
+  PASS  U/MOD remainder
+  PASS  U/MOD quotient
+
+== division edge cases
+  PASS  -7 2 /MOD remainder
+  PASS  -7 2 /MOD quotient
+  PASS  INT_MIN -1 /MOD remainder
+  PASS  INT_MIN -1 /MOD quotient
+  PASS  divide by zero remainder (Forth-level rule, not RISC-V's all-ones)
+  PASS  divide by zero quotient (Forth-level rule)
+
+== compiler and control flow
+  PASS  : T compiles
+  PASS  T pushes 3 indices
+  PASS  T[0]
+  PASS  T[1]
+  PASS  T[2]
+  PASS  nested loops push 6 J values
+  PASS  J first three
+  PASS  J fourth
+  PASS  J last
+  (info) +LOOP descending pushed 6 values: 5 4 3 2 1 0 
+  PASS  +LOOP -1 from 5 down over limit 0 runs 6 times
+  PASS  IF taken
+  PASS  ELSE taken
+  PASS  BEGIN/UNTIL runs until the flag
+  PASS  WHILE/REPEAT
+  PASS  ' Z EXECUTE
+  PASS  ['] + EXECUTE duplicates
+  PASS  nested colon words
+
+== definers
+  PASS  CREATE + , + @
+  PASS  CONSTANT
+  PASS  byte array second byte
+
+== number base
+  PASS  hex FF
+  PASS  decimal 255
+  PASS  HEX sets BASE to 16
+  PASS  HEX does not corrupt the dictionary chain (LATEST)
+  PASS  hex FF after HEX word
+  PASS  DECIMAL restores base 10
+  PASS  DECIMAL leaves LATEST alone
+
+== error handling and rollback
+NOSUCHWORD?
+  PASS  undefined word inside a definition fails loudly
+  PASS  dictionary pointer rolled back (HERE)
+  PASS  latest header rolled back (LATEST)
+  PASS  compile state cleared
+  PASS  previously defined word still works
+?
+  PASS  CREATE without a name fails
+  PASS  CREATE without a name does not move HERE
+
+== KNOWN DEFECTS — silent failure modes (asserting today's wrong behaviour)
+  PASS  DEFECT: out-of-range read is accepted silently
+  PASS  DEFECT: out-of-range byte write is accepted silently
+  PASS  DEFECT: out-of-range byte read back
+  PASS  DEFECT: every out-of-range address aliases one shared junk byte
+  PASS  DEFECT: 20 pushes into a 16-deep stack raise nothing
+  PASS  DEFECT: cell 0 was overwritten by the 17th push
+  PASS  DEFECT: underflowing + is silent and wraps sp
+  PASS  DEFECT: ' inside a colon definition compiles without complaint
+?
+  PASS  DEFECT: ... and then explodes at runtime, not at compile time
+  (info) 79-digit token parsed as one number, sp=1
+  PASS  DEFECT: a 79-digit token is one huge number, no overflow check
+  PASS  DEFECT: KEY? is hardwired false on the host
+
+58 passed, 0 failed

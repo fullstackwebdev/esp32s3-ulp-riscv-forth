@@ -1,0 +1,1 @@
+base text=4764 rodata=372 data=1720 bss=824 | ulp_bin(text+rodata+data)=6856

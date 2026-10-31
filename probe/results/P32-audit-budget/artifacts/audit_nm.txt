@@ -1,0 +1,62 @@
+# P32 audit — every non-engine byte in P31 variant C's diagnostic link (LENGTH 12000)
+## sections
+../P31-primitive-set/artifacts/p31_C_diag.elf  :
+section             size   addr
+.text               3448      0
+.rodata              160   3448
+.srodata.seed.0        8   3608
+.data                  4   3616
+.bss                4532   3620
+.comment              47      0
+.riscv.attributes     68      0
+Total               8267
+
+
+## control image (harness-only stub) sections
+../P31-primitive-set/artifacts/p31_control.elf  :
+section             size   addr
+.text                196      0
+.bss                3544    196
+.comment              47      0
+.riscv.attributes     68      0
+Total               3855
+
+
+## budget arrays, nm -S
+00001394 00000080 b cmd_ring
+00001424 00000800 b frm
+000011bc 000000d8 b mailbox
+00001c24 0000038c b mem
+00001294 00000100 b out_ring
+00001414 00000010 b ptab
+000010d0 000000ea b ptab_lru_reserve
+00000fc8 00000080 b tib
+00000e24 000001a4 b tsk
+00001048 00000088 b vm_live
+## scalars / seed / data
+00000e20 00000004 d cur
+00001fd4 00000001 b errf
+00001fb0 00000004 b halt_status
+00001fd7 00000001 b junk
+00001fb4 00000004 b ring_head
+00001fd0 00000004 b savehere
+00001fcc 00000004 b savelatest
+00000e18 00000008 r seed.0
+00001fd5 00000001 b ti
+00001fd6 00000001 b tl
+00001fbc 00000004 b vm_depth
+00001fb8 00000004 b vm_max_depth
+00001fc0 00000004 b vm_sw_first
+00001fc8 00000004 b vm_switches
+00001fc4 00000004 b vm_sw_taskexit
+## control text symbols (startup + main skeleton)
+00000014 00000078 T main
+00000004 00000010 T __start
+000000a0 00000024 T ulp_riscv_halt
+0000008c 00000014 T ulp_riscv_rescue_from_monitor
+## C text: hooks and paging helpers
+00000a46 000002fa T main
+00000084 0000006c t pg_load
+0000035c 00000022 T pl_emit
+00000482 0000002e T pl_halt
+000001d8 0000003c t rd16_paged

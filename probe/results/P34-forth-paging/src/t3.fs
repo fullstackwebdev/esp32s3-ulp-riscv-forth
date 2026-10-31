@@ -1,0 +1,2 @@
+: B 0 IF 66 EMIT THEN 67 EMIT ;
+B CR

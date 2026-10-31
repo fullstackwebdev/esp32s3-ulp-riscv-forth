@@ -1,0 +1,2 @@
+: FIB DUP 2 < IF ELSE DUP 1- FIB SWAP 2 - FIB + THEN ;
+16 FIB .

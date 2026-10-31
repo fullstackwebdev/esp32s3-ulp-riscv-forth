@@ -1,0 +1,20 @@
+## D vs C: text symbols that changed (size in bytes)
+main                 C=762   D=624   delta=-138
+mkhdr                C=194   D=148   delta=-46
+wr16                 C=66    D=36    delta=-30
+vm_enter             C=1354  D=1794  delta=+440
+word                 C=172   D=202   delta=+30
+
+## D sections
+artifacts/p32_D_diag.elf  :
+section             size   addr
+.text               3916      0
+.rodata              196   3916
+.srodata.seed.0        8   4112
+.data                  4   4120
+.bss                4532   4124
+.comment              47      0
+.riscv.attributes     68      0
+Total               8771
+
+

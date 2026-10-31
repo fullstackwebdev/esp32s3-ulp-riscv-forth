@@ -1,0 +1,476 @@
+Archive member included to satisfy reference by file (symbol)
+
+/home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+                              /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o (memset)
+/home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+                              /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o (memcpy)
+
+Discarded input sections
+
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.forth_quit
+                0x00000000        0x2 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pl_key   0x00000000        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pl_hw    0x00000000       0x6a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_vectors.S.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_vectors.S.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_vectors.S.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/start.S.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/start.S.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_adc.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_adc.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_adc.c.obj
+ .text.ulp_riscv_adc_read_channel
+                0x00000000       0xae /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_adc.c.obj
+ .comment       0x00000000       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_adc.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_adc.c.obj
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_adc.c.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+ .text.ulp_riscv_lock_acquire
+                0x00000000       0x16 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+ .text.ulp_riscv_lock_release
+                0x00000000        0x6 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+ .comment       0x00000000       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .text.ulp_riscv_delay_cycles
+                0x00000000       0x12 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .text.ulp_riscv_gpio_output_level.part.0
+                0x00000000       0x1a /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .text.ulp_riscv_uart_init
+                0x00000000       0xae /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .text.ulp_riscv_uart_putc
+                0x00000000       0x9e /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .comment       0x00000000       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .text.ulp_riscv_print_install
+                0x00000000        0xe /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .text.ulp_riscv_print_str
+                0x00000000       0x34 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .text.ulp_riscv_print_hex
+                0x00000000       0x50 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .text.ulp_riscv_print_hex_with_number_of_digits
+                0x00000000       0x8a /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .sbss.s_print_ctx
+                0x00000000        0x8 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .comment       0x00000000       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .text.ulp_riscv_i2c_wait_for_interrupt.constprop.0
+                0x00000000       0x32 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .text.ulp_riscv_i2c_master_set_slave_addr
+                0x00000000       0x1a /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .text.ulp_riscv_i2c_master_set_slave_reg_addr
+                0x00000000       0x20 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .text.ulp_riscv_i2c_master_read_from_device
+                0x00000000      0x150 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .text.ulp_riscv_i2c_master_write_to_device
+                0x00000000      0x10c /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .comment       0x00000000       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .text.ulp_riscv_wakeup_main_processor
+                0x00000000        0xc /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .text.ulp_riscv_timer_stop
+                0x00000000       0x10 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .text.ulp_riscv_timer_resume
+                0x00000000       0x12 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .text.ulp_riscv_gpio_wakeup_clear
+                0x00000000       0x12 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text.ulp_riscv_touch_pad_read_raw_data
+                0x00000000       0x40 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text.ulp_riscv_touch_pad_read_benchmark
+                0x00000000       0x46 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text.ulp_riscv_touch_pad_filter_read_smooth
+                0x00000000       0x3e /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text.ulp_riscv_touch_pad_reset_benchmark
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text.ulp_riscv_touch_pad_sleep_channel_read_data
+                0x00000000       0x4c /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text.ulp_riscv_touch_pad_sleep_channel_read_benchmark
+                0x00000000       0x3e /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text.ulp_riscv_touch_pad_sleep_channel_read_smooth
+                0x00000000       0x36 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text.ulp_riscv_touch_pad_sleep_channel_reset_benchmark
+                0x00000000       0x1a /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .comment       0x00000000       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_gpio.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_gpio.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_gpio.c.obj
+ .comment       0x00000000       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_gpio.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_gpio.c.obj
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_gpio.c.obj
+ .text          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_interrupt.c.obj
+ .data          0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_interrupt.c.obj
+ .bss           0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_interrupt.c.obj
+ .comment       0x00000000       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_interrupt.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_interrupt.c.obj
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_interrupt.c.obj
+ .data          0x00000000        0x0 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+ .bss           0x00000000        0x0 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+ .data          0x00000000        0x0 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+ .bss           0x00000000        0x0 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+ram              0x00000000         0x00002ee0         rw
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+LOAD /home/user/research/esp32/esp-idf/components/ulp/ld/esp32s3.peripherals.ld
+                0x00008000                        PROVIDE (RTCCNTL = 0x8000)
+                [!provide]                        PROVIDE (RTCIO = 0xa400)
+                0x0000c800                        PROVIDE (SENS = 0xc800)
+                [!provide]                        PROVIDE (RTC_I2C = 0xec00)
+LOAD /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_vectors.S.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/start.S.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_adc.c.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_lock.c.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_uart.c.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_print.c.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_i2c.c.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_touch.c.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_gpio.c.obj
+LOAD /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_interrupt.c.obj
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/rv32imc_zicsr_zifencei/ilp32/libgcc.a
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/rv32imc_zicsr_zifencei/ilp32/libgcc.a
+START GROUP
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/rv32imc_zicsr_zifencei/ilp32/libgcc.a
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libnosys.a
+END GROUP
+START GROUP
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/rv32imc_zicsr_zifencei/ilp32/libgcc.a
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a
+LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libnosys.a
+END GROUP
+                0x00000000                        . = ORIGIN (ram)
+
+.text           0x00000000     0x17a4
+ *ulp_riscv_vectors.S.obj(.text.vectors)
+ .text.vectors  0x00000000        0x4 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_vectors.S.obj
+                0x00000000                reset_vector
+ *(.text)
+ .text          0x00000004       0x16 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/start.S.obj
+                0x00000004                __start
+ .text          0x0000001a       0xa8 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+                0x0000001a                memset
+ .text          0x000000c2       0xe8 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+                0x000000c2                memcpy
+ *(.text*)
+ .text.rd8      0x000001aa       0x1e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.wr8      0x000001c8       0x1e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.rd16     0x000001e6       0x2a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.wr16     0x00000210       0x24 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.rd32     0x00000234       0x22 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.wr32     0x00000256       0x24 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pg_load  0x0000027a       0x6c /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.resolve  0x000002e6       0x24 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.rd16_paged
+                0x0000030a       0x1a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.PUSH     0x00000324       0x1c /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.RPUSH    0x00000340       0x1e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.word     0x0000035e       0xca /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.find     0x00000428       0x94 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.cw       0x000004bc       0x20 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.clit     0x000004dc       0x22 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.a4       0x000004fe       0x16 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.vm_next_ready
+                0x00000514       0x34 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.vm_switch
+                0x00000548       0x66 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_DOCOL
+                0x000005ae       0x24 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_DOVAR
+                0x000005d2        0xc /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_DOCON
+                0x000005de       0x16 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_LIT   0x000005f4       0x40 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_BRANCH
+                0x00000634       0x1e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_ZBRANCH
+                0x00000652       0x42 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_DO    0x00000694       0x3a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_LOOP  0x000006ce       0x60 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_PLOOP
+                0x0000072e       0x74 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_I     0x000007a2       0x18 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_J     0x000007ba       0x18 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_UNLOOP
+                0x000007d2       0x12 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_DUP   0x000007e4       0x16 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_DROP  0x000007fa       0x12 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_SWAP  0x0000080c       0x26 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_OVER  0x00000832       0x16 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_ROT   0x00000848       0x34 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_TOR   0x0000087c       0x1e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_RFROM
+                0x0000089a       0x20 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_FETCH
+                0x000008ba       0x28 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_STORE
+                0x000008e2       0x2c /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_CFETCH
+                0x0000090e       0x28 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_CSTORE
+                0x00000936       0x2e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_WFETCH
+                0x00000964       0x28 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_WSTORE
+                0x0000098c       0x2e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_ADD   0x000009ba       0x2e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_SUB   0x000009e8       0x2e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_MUL   0x00000a16       0x30 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_DIVMOD
+                0x00000a46       0x50 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_UDIVMOD
+                0x00000a96       0x40 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_AND   0x00000ad6       0x2e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_OR    0x00000b04       0x2e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_XOR   0x00000b32       0x2e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_INVERT
+                0x00000b60       0x1c /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_LSHIFT
+                0x00000b7c       0x30 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_RSHIFT
+                0x00000bac       0x30 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_ZEQ   0x00000bdc       0x20 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_LT    0x00000bfc       0x34 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_ULT   0x00000c30       0x34 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_KEY   0x00000c64        0x6 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_KEYQ  0x00000c6a        0x6 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_COMMA
+                0x00000c70       0x42 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_WCOMMA
+                0x00000cb2       0x22 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_CCOMMA
+                0x00000cd4       0x40 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_SEMI  0x00000d14       0x1a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_LITERAL
+                0x00000d2e       0x20 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_BSLASH
+                0x00000d4e        0xe /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_PAREN
+                0x00000d5c       0x3a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_GPIOG
+                0x00000d96       0x28 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_GPIOS
+                0x00000dbe       0x3a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_ADCG  0x00000df8       0x2a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_MS    0x00000e22       0x2a /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pl_emit  0x00000e4c       0x22 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+                0x00000e4c                pl_emit
+ .text.pr_EMIT  0x00000e6e       0x1e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_TYPE  0x00000e8c       0x4e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_DOTQ  0x00000eda      0x102 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_PDOTQ
+                0x00000fdc       0x4c /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.err      0x00001028       0x44 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.mkhdr    0x0000106c       0xa8 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_COLON
+                0x00001114       0x34 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_CREATE
+                0x00001148       0x18 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_CONSTANT
+                0x00001160       0x50 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_TICK  0x000011b0       0x22 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pr_BTICK
+                0x000011d2       0x22 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.pl_halt  0x000011f4       0x2e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+                0x000011f4                pl_halt
+ .text.vm_task_leave
+                0x00001222       0x50 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.vm_enter
+                0x00001272      0x29c /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .text.startup.main
+                0x0000150e      0x25e /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+                0x0000150e                main
+ .text.ulp_riscv_rescue_from_monitor
+                0x0000176c       0x14 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+                0x0000176c                ulp_riscv_rescue_from_monitor
+ .text.ulp_riscv_halt
+                0x00001780       0x24 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+                0x00001780                ulp_riscv_halt
+
+.rodata         0x000017a4      0x108
+ *(.rodata)
+ *(.rodata*)
+ .rodata.vm_enter
+                0x000017a4      0x108 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+
+.srodata.seed.0
+                0x000018ac        0x8
+ .srodata.seed.0
+                0x000018ac        0x8 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+
+.rela.dyn       0x000018b4        0x0
+ .rela.text     0x000018b4        0x0 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+
+.data           0x000018b4        0x4
+ *(.data)
+ *(.data*)
+ *(.sdata)
+ *(.sdata*)
+ .sdata.cur     0x000018b4        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+
+.bss            0x000018b8     0x11c4
+ *(.bss)
+ *(.bss*)
+ .bss.tsk       0x000018b8      0x1a4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss.tib       0x00001a5c       0x80 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss.vm_live   0x00001adc       0x88 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss.ptab_lru_reserve
+                0x00001b64       0xea /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ *fill*         0x00001c4e        0x2 
+ .bss.mailbox   0x00001c50       0xd8 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss.out_ring  0x00001d28      0x100 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss.cmd_ring  0x00001e28       0x80 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss.ptab      0x00001ea8       0x10 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss.frm       0x00001eb8      0x800 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .bss.mem       0x000026b8      0x38c /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ *(.sbss)
+ *(.sbss*)
+ .sbss.halt_status
+                0x00002a44        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.ring_head
+                0x00002a48        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_faults_left
+                0x00002a4c        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_max_depth
+                0x00002a50        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_depth
+                0x00002a54        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_sw_first
+                0x00002a58        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_sw_taskexit
+                0x00002a5c        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_faults
+                0x00002a60        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_sw_fault
+                0x00002a64        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_sw_pause
+                0x00002a68        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.vm_switches
+                0x00002a6c        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.savelatest
+                0x00002a70        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.savehere
+                0x00002a74        0x4 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.errf     0x00002a78        0x1 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.ti       0x00002a79        0x1 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.tl       0x00002a7a        0x1 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .sbss.junk     0x00002a7b        0x1 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+                0x00002ee0                        __stack_top = (ORIGIN (ram) + LENGTH (ram))
+OUTPUT(/home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/p30_C_diag.elf elf32-littleriscv)
+
+.comment        0x00000000       0x2f
+ .comment       0x00000000       0x2f /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+                                 0x30 (size before relaxing)
+ .comment       0x0000002f       0x30 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .comment       0x0000002f       0x30 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.note.GNU-stack
+                0x00000000        0x0
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .note.GNU-stack
+                0x00000000        0x0 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.riscv.attributes
+                0x00000000       0x44
+ .riscv.attributes
+                0x00000000       0x44 /home/user/research/esp32-rv32/probe/results/P30-code-structure/artifacts/ulp_stubs_C.o
+ .riscv.attributes
+                0x00000044       0x2d /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_vectors.S.obj
+ .riscv.attributes
+                0x00000071       0x2d /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/start.S.obj
+ .riscv.attributes
+                0x0000009e       0x44 /home/user/research/esp32-rv32/probe/results/P20-native-accessors/idfproj/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+ .riscv.attributes
+                0x000000e2       0x42 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+ .riscv.attributes
+                0x00000124       0x44 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.debug_line     0x00000000      0x4aa
+ .debug_line    0x00000000      0x18e /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+ .debug_line    0x0000018e      0x31c /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.debug_line_str
+                0x00000000      0x2b5
+ .debug_line_str
+                0x00000000      0x2b5 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+                                 0xd8 (size before relaxing)
+ .debug_line_str
+                0x000002b5      0x338 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.debug_info     0x00000000      0x289
+ .debug_info    0x00000000       0x33 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+ .debug_info    0x00000033      0x256 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.debug_abbrev   0x00000000      0x12f
+ .debug_abbrev  0x00000000       0x28 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+ .debug_abbrev  0x00000028      0x107 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.debug_aranges  0x00000000       0x40
+ .debug_aranges
+                0x00000000       0x20 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+ .debug_aranges
+                0x00000020       0x20 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.debug_str      0x00000000      0x1d3
+ .debug_str     0x00000000      0x1d3 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memset.o)
+                                 0xed (size before relaxing)
+ .debug_str     0x000001d3      0x129 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.debug_loclists
+                0x00000000      0x1d6
+ .debug_loclists
+                0x00000000      0x1d6 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)
+
+.debug_frame    0x00000000       0x20
+ .debug_frame   0x00000000       0x20 /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/../lib/gcc/riscv32-esp-elf/14.2.0/../../../../riscv32-esp-elf/lib/rv32imc_zicsr_zifencei/ilp32/libc_nano.a(libc_a-memcpy.o)

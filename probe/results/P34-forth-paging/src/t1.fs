@@ -1,0 +1,4 @@
+: SQ ( n -- ) DUP * ;
+: T1 ( -- ) 7 SQ 49 = IF 49 EMIT ELSE 48 EMIT THEN ;
+: T2 ( -- ) 3 0 BEGIN DUP 3 < WHILE 1+ REPEAT DROP DROP 49 EMIT ;
+T1 T2 CR
