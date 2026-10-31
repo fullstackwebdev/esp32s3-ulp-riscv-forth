@@ -13,7 +13,9 @@
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_EXIT)
         case P_EXIT:
-            if (!ip) { if (!vm_task_leave()) { vm_depth--; return; } continue; }
+            /* P56: same switch point as the loop tail — flush the hoisted w/ip before vm_task_leave can
+             * copy V, and reload afterwards because it overwrote the fields those locals shadow. */
+            if (!ip) { VM_FLUSH(); if (!vm_task_leave()) { vm_depth--; return; } VM_RELOAD(); continue; }
             ip = RPOP(); break;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_LIT)

@@ -921,6 +921,24 @@ volatile u32 p42_dispatches;
 static void vm_enter(void)
 {
     u32 a, b, n; u8 i, imm; u16 x;
+    /* GUARDRAIL: w and ip are u16 FIELDS of the VM struct, so every token used to read and write them in
+     * memory — twice per dispatch, plus once per body that touches ip (LIT, BRANCH, ZBRANCH, DOCOL, EXIT,
+     * EXEC). They are hoisted into locals here and flushed only where the machine actually leaves: at a task
+     * switch and at a return. GUARDRAIL: EVERY exit path must VM_FLUSH first — the next vm_enter resumes from
+     * V->IP, so an unflushed return resumes at the previous token and silently re-executes it.
+     * GUARDRAIL: vm_task_leave() copies V (vm_switch saves the current task and loads the next), so it needs
+     * a flush before and a reload after; a reload is not optional, because it overwrites the very fields the
+     * locals shadow. */
+    u16 lw = V->W, lip = V->IP;
+    /* GUARDRAIL: #undef before redefining. Redefining w/ip silently produced two compiler warnings ("w
+     * redefined") on every build, and a warning nobody reads is how a real redefinition goes unnoticed. The
+     * originals are restored after the function so the file's meaning is unchanged outside it. */
+#undef w
+#undef ip
+#define w  lw
+#define ip lip
+#define VM_FLUSH()   (V->W = lw, V->IP = lip)
+#define VM_RELOAD()  (lw = V->W, lip = V->IP)
     vm_depth++; if (vm_depth > vm_max_depth) vm_max_depth = vm_depth;
     for (;;) {
 #ifdef P42_COUNT
@@ -945,11 +963,18 @@ static void vm_enter(void)
         if (stack_ovf) {
             /* GUARDRAIL: variant (f) — (d) applied. */
             stack_ovf = 0; sp = 0; rsp = 0; errf_msg(MSG_ERR_STACK);
-            vm_depth--; return;
+            VM_FLUSH(); vm_depth--; return;
         }
-        if (!ip) { if (!vm_task_leave()) { vm_depth--; return; } continue; }
+        if (!ip) { VM_FLUSH(); if (!vm_task_leave()) { vm_depth--; return; } VM_RELOAD(); continue; }
         w = rd16_paged(ip); ip += 2;
     }
+#undef w
+#undef ip
+#undef VM_FLUSH
+#undef VM_RELOAD
+/* restore the file-scope meaning of the two names for everything after vm_enter */
+#define w  (V->W)
+#define ip (V->IP)
 }
 
 #if defined(P54_BINOPS)
