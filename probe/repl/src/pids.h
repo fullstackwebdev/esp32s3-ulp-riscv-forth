@@ -69,6 +69,5 @@
 #define ID_MS 62u
 #define ID_WAKE 63u
 #define ID_PAUSE 64u
-#define ID_FAULT 65u
-#define ID_BLKXFER 66u
-#define ID_SPAWN 67u
+#define ID_BLKXFER 65u
+#define ID_SPAWN 69u

@@ -487,6 +487,15 @@ _Static_assert(P_ZEQ   == ID_ZEQ,   "pids.h drift: 0=");
 _Static_assert(P_EXIT  == ID_EXIT,  "pids.h drift: EXIT");
 _Static_assert(P_DOCOL == ID_DOCOL, "pids.h drift: DOCOL");
 _Static_assert(P_LIT   == ID_LIT,   "pids.h drift: LIT");
+/* GUARDRAIL: pids.h is the ASSEMBLER's view of the SHIPPING image, and it HAD drifted: it said
+ * `ID_BLKXFER 66 / ID_SPAWN 67` while the enum says 65 and 69 — the ids between BLKXFER and SPAWN were
+ * missing from the file entirely. Nothing caught it, because the assembler that consumes pids.h is not built
+ * and every static assert above names an id below 40. It surfaced only when removing FAULT shifted every
+ * later id and SPAWN finally dispatched as the wrong word.
+ * GUARDRAIL: no assert can guard this file, which is why there is a comment instead: the ids are
+ * CONFIGURATION-DEPENDENT (a plain host build has no block primitives, so every id after them shifts; the
+ * blocks host build runs a different P54 rung), so an assert that passes in the shipping build fails in the
+ * next correct build. When you add, remove or reorder a primitive, re-derive pids.h FROM THE ENUM. */
 _Static_assert(SD == 16, "dispatch.S assumes SD=16 for the stack wrap check");
 _Static_assert(sizeof(VM) == 136, "dispatch.S hard-codes the VM layout");
 
@@ -722,7 +731,12 @@ static int cur = -1;                  /* -1 = run() is the outer interpreter, no
  * neither the boot banner, the suite, the bench, nor any tool. `vm_sw_fault` and `vm_faults` stay: they are
  * incremented in the FAULT body, which is compiled out under P33_NOPAGE but live in that build, and
  * `vm_faults_left` there is functional state (how many injected faults remain), not a counter. */
-static u32 vm_sw_fault, vm_faults;
+/* GUARDRAIL: vm_sw_fault, vm_faults and vm_faults_left are GONE with the FAULT word. FAULT was a
+ * paging-era primitive: under P33_NOPAGE nothing ever set vm_faults_left nonzero, so its body reduced to
+ * `if (0) { ... } goto tail;` — a word in the dictionary that could not do anything. Removing it takes the
+ * entry from the dispatch table, its case body, its 3 state words, and its header plus code field with it.
+ * GUARDRAIL: it is deleted from p31_prims.inc, not just gated, because p54_gen.py derives the P_HAVE_* subset
+ * list from that file — gating one place and leaving the other is how a word comes back on regeneration. */
 /* Depth of the C calls into the interpreter. A switch must NOT change it: if PAUSE or a
  * fault returned through C, a task that yielded mid-word would unwind to its caller and the
  * resume would start a second vm_enter. Measured so the claim is not an assertion. */
@@ -742,7 +756,6 @@ static int vm_depth, vm_max_depth;
 #define VMD_ENTER()  ((void)0)
 #define VMD_LEAVE()  ((void)0)
 #endif
-static u32 vm_faults_left;            /* injected faults remaining (0 = page resident) */
 /* GUARDRAIL: the `vm_trace` hook is deleted, not just unreferenced. Nothing in the tree ever assigned it, so
  * the call site cost a load, a branch and an indirect call per task switch to invoke a function that was
  * always null. P29's rule — a hook that nothing calls is a stub — applies one step further: a hook nothing
@@ -1118,7 +1131,6 @@ static void vm_enter(void)
         [P_EXIT] = DISP_ENT(L_P_EXIT),
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_FAULT)
-        [P_FAULT] = DISP_ENT(L_P_FAULT),
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_FETCH)
         [P_FETCH] = DISP_ENT(L_P_FETCH),
@@ -1344,12 +1356,17 @@ static void interpret(void)
          * named like a number (`-`) or a number that overflows still resolves exactly as before. */
         u8 c0 = mem[PAD + 1];
         int numeric = (c0 >= '0' && c0 <= '9') || (c0 == '-' && n > 1);
+        /* GUARDRAIL: V_STATE is read ONCE per token. rd32() is a bounds-checked function call, and this
+         * block called it in every branch — up to three times for one typed token, on the hottest
+         * interactive path. The state cannot change between those reads: nothing in this block executes a
+         * word (clit/cw/PUSH/run happen after the decision), so the hoist is not just cheap, it is exact. */
+        u32 compiling = rd32(V_STATE);
         if (numeric && number(n, &v)) {
-            if (rd32(V_STATE)) clit(v); else PUSH(v);
+            if (compiling) clit(v); else PUSH(v);
         } else if ((xt = find(n, &imm))) {
-            if (rd32(V_STATE) && !imm) cw(xt); else run(xt);
+            if (compiling && !imm) cw(xt); else run(xt);
         } else if (!numeric && number(n, &v)) {
-            if (rd32(V_STATE)) clit(v); else PUSH(v);
+            if (compiling) clit(v); else PUSH(v);
         } else err();
     }
     if (errf) {

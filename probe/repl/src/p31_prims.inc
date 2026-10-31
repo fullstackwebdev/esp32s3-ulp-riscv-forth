@@ -187,6 +187,3 @@ X(WAKE,"WAKE",0)
 #if !defined(P31_SUBSET) || defined(P_HAVE_PAUSE)
 X(PAUSE,"PAUSE",0)
 #endif
-#if !defined(P31_SUBSET) || defined(P_HAVE_FAULT)
-X(FAULT,"FAULT",0)
-#endif

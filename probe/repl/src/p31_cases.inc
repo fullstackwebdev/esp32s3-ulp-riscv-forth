@@ -256,13 +256,3 @@
          * (nothing of it has executed), unlike PAUSE which has finished — but the save,
          * the restore and the re-entry are the same vm_switch(), which is the claim. */
 #endif
-#if !defined(P31_SUBSET) || defined(P_HAVE_FAULT)
-        L_P_FAULT:
-            if (vm_faults_left) {
-                vm_faults_left--; vm_faults++; vm_sw_fault++;
-                vm_switch(cur < 0 ? 0 : cur);        /* retry = switch to this same machine */
-                goto top;                            /* page now resident: re-execute it */
-            }
-            goto tail;                                   /* resident: no-op */
-        
-#endif

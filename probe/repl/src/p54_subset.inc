@@ -95,4 +95,3 @@
 #define P_HAVE_MS 1
 #define P_HAVE_WAKE 1
 #define P_HAVE_PAUSE 1
-#define P_HAVE_FAULT 1

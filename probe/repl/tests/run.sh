@@ -23,14 +23,20 @@ export IDF_PATH=/home/user/research/esp32/esp-idf
 # shellcheck disable=SC1091
 . "$IDF_PATH/export.sh" >/dev/null 2>&1 || true
 
+# GUARDRAIL: a failed build must ABORT, not fall through to the STALE binary. Without these checks a
+# compile error left the previous host_suite in place, the suite ran it, and the run reported 14/14 PASS on a
+# tree that would not compile — measured while removing FAULT, where the assertion error was invisible until
+# the pullout ran the assert on a re-run. Same rule as "a green suite must never be achieved by recording a
+# gap": it must also never be achieved by running the wrong binary.
 gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
-    -o artifacts/host_suite src/uforth.c
+    -o artifacts/host_suite src/uforth.c || { echo "BUILD FAILED: host_suite will not compile" >&2; exit 1; }
 gcc -Os -o artifacts/expand tools/expand.c
 # GUARDRAIL: the block layer is compiled out of the plain host build, so a block test against it would only
 # prove that BLOCK is unknown. A SECOND binary carries the shipping block flags, and tests named blocks*.fs
 # run against that one — the flag set lives here, next to the engine, not in the test file.
 gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1200 \
-    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_blk src/uforth.c
+    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_blk src/uforth.c \
+    || { echo "BUILD FAILED: host_blk will not compile" >&2; exit 1; }
 
 fail=0
 for f in tests/*.fs; do
