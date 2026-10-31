@@ -117,6 +117,36 @@ static void console_task(void *arg)
 #define BLK_SZ    256
 static uint32_t blk_sz;      /* transfer size, published by the ULP */
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
+/* ---- ULP stack high-water probe (row 10 of the A/B) ---------------------------------------------------------
+ * The ULP stack grows down from ulp___stack_top (0x50001ff0) into .bss, so an overflow corrupts engine state
+ * instead of faulting - that is how a 336 B chain silently broke block I/O earlier. The main core can WRITE RTC
+ * slow RAM, so it paints the region above the image with 0xA5 before the ULP starts, and afterwards reports the
+ * lowest byte the ULP has touched. That turns the frame arithmetic into a measurement at zero cost in ULP bytes.
+ *
+ * GUARDRAIL: the paint starts at 0x1EB0, not at pool_end. The pool ends at 0x1EA7 with this image (7847 B) and
+ * painting from below that would erase mem[]/tib/mailbox - a "measurement" that destroys the thing it measures.
+ * If the image grows past 0x1EB0 this must move down with it, which is why the end is asserted at boot.
+ */
+#define CANARY_BASE 0x1EB0u
+#define STACK_TOP   0x1FF0u
+#define CANARY_VAL  0xA5u
+
+static void canary_paint(void)
+{
+    volatile uint8_t *p = (volatile uint8_t *)(ULP_RAM_BASE + CANARY_BASE);
+    uint32_t i;
+    for (i = 0; i < STACK_TOP - CANARY_BASE; i++) p[i] = CANARY_VAL;
+}
+
+static uint32_t canary_used(void)
+{
+    volatile uint8_t *p = (volatile uint8_t *)(ULP_RAM_BASE + CANARY_BASE);
+    uint32_t i, low = STACK_TOP - CANARY_BASE;
+    for (i = 0; i < STACK_TOP - CANARY_BASE; i++) if (p[i] != CANARY_VAL) low = i;
+    /* the stack grows DOWN from STACK_TOP, so the deepest touch is the LOWEST painted byte that changed */
+    return (low < STACK_TOP - CANARY_BASE) ? (STACK_TOP - CANARY_BASE - low) : 0u;
+}
+
 static void block_task(void *arg)
 {
     (void)arg;
@@ -200,6 +230,13 @@ static void block_task(void *arg)
                 }
             }
         }
+        /* once, after the ULP has done real work: report the painted high-water mark */
+        { static int reported; static uint32_t ticks;
+          if (!reported && ++ticks == 4000u) {
+              printf("canary: ULP stack used %u B of %u B painted (reserve above the pool)\n",
+                     (unsigned)canary_used(), (unsigned)(STACK_TOP - CANARY_BASE));
+              fflush(stdout); reported = 1;
+          } }
         vTaskDelay(1);                            /* 1 ms: the ULP's poll is bounded, so keep this short */
     }
 }
@@ -207,6 +244,7 @@ static void block_task(void *arg)
 /* GUARDRAIL: declared here because app_main creates the server before this file defines it — an
  * undeclared-call error, which is the good kind: it fails at compile time instead of linking a task
  * that never starts. */
+
 static void block_task(void *arg);
 
 void app_main(void)
@@ -244,6 +282,7 @@ void app_main(void)
     }
     /* 1 000 ticks at the measured 6.46 us/tick = 6 460 us. The API takes microseconds. */
     ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
+    canary_paint();                      /* before the ULP runs: the only moment the stack is untouched */
     ESP_ERROR_CHECK(ulp_riscv_run());
     ESP_LOGI(TAG, "ulp armed");
 

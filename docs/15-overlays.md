@@ -449,3 +449,39 @@ both pointers sealed). What is still *not* covered is a multi-block phase travel
 the generated attempt is shelved in `tests/fixtures/overlay_capacity_wip.fs` rather than deleted, and the three
 generator faults found on the way are recorded in its GUARDRAILs (backslash comments swallow a chunk, fixed
 128-byte cuts splice tokens, and a cut between definitions is the only safe boundary).
+
+---
+
+## The A/B, row by row (state of the evidence)
+
+Control = the same program as ONE image in an engine built **without** overlays (`artifacts/host_ctl`,
+its own best MEMSZ 2296). After = three phases rewound between loads, plus the resident event loop.
+Every number below is read from a run in this tree; nothing is estimated.
+
+| # | metric | control | after | verdict |
+|---|---|---|---|---|
+| 1 | free space at the prompt | **1 536 B** (measured on this engine, not the historical 1 544) | **690 B** (chip and host agree) | **FAIL**: the loop costs 318 B, not the ≤150 B budget. Recorded, not hidden. |
+| 2 | largest program that loads | stops with **ERR_DICT** inside phase C | **1 692 B** across three phases (A 606, B 608, C 478) | **PASS**: +10 % over the control, every phase ≤ 690 B |
+| 3 | capability | phase C's statistics never print | phase C's statistics print (`43264032127`) | **PASS**, asserted as a diff in `tests/abtest.sh` |
+| 5 | block round trips per event | n/a | 2 same-phase events → `brt` = **1** | **PASS** (`tests/loop.fs`) |
+| 6 | event latency | n/a | **not measurable**: `MS` is a *delay*, not a clock | blocked on instrumentation |
+| 7 | phase switch cost | n/a | **not measurable** for the same reason | blocked on instrumentation |
+| 8 | queue overflow | n/a | 5th event into a 4-slot ring → `qovf` = 1, event rejected | **PASS** (rejected and counted; this engine has no Forth-level message primitive, so it is countable rather than named) |
+| 9 | 50-cycle rotation | n/a | `HERE` and `LATEST` equal the sealed values; host and chip | **PASS** |
+| 10 | stack high-water | — | canary **paints** the 320 B above the pool from the main core at 0 ULP bytes, but the report cannot be read: the main console is not the ULP's port | **blocked on readout plumbing** |
+| 11 | stale hook | — | `PHASE GO` on one line → named error (EXECUTE of token 0) | **PASS** |
+| 12 | name collision, resident **and** intra-phase | — | both refused, `HERE`/`LATEST` unmoved, offender named | **PASS** |
+| 13 | failed load then RESET | — | `99 OVL` → `ERR_NO_BLKSERVER`-class failure by name; after `BLKXFER` abort + `RESET`, `curblk` = -1 and the next load works | **PASS** |
+| 14 | handler that calls PHASE/PUMP | — | structurally impossible: PUMP arms the switch and `EXIT`s, so no handler runs while its own code is being erased | **PASS by construction** (documented rule, not a check) |
+| 15 | arming a load from inside a loaded block | — | chip transcript: `42` (tail runs), `V_LOADB`=10, then `222` (armed block runs) | **PASS** |
+| 4 | data capacity 4 KB / 16 KB | 128 B window | not run: the host fake serves 64 blocks and the chip sweep needs ~5 min of device time | **not done** |
+
+### What this means
+
+The capacity claim is real and measured with a control: **1 692 B paged vs 1 536 B control (+10 %)**, and the
+capability difference is a transcript rather than a claim. The price is also real and worse than predicted: the
+event loop costs **318 B**, so the prompt has 690 B instead of 1 008 B and each phase's window shrinks with it —
+which is why phase C had to be trimmed from six scans to four. Rows 6, 7, 10 and 4 are instrumentation gaps, not
+results, and are listed as such. On the evidence so far the A/B is **positive but thin**: +10 % capacity for a
+318 B regression and a rules-based programming model (handlers run to completion, phases are swapped by a
+resident loop, cross-phase work is an event).
