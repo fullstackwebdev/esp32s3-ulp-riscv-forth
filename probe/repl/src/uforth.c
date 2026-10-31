@@ -1342,9 +1342,14 @@ top:
         /* GUARDRAIL: a token is either an ADDRESS (even, its first 2 B are the code field) or a PRIMITIVE ID
          * (odd, 2*id+1). This is the only decode site; EXEC re-enters it through `top`. The bound check
          * below still has to run on the decoded id, because mem[] can hold any halfword. */
-        u16 cf = (w >= (u16)(PRIM_TAG - 2u * (u32)(P_COUNT - 1)))
-                     ? (u16)((PRIM_TAG - (w & 0xfffeu)) >> 1)
-                     : rd16_paged(w);
+        /* GUARDRAIL: `t <= 2*(P_COUNT-1)` is doing TWO jobs, so do not "simplify" it into a plain compare:
+         * it is the tag test AND the range bound for the primitive case. A forged ODD token lands on a
+         * neighbouring id inside that bound — bounded, not a memory hazard — while an address (much larger
+         * than PRIM_TAG - w) falls through to the code-field path.
+         * GUARDRAIL: no `& 0xffeu` on w. find() returns the header field with bit 0 (the imm flag) cleared,
+         * so every token the dictionary can emit is even; the mask was 2 wasted instructions. */
+        u16 t = (u16)(PRIM_TAG - w);
+        u16 cf = (t <= (u16)(2u * (u32)(P_COUNT - 1))) ? (u16)(t >> 1) : rd16_paged(w);
         /* P57 GUARDRAIL: dispatch through a 2-byte offset table instead of GCC's switch table. The switch
          * table is 4-byte absolute addresses; label DIFFERENCES are constant enough for a static
          * initializer on this target (measured: .srodata 2 B per entry, `lhu` + `add` + `jalr`).
