@@ -1,3 +1,0 @@
-SEAL
-' OVL . 32 EMIT ' LOAD . 32 EMIT
-0 OVL
