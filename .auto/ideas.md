@@ -19,6 +19,15 @@
   Only colon words benefit (~21 × 2 B) unless primitive ids also move into the header (64 × 2 B). Larger
   refactor; `find()` must return kind+value, and the dispatcher reads a 3-byte entry instead of a 2-byte cf.
 
+## Structural options only (local C edits no longer pay)
+- **token = primitive id**: a token currently points at a 2-byte code field that names the primitive, so every
+  dispatch pays a memory read and 128 B of code fields exist. If the token *were* the id, the read disappears
+  and the primitive code fields vanish (−128 B code, −~30 B text). Colon words need an id range that resolves
+  to a body address; that is the design question to answer first.
+- **two-byte dispatch table** (−132 B rodata): needs 63 sweep cases converted from `break` to `goto`; the 5
+  bodies using `continue`/`return` must be rewritten first (P50's blocker).
+- **asm dispatcher**: 15 B/body vs 30 B across 64 bodies, verified board-only.
+
 ## Measured dead ends (do not retry blind)
 - Compiler flags: `-fno-inline-small-functions` +76, `-fno-tree-switch-conversion` +32, `-fno-thread-jumps`
   +24, `-fno-reorder-blocks` +34; `-fno-inline-functions`, `-finline-limit=8`, `-fconserve-stack`,
@@ -28,6 +37,9 @@
   `vm_enter`, so a register-VM refactor has no aliasing relief to collect.
 - Packing the P54 op table 4 B → 2 B: impossible, the entries are function pointers.
 - `find()` with an aligned `lhu`: impossible, the 3-byte header stride alternates parity.
+- `-msmall-data-limit=2048`: moves `.srodata.p54_binops` to its own section but emits **zero** `gp` references
+  on this target; pool sum unchanged (+2 B). No gp/`__global_pointer$` support in this ULP toolchain+script.
+- Inlining `rd8`/`wr8` at the 9 provably-in-range PAD sites: **+104 B**. The shared call wins.
 - RVC density: already saturated (933 of 1 698 instructions are 2-byte, 2.90 B/instr).
 
 ## Instrument notes

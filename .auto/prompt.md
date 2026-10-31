@@ -63,6 +63,13 @@ merged rings (64 + 128 are already one contiguous 192 B block), unchecked access
 `-fno-jump-tables` (+88 net), `-Oz`/`-flto`/`-fno-builtin` (0 B), primitive subset and `NTSK` 1 (remove
 features), `SD 32` (+394 B), paging/overlays.
 
+**The file is at a local optimum in C.** Three consecutive local edits regressed, all measured:
+`LIT2`/halfword literals (732 and 731 B), inlining the 9 PAD-relative accesses to skip `rd8`/`wr8`'s bound
+check (637 B — the shared callee wins because the call site pays the same address materialisation and the
+callee's test is shared across ~100 sites), and `-msmall-data-limit=2048` (0 B: the toolchain emits no
+`gp`-relative reference on this target). **Do not edit C locally for bytes; only removing redundant work
+has paid** (scheduler unroll +8, single status read + error-exit merge +6).
+
 Open, ranked in `docs/15-super-optimization.md`: fold the 170 B of code fields into header bits,
 register-resident VM, 2-byte dispatch table, asm dispatcher, extend the table kernel, audit `main`,
 share the tokeniser, flatten the scheduler, reserved base register, cold-bucket primitives.
