@@ -687,9 +687,13 @@ static u16 mkhdr(u8 cf)
 typedef struct { VM vm; u16 entry; u8 state; } TSK;   /* state: 0 free, 1 ready, 2 done */
 static TSK tsk[NTSK];
 static int cur = -1;                  /* -1 = run() is the outer interpreter, not a task */
-static u32 vm_switches, vm_sw_pause, vm_sw_fault, vm_faults;
-static u32 vm_sw_taskexit;            /* switches caused by a task finishing (EXIT with ip 0) */
-static u32 vm_sw_first;               /* the first dispatch into a task: nothing to save */
+/* GUARDRAIL: the switch counters are gone (vm_switches, vm_sw_taskexit, vm_sw_first). Each was
+ * incremented once per switch and read by NOTHING — not the boot banner, not the suite, not the bench, not
+ * any tool — so each cost a load, an add and a store per switch plus 4 B of .bss. Same class as the depth
+ * counters (P56): an increment whose value nobody reads is pure cost. `vm_sw_pause`, `vm_sw_fault`,
+ * `vm_faults` and `vm_faults_left` stay: they belong to the PAUSE/FAULT path, which is compiled out under
+ * P33_NOPAGE but is functional when that build is used. */
+static u32 vm_sw_pause, vm_sw_fault, vm_faults;
 /* Depth of the C calls into the interpreter. A switch must NOT change it: if PAUSE or a
  * fault returned through C, a task that yielded mid-word would unwind to its caller and the
  * resume would start a second vm_enter. Measured so the claim is not an assertion. */
@@ -710,7 +714,10 @@ static int vm_depth, vm_max_depth;
 #define VMD_LEAVE()  ((void)0)
 #endif
 static u32 vm_faults_left;            /* injected faults remaining (0 = page resident) */
-static void (*vm_trace)(int from, int to);   /* host hook: one call per switch */
+/* GUARDRAIL: the `vm_trace` hook is deleted, not just unreferenced. Nothing in the tree ever assigned it, so
+ * the call site cost a load, a branch and an indirect call per task switch to invoke a function that was
+ * always null. P29's rule — a hook that nothing calls is a stub — applies one step further: a hook nothing
+ * SETS is a branch that always fails. Re-add it with a setter when something actually needs it. */
 
 static int vm_next_ready(int from)
 {
@@ -760,7 +767,6 @@ static void vm_copy(VM *d, const VM *s)
 static void vm_switch(int next)
 {
     int from = cur;
-    vm_switches++;
 #if defined(P30_HANDCOPY)
     /* GUARDRAIL: the struct copy compiles to a libgcc memcpy *call* on rv32imc at -Os (232 B, P29), so
      * copy word by word here — and copy the stacks by element, not by memcpy, or the saving is zero. */
@@ -774,7 +780,6 @@ static void vm_switch(int next)
 #else
     if (next >= 0) *V = tsk[next].vm;
 #endif
-    if (vm_trace) vm_trace(from, next);
 }
 
 /* A switched-in task has no C caller to return to, so ip == 0 means the task itself
@@ -792,7 +797,6 @@ static int vm_task_leave(void)
      * the console too — the ULP stops and the host reads silence. Return to C instead, with cur back
      * to -1 so the outer interpreter is the machine again. */
     if (nx < 0) { cur = -1; return 0; }   /* last task: unwind to the C driver */
-    vm_sw_taskexit++;
     vm_switch(nx);
     return 1;
 }
@@ -903,7 +907,6 @@ static void vm_run_tasks(void)
 {
     int nx = vm_next_ready(cur);
     if (nx < 0) return;
-    vm_sw_first++;
     vm_switch(nx);                       /* cur -1 -> first task; saves nothing, loads it */
     vm_enter();
     while (vm_next_ready(cur) >= 0) vm_enter();
