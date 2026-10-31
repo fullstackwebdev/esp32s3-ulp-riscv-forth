@@ -157,3 +157,29 @@ Two consequences to carry into step 3:
 Note also that the density gain here is **smaller than "no parsing" suggests**: the saving is text (811 B) versus code
 plus headers (576 B) = 29 % in bytes, and block rounding turns that into 8 → 5. The remaining argument for binary is
 therefore not density but **removing the parse bug class and the switch cost** — which step 4's prediction is about.
+
+## Step 2 result: a menu phase and a tool phase, one block each (measured)
+
+```
+MENU  : MENU 7 6 BLOCK C! UPDATE SAVE DROP 77 EMIT ;     (writes the choice, prints 'M')
+TOOL  : TOOL 6 BLOCK C@ 3 * 84 EMIT . ;                  (reads it back, prints 'T' and 21)
+switch: 2 OVL  (drop the menu phase)  then  12 LOAD  (bring the tool in)
+```
+
+- **host:** `M` `T` `21` then the store reads `7` — the value crosses the phase switch **through the store**.
+- **device:** `MENU-> M ok`, `TOOL-> T21 ok`, `store=7` — identical, so the handoff is real on the chip.
+- **resident bytes added: 0.** The menu↔tool channel is a byte in a data block, exactly what the model claims.
+
+### The finding the gate asked for
+
+1. **A phase cannot name a block number it was not told.** `6` is hardcoded inside *both* phases here. In a real suite
+   that constant has to be either resident (one 4-byte cell) or duplicated in every phase — and duplication is how the
+   menu and the tool silently disagree after one edit. **Decision needed before the binary loader hardens it:** spend
+   ~4 B of application space on shared block-number constants, or accept duplication. (Rule: no application bytes
+   without agreement — this is the ask.)
+2. **`2 OVL`/`LOAD` from the driver is the switch, and nothing else needs to be resident.** No handler calls another
+   phase; the menu writes, returns, the driver swaps, the tool reads. The resident set does not grow with the number of
+   tools.
+3. **Block numbers are a shared namespace with reserved members.** Block 5 is the host test server's deliberately silent
+   block and block 7 answers with a bad checksum; writing shared state to 5 measured `ERR_NO_SERVER` and then a latched
+   `ERR_BUSY` that made every later block call fail. A real suite needs a reserved-range table, not conventions.
