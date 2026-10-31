@@ -223,3 +223,34 @@ Deliberate (`a request nobody answered is still out there`), and **recoverable w
 operator sees, so every later request looks like a dead server. Either name the recovery in the message or
 clear the latch when the status has been observed as stale; that is a design call, not a bug I should silently
 "fix" by dropping the latch.
+
+### `LOAD` also ends the line, and the same fix cures both
+
+While testing the ti/tl question: `0 LOAD 99 .` prints only what the block prints; the `99 .` after it never
+runs. Saving and restoring `ti`/`tl` in `p_load` was tried and **is provably not the cause** — instrumented, the
+save reads `ti=6 tl=11` and the restore writes `ti=6 tl=11`, and the tail still does not execute, with no error
+reported. So the nested `interpret()` leaves interpreter state such that the OUTER loop does not resume (the
+`run()`/`vm_enter` line state, not the source cursor). Reverted; the patch bought nothing.
+
+This converges with the stack finding: both problems are consequences of `LOAD` calling `interpret()`
+recursively. **One fix addresses both.** `LOAD` should stash the block (a pending-block sys-var) and return,
+and `interpret`'s loop should pull the next chunk when its own `tib` is exhausted. That:
+
+- removes an `interpret 48 + vm_enter 80` frame from the deepest chain (−128 B against a ≈327 B reserve, which is
+  the actual reason definitions fail on the chip);
+- leaves the outer line state untouched, so a `LOAD` in mid-line behaves like any other word;
+- costs a sys-var (4 B of app space) and roughly 30-40 B of `.text`, and changes `LOAD` to *deferred* semantics
+  (the block runs after the current line's tokens), which has to be documented loudly rather than discovered.
+
+### Alignment: ruled out
+
+The new seal check (`mkentry`) touches headers with **byte** reads only (`mem[s+2]`, `mem[s+1]`), exactly like
+`find()`, never a `*(u32 *)` or `rd16` on a header/PAD address. And an unaligned halfword on this target does
+not corrupt silently: `rd16` calls `pl_halt(0x50)` on an odd address. So the x86-vs-chip asymmetry that the
+alignment theory needs has no mechanism here.
+
+### Baked image vs engine constants
+
+Checked on the chip after the `PAD 12→16` / `DICT 44→48` move: `4 @` = 554 (V_HERE), `8 @` = 1537 (V_LATEST),
+`12 @` = 1537 (V_SEAL, equal to V_LATEST right after `SEAL`, as it must be), `0 BLOCK .` = 1840 = `MEMSZ 1968 −
+BLKSZ 128`. The bake, the engine and the chip agree, so the constants are not the failure.
