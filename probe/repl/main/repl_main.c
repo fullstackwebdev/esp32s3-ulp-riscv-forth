@@ -69,15 +69,23 @@ static void console_task(void *arg)
     uint8_t buf[64];
 
     for (;;) {
-        /* UART -> cmd ring. Stop when the ring is full; the ULP drains 32 bytes per wake, and at a
-         * 1 000-tick period that is ~3 ms, so the ring cannot back up under human typing. */
-        int n = uart_read_bytes(CONSOLE_UART, buf, sizeof buf, 0);
-        for (int i = 0; i < n; i++) {
+        /* GUARDRAIL: read AT MOST what the ring can hold, and never read more than that into `buf`.
+         * The old form read up to 64 bytes and then `break`ed when the ring filled — but those bytes had
+         * already been taken out of the UART FIFO, so everything after the break was SILENTLY LOST. The
+         * comment claimed "drop nothing"; the code dropped the tail of every burst longer than the free
+         * space. Measured on the device: an 88-character definition arrived mangled (`ARITH?`, then `DUP?`)
+         * and the benchmark lines — the longest being 88 chars — could not be typed at all.
+         * Sizing the read to the free space makes the ring the only limit, which is what the ring is for. */
+        {
             uint32_t h = ulp_repl_cmd_head;
             uint32_t t = ulp_repl_cmd_tail;
-            if ((h - t) >= CMD_SIZE) break;          /* full: let the ULP catch up, drop nothing */
-            CMD_BYTES[h & CMD_MASK] = buf[i];
-            ulp_repl_cmd_head = h + 1u;
+            uint32_t space = CMD_SIZE - (h - t);
+            if (space > sizeof buf) space = sizeof buf;
+            if (space > 0u) {
+                int n = uart_read_bytes(CONSOLE_UART, buf, space, 0);
+                for (int i = 0; i < n; i++) CMD_BYTES[(h + (uint32_t)i) & CMD_MASK] = buf[i];
+                if (n > 0) ulp_repl_cmd_head = h + (uint32_t)n;
+            }
         }
 
         /* out ring -> UART */
