@@ -837,3 +837,41 @@ green, so the remaining fault is specific to the longer phase, not to the transp
 Device evidence now: store 16 KB round trip (0 mismatches), one-block and two-block phase assembly, arm-from-inside-
 a-block, 40-load rotation. Device *store-bound escalation* still not measured; host stands at 18 phases / 9 288 B /
 604 % with the bound computed.
+
+---
+
+## Per-block instrumentation of phase 1 (7 blocks): the failing name CHANGES from block to block
+
+Board hard-reset first, then seeded blocks 8..14 from the comment-stripped `tests/ph1.fsx`, `SEAL`, `2 OVL`, then one
+`LOAD` per line with `HERE`/`LATEST` on their own lines after each:
+
+```
+SEAL : LATEST 1436  HERE 1034
+block  8 LOAD -> DATABLK?    HERE 1034  LATEST 1436
+block  9 LOAD -> TAB?        HERE 1038  LATEST 1436
+block 10 LOAD -> S2?         HERE 1040  LATEST 1436
+block 11 LOAD -> ERR_STACK   HERE 1040  LATEST 1436
+block 12 LOAD -> ERR_STACK   HERE 1044  LATEST 1436
+block 13 LOAD -> SHOW?       HERE 1058  LATEST 1436
+block 14 LOAD -> S1?         HERE 1058  LATEST 1436
+```
+
+Three things this rules in and out:
+
+- **Not a transport fault of the kind we have been chasing.** `LATEST` never moves (1436 throughout) and `HERE` only
+  creeps — a rewind would have dropped these. Each block compiles a few bytes and then aborts on a *name*.
+- **Not one bad block.** Every block fails, each on a *different* word, and two fail with `ERR_STACK` rather than a
+  name. `DATABLK` is defined at the very start of block 8 (`4 CONSTANT DATABLK`), so its refusal at block 8 matches
+  hypothesis 3 from the review — **a definition refused by the collision check, naming the offender** — not a missing
+  word. `S1`/`S2`/`SHOW`/`TAB` likewise are defined inside this same phase.
+- **`DEPTH` does not exist** on this system (answers `DEPTH?`), and neither does `DO`/`LOOP` (`SUM` written with them
+  answered `DO?`). Stack depth must be observed with a Forth-side counter, not a primitive.
+
+Lesson recorded for the harness: **hard-reset the board at the start of every probe.** Without a reset the previous
+probe's `SEAL`ed, rewound dictionary is still in RAM, so a newly defined helper can vanish between two probes that
+each looked fine in isolation — which is exactly what happened to the checksum probe.
+
+Next probe (two things, both narrow): (a) rename this phase's own definitions to names that cannot collide, re-seed,
+and see whether the per-block failures disappear — that is the direct test of hypothesis 3; (b) verify transport with
+a checksum written from `BEGIN/WHILE/REPEAT` and two `CREATE`d cells (the `DO`/`LOOP` version cannot run), printing
+one number per block so the echo cannot be misparsed.
