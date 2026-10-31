@@ -221,14 +221,14 @@ static void seed_poll(void)
                 if (bad2 || vi < 5) {
                     printf("dump: REJECTED (want: #d <blk> <code_start> <code_end> <hdr_start> <hdr_end>)\n");
                 } else if (v[0] + 1u >= BLK_N || v[2] < v[1] || v[4] <= v[3]
-                           || 12u + (v[2] - v[1]) + (v[4] - v[3]) > (BLK_N - v[0]) * 128u) {
+                           || 16u + (v[2] - v[1]) + (v[4] - v[3]) > (BLK_N - v[0]) * 128u) {
                     printf("dump: REJECTED (range or block overflow)\n");
                 } else {
                     const uint8_t *memimg = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
                     /* GUARDRAIL: the descriptor SHARES the first payload block (12 B of its 128), it does not get a
                      * block of its own. Measured: 576 B of payload is 5 blocks, and reserving a block for the
                      * descriptor made it 6 - which is the difference between passing the <=65% gate and failing it. */
-                    unsigned i2, payload = 0, sum = 0, blk = v[0], off = 12;
+                    unsigned i2, payload = 0, sum = 0, blk = v[0], off = 16;
                     for (i2 = 0; i2 < BLK_SZ; i2++) blkfile[v[0]][i2] = (uint8_t)' ';
                     /* GUARDRAIL: flush on the TRANSFER size (blk_sz, published by the ULP = 128), never on BLK_SZ.
                      * BLK_SZ is only the array's row WIDTH (256). Flushing at 256 packed two blocks into one row, so the
@@ -248,12 +248,164 @@ static void seed_poll(void)
                         d2[5] = (uint8_t)hl;  d2[6] = (uint8_t)(hl >> 8);
                         d2[7] = (uint8_t)v[1]; d2[8] = (uint8_t)(v[1] >> 8);
                         d2[9] = (uint8_t)v[3]; d2[10] = (uint8_t)(v[3] >> 8);
-                        /* exactly 12 bytes: FI(2) ver(1) code_len(2) hdr_len(2) code_start(2) hdr_start(2) sum(2) */
-                        d2[11] = (uint8_t)sum;
+                        /* 16 bytes: FI(2) ver(1) code_len(2) hdr_len(2) code_start(2) hdr_start(2)
+                         * payload_sum(2) resident_sum(2) reserved(1). GUARDRAIL: the RESIDENT sum is a separate
+                         * field on purpose - the payload sum only proves the image arrived intact, it says nothing
+                         * about the dictionary it will be pasted onto. Editing a resident word's body without
+                         * changing its length leaves HERE and LATEST identical, so pointers alone cannot detect it. */
+                        d2[11] = (uint8_t)sum; d2[12] = (uint8_t)(sum >> 8);
+                        {
+                            unsigned rs = 0, k2;
+                            for (k2 = 52u; k2 < v[1]; k2++) rs = (rs + memimg[k2]) & 0xffffu;      /* resident code */
+                            /* GUARDRAIL: v[4] is the SEALED LATEST - the base of the RESIDENT headers. v[3] is the
+                             * post-load LATEST, i.e. the image's OWN header base. Using v[3] folded the image into its
+                             * own resident checksum, and at load time the loader compared image headers against
+                             * themselves: a clean image was refused with a name collision whose two entries were
+                             * byte-identical (measured with the offsets printed). */
+                            for (k2 = v[4]; k2 < (unsigned)ulp_repl_blk_off; k2++) rs = (rs + memimg[k2]) & 0xffffu;
+                            d2[13] = (uint8_t)rs; d2[14] = (uint8_t)(rs >> 8);
+                        }
+                        d2[15] = 0;
                     }
                     printf("dump: code %u + hdr %u = %u B, descriptor packed -> %u blocks from block %u, sum %u\n",
                            (unsigned)(v[2] - v[1]), (unsigned)(v[4] - v[3]), payload,
-                           (12u + payload + 127u) / 128u, v[0], sum);
+                           (16u + payload + 127u) / 128u, v[0], sum);
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#p <blk> <off> <val>` pokes ONE byte in the store, so the loader's refusals can be exercised
+             * on real data instead of argued about. Test-only, main-core only, zero ULP bytes: without it there is no
+             * way to corrupt an image or forge a header hash from the console, and a refusal that has never fired is
+             * not evidence. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'p' && ln[2] == ' ') {
+                unsigned v3[3] = {0}; int k = 3, vi = 0, bad3 = 0;
+                while (vi < 3) {
+                    while (ln[k] == ' ') k++;
+                    if (!ln[k] || ln[k] < '0' || ln[k] > '9') { bad3 = 1; break; }
+                    while (ln[k] >= '0' && ln[k] <= '9') v3[vi] = v3[vi] * 10u + (unsigned)(ln[k++] - '0');
+                    vi++;
+                }
+                if (bad3 || vi < 3 || v3[0] >= BLK_N || v3[1] >= (blk_sz ? blk_sz : 128u) || v3[2] > 255u)
+                    printf("poke: REJECTED (want: #p <blk> <off> <val>)\n");
+                else {
+                    blkfile[v3[0]][v3[1]] = (uint8_t)v3[2];
+                    printf("poke: block %u off %u = %u\n", v3[0], v3[1], v3[2]);
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#l <desc_blk>` ADOPTS a packed image, on the main core, at zero ULP bytes - it writes the
+             * ULP's mem[] directly (the main core already reads it) and then sets V_HERE/V_LATEST, which is the same
+             * rewind the machine already trusts. Four refusals, each named, because a binary load that "mostly works"
+             * is the worst failure class here: the code carries absolute addresses, so a wrong base does not fail
+             * fast, it executes garbage.
+             *   1 FI/version      - descriptor sanity
+             *   2 resident sum    - the dictionary the image was built against must be unchanged
+             *   3 payload sum     - the image bytes in the store must be intact
+             *   4 header hashes   - a pasted header must not shadow a resident name
+             * Format: #l <desc_blk> */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'l' && ln[2] == ' ') {
+                unsigned dblk = 0; int k = 3;
+                while (ln[k] == ' ') k++;
+                while (ln[k] >= '0' && ln[k] <= '9') dblk = dblk * 10u + (unsigned)(ln[k++] - '0');
+                {
+                    const uint8_t *desc = blkfile[dblk];
+                    uint8_t *memimg = (uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    unsigned cl = (unsigned)desc[3] | ((unsigned)desc[4] << 8);
+                    unsigned hl = (unsigned)desc[5] | ((unsigned)desc[6] << 8);
+                    unsigned cs = (unsigned)desc[7] | ((unsigned)desc[8] << 8);
+                    unsigned hs = (unsigned)desc[9] | ((unsigned)desc[10] << 8);
+                    unsigned psum = (unsigned)desc[11] | ((unsigned)desc[12] << 8);
+                    unsigned rsum = (unsigned)desc[13] | ((unsigned)desc[14] << 8);
+                    unsigned hdrtop = (unsigned)ulp_repl_blk_off;
+                    int badl = 0;
+                    if (dblk >= BLK_N || desc[0] != 'F' || desc[1] != 'I' || desc[2] != 1) {
+                        printf("load: REFUSED bad descriptor (magic/version/block)\n"); badl = 1;
+                    }
+                    if (!badl && (cs < 52u || hs <= cs || hs > hdrtop || hdrtop - hs < hl)) {
+                        printf("load: REFUSED impossible geometry (code %u hdr %u top %u)\n", cs, hs, hdrtop);
+                        badl = 1;
+                    }
+                    if (!badl) {
+                        unsigned rs = 0, k2, sum2 = 0;
+                        for (k2 = 52u; k2 < cs; k2++) rs = (rs + memimg[k2]) & 0xffffu;
+                        for (k2 = hs + hl; k2 < hdrtop; k2++) rs = (rs + memimg[k2]) & 0xffffu;   /* sealed LATEST */
+                        if (rs != rsum) {
+                            printf("load: REFUSED resident dictionary changed (sum %u, image built on %u)\n", rs, rsum);
+                            badl = 1;
+                        }
+                    }
+                    if (!badl) {
+                        /* the payload lives from descriptor block, offset 16, and is a plain concatenation */
+                        unsigned blk2 = dblk, off2 = 16, k2, sum2 = 0;
+                        for (k2 = 0; k2 < cl + hl; k2++) {
+                            sum2 = (sum2 + blkfile[blk2][off2]) & 0xffffu;
+                            if (++off2 == (blk_sz ? blk_sz : 128u)) { off2 = 0; blk2++; }
+                        }
+                        if (blk2 >= BLK_N || sum2 != psum) {
+                            printf("load: REFUSED image corrupt (sum %u, descriptor %u)\n", sum2, psum);
+                            badl = 1;
+                        }
+                    }
+                    if (!badl) {
+                        /* refusal 4: any image header hash equal to a resident one would shadow a resident name */
+                        unsigned blk2 = dblk, off2 = 16 + cl, k2, j, hb[3], collision = 0;
+                        while (off2 >= (blk_sz ? blk_sz : 128u)) { off2 -= (blk_sz ? blk_sz : 128u); blk2++; }
+                        for (k2 = 0; k2 + 2 < hl; k2 += 3) {
+                            for (j = 0; j < 3; j++) {
+                                unsigned p2 = off2 + j;
+                                hb[j] = blkfile[blk2 + p2 / (blk_sz ? blk_sz : 128u)][p2 % (blk_sz ? blk_sz : 128u)];
+                            }
+                            {
+                                unsigned ih = ((unsigned)hb[2] << 4) | ((unsigned)hb[1] >> 4), k3;
+                                for (k3 = hs + hl; k3 + 2 < hdrtop; k3 += 3) {   /* resident base = sealed LATEST */
+                                    unsigned rh = ((unsigned)memimg[k3 + 2] << 4) | ((unsigned)memimg[k3 + 1] >> 4);
+                                    if (rh == ih) {
+                                        /* GUARDRAIL: name the offsets. A bare hash told us a refusal fired but not
+                                         * whether it was a real collision, a misaligned image entry, or a wrong stride
+                                         * in the resident scan - three different bugs with the same message. */
+                                        if (!collision) {
+                                            printf("load: image entry @payload %u (bytes %u %u %u) hash %u == resident @%u "
+                                                   "(bytes %u %u %u)\n", k2, hb[0], hb[1], hb[2], ih, k3,
+                                                   memimg[k3], memimg[k3+1], memimg[k3+2]);
+                                        }
+                                        collision = ih;
+                                    }
+                                }
+                            }
+                            off2 += 3;
+                            while (off2 >= (blk_sz ? blk_sz : 128u)) { off2 -= (blk_sz ? blk_sz : 128u); blk2++; }
+                        }
+                        if (collision) {
+                            printf("load: REFUSED name collision, image header hash %u shadows a resident word\n",
+                                   collision);
+                            badl = 1;
+                        }
+                    }
+                    if (!badl) {
+                        unsigned blk2 = dblk, off2 = 16, k2;
+                        for (k2 = 0; k2 < cl + hl; k2++) {          /* code first, then headers, exactly as dumped */
+                            memimg[cs + k2] = blkfile[blk2][off2];
+                            if (++off2 == (blk_sz ? blk_sz : 128u)) { off2 = 0; blk2++; }
+                        }
+                        /* GUARDRAIL: the sysvar offsets are duplicated HERE because the main core does not include
+                         * src/uforth.c (it would drag the whole engine in). They must match the enum in uforth.c:
+                         * V_STATE 0, V_HERE 4, V_LATEST 8, V_SEAL 12, V_LOADB 16, PAD 20, DICT 52. A drift here
+                         * would write the pointers into the wrong cells and the machine would execute garbage. */
+#define HP_V_HERE   4u
+#define HP_V_LATEST 8u
+                        memimg[HP_V_HERE] = (uint8_t)((cs + cl) & 0xffu);   /* little-endian, sysvars are u32 */
+                        memimg[HP_V_HERE + 1] = (uint8_t)(((cs + cl) >> 8) & 0xffu);
+                        memimg[HP_V_HERE + 2] = 0; memimg[HP_V_HERE + 3] = 0;
+                        memimg[HP_V_LATEST] = (uint8_t)(hs & 0xffu);
+                        memimg[HP_V_LATEST + 1] = (uint8_t)((hs >> 8) & 0xffu);
+                        memimg[HP_V_LATEST + 2] = 0; memimg[HP_V_LATEST + 3] = 0;
+                        printf("load: adopted code %u + hdr %u from block %u (HERE %u, LATEST %u)\n",
+                               cl, hl, dblk, cs + cl, hs);
+                    }
                 }
                 fflush(stdout);
                 n = 0;

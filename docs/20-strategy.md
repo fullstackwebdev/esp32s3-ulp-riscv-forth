@@ -229,3 +229,47 @@ or with the 8‥127 phase range — `SB = 32` was rejected by exactly that check
 This proves the image is **5 blocks and byte-exact**; it does not yet prove a loader can adopt it. Step 3 remains:
 checksum over resident code + headers, the six refusal tests each shown failing first, and the switch-time comparison
 against the ~250 ms prediction.
+
+## Step 3 COMPLETE: the binary loader passes all six tests, and a switch is 26× faster
+
+`#l <desc_blk>` adopts a packed image on the **main core** (zero ULP bytes): it validates, copies bytes into `mem[]`, and
+sets `V_HERE`/`V_LATEST` — the same rewind the machine already trusts. The descriptor carries **two** sums, as the review
+required: one over the image payload, one over the **resident dictionary** (`[52, code_start)` code plus
+`[sealed LATEST, HDRTOP)` headers).
+
+| test | result |
+|---|---|
+| T1 build → drop → adopt, then **execute** | **PASS** — cells `[6712, 353000, 0, 57, 128, 38]`, identical to the source-loaded phase |
+| T2 block count | **PASS** — image 5 vs source 8 |
+| T3 50 load/drop cycles | **PASS** — pointers return to the sealed values every time |
+| T4 corrupt one image byte | **PASS** — `REFUSED image corrupt (sum 39169, descriptor 38914)` |
+| T5 resident dictionary changed | **PASS** — `REFUSED resident dictionary changed (sum 31743, image built on 0)` |
+| T6 image header shadowing a resident hash | **PASS** — `REFUSED name collision, image header hash 1338 shadows a resident word` |
+
+**Switch time, measured (`2 OVL` + load, 10 samples, median):**
+
+```
+source switch:  991.7 ms      binary switch:  38.5 ms      -> 25.8x faster
+prediction was ~250 ms; measured 38 ms (under prediction)
+```
+
+The prediction was deliberately pessimistic: it assumed ~50 ms per block of mailbox traffic. A `#l` is a **single**
+command — five blocks are read by the main core with no per-block round trip at all — so the cost is one UART command
+plus a 576-byte copy. That is why it lands at 38 ms rather than 250 ms.
+
+### Three bugs found by the tests (each now a GUARDRAIL at the site)
+
+1. **The loader folded the image into its own resident checksum.** The "resident" header range started at the *post-load*
+   `LATEST` (the image's own base) instead of the **sealed** `LATEST`, so a clean image was refused for colliding with
+   itself — and the refusal printed two byte-identical entries. Fixed by using `hs + hdr_len` (the sealed base).
+2. **Forging a header byte trips the payload sum first**, so a naive collision test never reaches the collision check; the
+   test now recomputes the sum, as a different builder would.
+3. **Resident headers live in memory, not in a store block.** Reading `N BLOCK` (block 11 = phase source text) instead of
+   `addr C@` meant the forgery copied source text and the loader correctly adopted it.
+
+### Scope note
+
+Six tests, all green, on the device. The loader is main-core code: **0 ULP bytes, 0 application bytes**. What is still
+unproven is everything the strategy lists after this: flash-backed persistence, the light real suite beyond one menu +
+one tool, and behaviour when the image was built against a *different* baked prelude (T5 proves the check fires when the
+resident sum changes; it does not prove a rebuild-and-rebuild-every-image workflow).
