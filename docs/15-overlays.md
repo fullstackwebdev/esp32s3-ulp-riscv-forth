@@ -107,3 +107,69 @@ Host side: `tests/overlay.fs` runs the same protocol against the fake block serv
 - The 361 B is recoverable if the overlay words move into the *bake* only as source in a block rather than baked
   into `mem[]` — an overlay can load the manager itself (`block 1` = `SEAL`/`OVL`/`GO`), which would remove 96 B
   of dictionary and keep the boot image lean. Not measured yet; noted as the obvious next step.
+
+---
+
+## Probe results for the five verification tests (branch state)
+
+### 1. Block store size — ANSWERED, and it invalidated the premise
+
+`main/repl_main.c` had `#define BLK_N 8`, i.e. **8 blocks = 1 024 B of source**, about 600-800 B of compiled
+code — *less than the 1 183 B of resident app space*. Overlays could not have raised the program ceiling at
+all. Measured on the board before the change: blocks 0..7 answered, 8..10 nacked. Raised to `BLK_N 128`
+(16 KB of host RAM; the ULP's RAM is the scarce side). Re-measured on the chip after reflashing both cores:
+blocks 0..127 answer and 128 answers `ERR_RANGE -5`.
+
+Two fixes came out of it:
+- the range nack was `mb[2] = 2`, and `blk_xfer` decodes a nack as `(i32)(0u - st)`, so "no such block"
+  arrived in Forth as `ERR_BUSY`. It now sends 5 (`BK_RANGE`), and `blk_errmsg` learned to name `BK_RANGE`
+  (it had been falling back to `ERR_UNNAMED -5`).
+- the CRC nack had the mirror-image bug: `0xFFFFFFFC` decodes as **+4**, not −4; it now sends 4.
+
+### 2. A real multi-phase program larger than the resident image — NOT ATTEMPTED
+
+It is possible now that the store is 128 blocks, but nothing was written. The claim "overlays raise the
+ceiling" remains **unverified at scale**, exactly as stated above.
+
+### 3. Reload loop for leaks — PASSES ON THE HOST
+
+`tests/overlay.fs` runs 20 × (load block 0, load empty block 2) = 40 overlay loads, then asserts both pointers
+are back to the sealed values. Host: passes. Device: **not verified** (blocked by item 5).
+
+### 4. Name-collision check — IMPLEMENTED, PASSES ON THE HOST
+
+`V_SEAL` (sys-var 12, costs 4 B of app space: `PAD` 12→16, `DICT` 44→48) is published by `SEAL`;
+`mkentry` refuses any definition whose 12-bit hash matches a resident header. `tests/overlay_collide.fs`
+proves the refusal **and the aftermath** (`ERR_DICT`, then `RES` still prints 7, both pointers unmoved).
+That test needed a host-only `-k` ("keep loading after an error") in `load()`, because the error is the
+assertion and the point is what survives it; `-k` is under `#ifndef IMAGE`, so the chip pays nothing.
+
+Two dead ends paid for here:
+- the check first lived in a helper called from `mkhdr_pad` that recomputed `hash_pad(PAD)`; at that point PAD
+  no longer held the name, so `hs` was the hash of an empty name (1285 = LOAD's hash) and **every** definition
+  after `SEAL` was refused.
+- `mkhdr_pad` wrote its 2-byte code field and advanced `V_HERE` **before** the check, so a refused definition
+  still moved `HERE`; it now calls `mkentry` first and writes only on success.
+Estimated false-positive rate is real, not theoretical: ~2.3 % per definition (98 resident words in a
+4 096-value band), so names do get refused and renaming is the fix.
+
+### 5. `PHASE` (call-site transparency) — PASSES ON THE HOST, BROKEN ON THE CHIP
+
+`PHASE ( blk -- )` remembers the loaded block in a cell and skips the reload; host transcript shows `0 PHASE`
+then `HI` → 42 and `XT1 XT2 =` → -1 (same word, no second definition).
+
+**On the chip it fails.** `0 PHASE` returns an ambiguous `?`, and one block request that times out leaves
+`blk_out` set, so every later request answers `ERR_BUSY` until reset — one lost request poisons the session.
+What has been isolated on hardware:
+- `0 LOAD` of a block containing **only execution** (`42 .`) works and prints 42;
+- `0 LOAD` of a block containing a **definition** (`: HI 42 . ;`) fails with `?`, both with and without a
+  seal, so it is not the collision check;
+- no resident name hashes to `HI`'s 982 (checked over all 98), so it is not a seal refusal;
+- `' LOAD` resolves to 3952 (tagged id 71) and `' PHASE`/`' SEAL`/`' OVL` resolve to real xrs, so the
+  dictionary and the dispatch are present.
+So: definitions issued from inside `p_load`'s nested `interpret()` fail on the chip while the same text typed
+at the prompt compiles. That is a regression introduced by this session's engine changes (seal check,
+`PAD`/`DICT` shift, or the `mkhdr_pad` reordering) and it is **not understood yet** — do not merge this branch
+until it is. The next probe: log the token `word()` returns and `PAD`'s length from inside `p_load` on the
+host build with `MEMSZ`/dictionary shaped like the chip's (baked image), since the host currently passes only
+because it compiles the prelude from source.

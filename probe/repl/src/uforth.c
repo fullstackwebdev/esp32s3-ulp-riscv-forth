@@ -63,9 +63,15 @@ void pl_halt(int code);                  /* stop the machine; code 0 = no tasks 
  * them" is still the reason to check BOTH files before deleting state — those readers now call XT_PRIM. */
 /* GUARDRAIL: the BASE slot is gone (see number()): written once, read once, and nothing can change it, so
  * the 4 B goes back to the code area - PAD starts at 12 and DICT at 44. */
-enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8,
-       PAD = 12,                                  /* counted string, 32 bytes */
-       DICT = 44 };
+/* GUARDRAIL: V_SEAL is the overlay seal (0 = no overlays in use). It costs 4 B of app space - PAD moves
+ * 12 -> 16 and DICT 44 -> 48 - and it is what makes a NAME COLLISION loud instead of silent: headers grow
+ * down from HDRTOP, so everything from V_SEAL upward is the RESIDENT dictionary and everything below it is
+ * the current overlay. Without it, an overlay word whose 12-bit hash matches a resident word simply shadows
+ * it for as long as the overlay is loaded (find() returns the first match walking down from V_LATEST), which
+ * is the one failure this machine cannot report at run time. */
+enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8, V_SEAL = 12,
+       PAD = 16,                                  /* counted string, 32 bytes */
+       DICT = 48 };
 
 #ifdef IMAGE
 #include "image.h"
@@ -724,6 +730,24 @@ static u16 mkentry(u16 tok, u8 imm)
      * flag, so a token keeps its full 12 bits here; masking to 11 bits folded bit 11 and turned the PRIM_TAG
      * encoding back into a small ADDRESS (measured: `2 3 + .` answered an error on line 1, because every
      * primitive's token decoded to xt 1992, a code field that does not exist). */
+    /* GUARDRAIL: refuse an overlay definition whose 12-bit hash matches a RESIDENT name, before writing the
+     * entry. Only the hash is stored, so a collision cannot be distinguished from redefining the same word -
+     * refusing is honest and renaming is the operator's fix. The scan starts at V_SEAL (the sealed V_LATEST)
+     * and runs UP: overlay headers sit below it because they were written after the seal. Measured
+     * false-positive rate: ~2.3 % per definition (98 resident words in a 4 096-value band).
+     * GUARDRAIL: this lives HERE, not in a helper called from mkhdr_pad. The helper recomputed hash_pad(PAD)
+     * at a point where PAD no longer held the name, so `hs` was the hash of an EMPTY name - 1285, which is
+     * LOAD's hash - and every definition after SEAL was refused with ERR_DICT. The hash that matters is the
+     * one about to be stored, i.e. this local. */
+    if (rd32(V_SEAL)) {
+        u32 s;
+        for (s = rd32(V_SEAL); s + HDRSZ <= (u32)HDRTOP; s += HDRSZ) {
+            if (mem[s + 2u] != (u8)(hs >> 4)) continue;
+            if ((mem[s + 1u] >> 4) != (u8)(hs & 0x0fu)) continue;
+            errf_msg(MSG_ERR_DICT);
+            return 0;
+        }
+    }
     v = ((hs << 12) | ((u32)tok & 0xffeu)) | (u32)(imm & 1u);
     /* GUARDRAIL: printed BEFORE the header write so a bake that runs out of room still names the word that
      * broke it; a dump taken after the write would silently miss the last entry. */
@@ -757,9 +781,16 @@ static u16 mkhdr_pad(u8 cf, u8 imm)
      * clobber h+3, which is the already-written entry ABOVE (entries grow DOWN), and a wr32 at h - 1
      * pays one byte of the free gap to keep the write word-shaped — measured at +72 B of .text, which
      * is a bad trade for one byte of app space. */
-    wr16(x, cf);                                    /* the code field lives at the xt, in the code area */
-    wr32(V_HERE, x + 2);
-    return mkentry((u16)x, imm);
+    /* GUARDRAIL: mkentry runs FIRST and the code field is written only if it succeeded. The order is the
+     * whole point: the seal check inside mkentry refuses a redefinition of a resident name, and the previous
+     * order (wr16 + V_HERE first) left 2 bytes written and HERE advanced by 2 on a refused definition -
+     * measured as `HERE bh @ = .` answering 0 instead of -1. mkentry signals refusal through errf, which is
+     * why the return value is not inspected. */
+    { u16 t = mkentry((u16)x, imm);
+      if (errf) return 0;
+      wr16(x, cf);                                /* the code field lives at the xt, in the code area */
+      wr32(V_HERE, x + 2);
+      return t; }
 }
 
 /* a BOOT PRIMITIVE: no code field at all, the token is 2*id+1 (see the guardrail above) */
@@ -992,6 +1023,11 @@ static void blk_errmsg(i32 st)
     else if (st == BK_NOSERVER) c = MSG_ERR_NOSERVER;
     else if (st == BK_CRC)      c = MSG_ERR_CRC;
     else if (st == BK_BUFOVER)  c = MSG_ERR_BUFOVER;
+    /* GUARDRAIL: BK_RANGE was missing from this chain, so a block number past the store's end reached
+     * Forth as ERR_UNNAMED -5: the status was right and the name was not. The host now nacks with 5
+     * (magnitude of -5) for "no such block" and that name is what tells the operator to stop asking
+     * for block 128 of an 128-block store. */
+    else if (st == BK_RANGE)    c = MSG_ERR_RANGE;
     else if (st == BK_DIRTY)    c = MSG_ERR_DIRTY;
     msg(c);
 }
@@ -1647,6 +1683,15 @@ void pl_halt(int code)   { (void)code; }
 
 /* GUARDRAIL: boot_init() now lives in the engine section above (P39) — do not re-add a HOST-local
  * copy here, or the host's `-d` dictionary and the chip's dictionary stop being the same bytes. */
+/* GUARDRAIL: -k (host only, #ifndef IMAGE so the chip pays nothing) keeps loading after an error. It exists
+ * because some errors are the ASSERTION: a test that proves a bad overlay is REFUSED still has to show
+ * that the resident word survived, and a loader that exits on the first error cannot show the aftermath.
+ * It is not a way to make a broken tree look green: the transcript still contains the error line, and the
+ * runner compares it byte for byte. */
+#ifndef IMAGE
+static int keep_going;
+#endif
+
 static int load(const char *file)
 {
     char line[256]; int ln = 0; FILE *f = fopen(file, "r");
@@ -1657,8 +1702,20 @@ static int load(const char *file)
         if (n >= TIBSZ) { fprintf(stderr, "%s:%d: line too long (%zu >= %d)\n", file, ln, n, TIBSZ); return 1; }
         memcpy(tib, line, n); tl = n; ti = 0;
         interpret();
-        if (errf) { fprintf(stderr, "%s:%d: error\n", file, ln); return 1; }
-        if (sp >= SD) { fprintf(stderr, "%s:%d: stack underflow\n", file, ln); return 1; }
+        if (errf) {
+            fprintf(stderr, "%s:%d: error\n", file, ln);
+#ifndef IMAGE
+            if (keep_going) continue;      /* the error is the assertion; show the aftermath too */
+#endif
+            return 1;
+        }
+        if (sp >= SD) {
+            fprintf(stderr, "%s:%d: stack underflow\n", file, ln);
+#ifndef IMAGE
+            if (keep_going) continue;
+#endif
+            return 1;
+        }
     }
     fclose(f);
     return 0;
@@ -1681,6 +1738,9 @@ int main(int argc, char **argv)
 #endif
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-d") && i + 1 < argc) dump = argv[++i];
+#ifndef IMAGE
+        else if (!strcmp(argv[i], "-k")) keep_going = 1;
+#endif
         else if (!strcmp(argv[i], "-i")) interactive = 1;
         else if (load(argv[i])) return 1;
     }

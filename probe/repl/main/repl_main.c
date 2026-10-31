@@ -108,7 +108,12 @@ static void console_task(void *arg)
 
 /* GUARDRAIL: the server body is the one the experimental tree verified on hardware (E-074); it is
  * 2048 B of stack on the HP and never touches the ULP's pool. */
-#define BLK_N     8
+/* GUARDRAIL: 8 -> 128 blocks (16 KB at the ULP's 128 B transfer size). Eight blocks is 1 024 B of source,
+ * about 600-800 B of compiled code, which is LESS than the 1 183 B of resident app space the overlay build
+ * has - so overlays could not raise the program ceiling at all while the store was 8 blocks. Measured on the
+ * board: blocks 0..7 answered and 8+ nacked. The host has megabytes; the ULP's RAM is the scarce side, so
+ * the store is the cheap place to buy capacity. 128 x 256 B = 32 KB of host RAM. */
+#define BLK_N     128
 #define BLK_SZ    256
 static uint32_t blk_sz;      /* transfer size, published by the ULP */
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
@@ -158,7 +163,11 @@ static void block_task(void *arg)
             volatile uint8_t  *buf = (volatile uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr + ulp_repl_blk_off);
             uint32_t blk = mb[0], op = mb[1];
             if (blk >= BLK_N) {
-                mb[2] = 2;                       /* nack: no such block */
+                /* GUARDRAIL: send the MAGNITUDE of the ULP's negative BK_* code, because blk_xfer decodes a
+                 * nack as `(i32)(0u - st)`. This was 2, which decoded as -2 = BK_BUSY, so "no such block"
+                 * arrived at Forth as "server busy" and the operator got a misleading name for a range
+                 * error. 5 decodes as BK_RANGE, which is what it is. */
+                mb[2] = 5;                       /* nack: no such block -> BK_RANGE */
             } else if (op == 0u) {               /* READ */
                 uint32_t s = 0; int i;
                 for (i = 0; i < (int)blk_sz; i++) { buf[i] = blkfile[blk][i]; s += blkfile[blk][i]; }
@@ -180,7 +189,11 @@ static void block_task(void *arg)
                 uint32_t s = 0; int i;
                 for (i = 0; i < (int)blk_sz; i++) s += buf[i];
                 if ((s & 0xffffu) != mb[3]) {
-                    mb[2] = 0xFFFFFFFCu;         /* nack: checksum mismatch (BK_CRC) */
+                    /* GUARDRAIL: same decoding rule as the range nack above: 0xFFFFFFFC decodes as +4 (not
+                     * -4), so a checksum mismatch would have reached Forth as an unnamed positive status. 4
+                     * decodes as BK_CRC. This path is not covered by the host tests (they use the engine's
+                     * fake server), so the rule, not a test, is what keeps it honest. */
+                    mb[2] = 4;                   /* nack: checksum mismatch -> BK_CRC (-4) */
                 } else {
                     for (i = 0; i < (int)blk_sz; i++) blkfile[blk][i] = buf[i];
                     mb[2] = 1u;

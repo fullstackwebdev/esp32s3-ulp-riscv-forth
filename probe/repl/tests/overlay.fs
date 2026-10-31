@@ -56,6 +56,22 @@ GO                          \ must print 42
 HERE bh @ = .               \ must print -1
 LATEST bl @ = .             \ must print -1
 
+\ (e) test 5: PHASE loads on demand, and does not reload a phase that is already resident.
+\ HI lives in block 0, so `0 PHASE` must be a no-op the second time: the word stays and its xt is identical.
+0 PHASE
+HI                          \ must print 42
+' HI CONSTANT XT1
+0 PHASE                     \ already loaded: no reload
+' HI CONSTANT XT2
+XT1 XT2 = .                 \ must print -1 (same word, not a second definition)
+
+\ (f) test 3: a reload loop must not leak. 20 load/drop cycles, then the sealed pointers again.
+: R20 0 BEGIN DUP 20 < WHILE 0 OVL 2 OVL 1 + REPEAT DROP ;
+R20
+HERE bh @ = .               \ must print -1
+LATEST bl @ = .             \ must print -1
+2 3 + .                     \ must print 5 (REPL intact after 40 overlay loads)
+
 \ (c) the sealed word still works, and the overlay's word is gone
 RES                         \ must print 7
 HI                          \ unknown word now: prints HI?  (last line: an error ends the file)

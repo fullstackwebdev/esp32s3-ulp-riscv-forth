@@ -58,8 +58,14 @@ for f in tests/*.fs; do
     # GUARDRAIL: `SRV ` is the host driver's own end-of-run summary of the fake block server, and a
     # driver diagnostic must not be part of a golden transcript — it made the expected file depend on the
     # fake server's final state rather than on the program's behaviour.
-    extra=""; case "$f" in *overlay*) extra=src/p39b_overlay.fs;; esac
-    got=$(timeout 120 ./"$BIN" src/p39_prelude.fs $extra "$f" 2>&1 \
+    extra=""; flags=""
+    case "$f" in
+        # GUARDRAIL: overlay_collide asserts that a bad definition is REFUSED and then shows what survived, so
+        # it needs -k (host-only, keep going after an error). The transcript still contains the ERR_DICT line.
+        *overlay_collide*) extra=src/p39b_overlay.fs; flags=-k ;;
+        *overlay*)         extra=src/p39b_overlay.fs ;;
+    esac
+    got=$(timeout 120 ./"$BIN" $flags src/p39_prelude.fs $extra "$f" 2>&1 \
           | grep -a -v ': error$' | grep -a -v '^SRV ' | ./artifacts/expand || true)
     if [ "$got" = "$(cat "$want")" ]; then
         echo "PASS  $name.fs (${#got} bytes)"

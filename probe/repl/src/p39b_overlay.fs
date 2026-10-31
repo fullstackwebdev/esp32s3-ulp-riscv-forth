@@ -22,9 +22,27 @@
 \ V_HERE/V_LATEST in uforth.c's enum, that test breaks instead of the dictionary rotting.
 4 CONSTANT VH              \ address of V_HERE in uforth.c's sys-var enum
 8 CONSTANT VL              \ address of V_LATEST
+12 CONSTANT VS             \ address of V_SEAL: set by SEAL, read by mkentry to refuse name collisions
 CREATE bh 0 ,              \ sealed V_HERE
 CREATE bl 0 ,              \ sealed V_LATEST
 CREATE ovlrun 0 ,          \ hook slot: the current overlay's entry point
-: SEAL  ( -- )  HERE bh !  LATEST bl ! ;
+\ GUARDRAIL: SEAL publishes V_LATEST into V_SEAL as well. That single store is what turns the silent
+\ shadowing hazard into a loud ERR_DICT at definition time: from then on, every definition is checked
+\ against the resident headers (see mkentry). It must be the SEALED latest, i.e. bl, not the current one.
+: SEAL  ( -- )  HERE bh !  LATEST bl !  LATEST VS ! ;
 : OVL   ( blk -- )  bh @ VH !  bl @ VL !  LOAD ;
 : GO    ( -- )  ovlrun @ EXECUTE ;
+
+\ GUARDRAIL: PHASE is the call-site transparency layer, and it is deliberately one word: it remembers which
+\ block is loaded, so a resident driver can say `3 PHASE` without knowing whether the phase is already in
+\ memory. It must be called from RESIDENT code (below the seal) - a phase that calls PHASE overwrites its own
+\ body while it is executing. That rule has no runtime guard (a guard would need the call depth, which the
+\ engine keeps but does not expose).
+\ GUARDRAIL: the cell is CURBLK, not PHASE. word() upcases every token, so `phase` and `PHASE` are the
+\ same name: the colon definition silently replaced the variable, and `phase .` then ran the word with an
+\ empty stack (ERR_STACK). Any cell whose name is a prefix-alike of a word must be named apart.
+CREATE curblk -1 ,         \ which block is loaded, -1 = none
+: PHASE ( blk -- )  DUP curblk @ = IF DROP EXIT THEN  DUP curblk !  OVL ;
+\ GUARDRAIL: the first version was `... IF DROP ELSE DUP phase ! OVL THEN ;` and it underflowed on the
+\ load path: `DUP <cell> !` consumes the block number, so OVL was called with an empty stack (ERR_STACK).
+\ The `EXIT` form keeps one copy for OVL; the alternative is a cell to re-push, i.e. more state.
