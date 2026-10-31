@@ -28,15 +28,14 @@ def strip_all(text):
 
 
 def chunk(text, size=128):
-    out = []; i = 0
-    while i < len(text):
-        e = min(i + size, len(text))
-        if e < len(text):
-            c = text.rfind(" ", i + 1, e)
-            if c > i:
-                e = c + 1
-        out.append(text[i:e]); i = e
-    return out
+    # GUARDRAIL: cut ONLY at interpret-state boundaries (tools/fsplit.py), never mid-definition. A block boundary
+    # is not a line boundary: if a `:` definition is still open when the block ends, the machine is in COMPILE
+    # state, so the next `N LOAD` is COMPILED into the open definition instead of executed - the remaining blocks
+    # are never loaded, no error is raised and LATEST never moves. Measured on the chip (block 10 -> S2?, blocks
+    # 11/12 -> ERR_STACK) and traced on the host (last tokens `10 LOAD 11 LOAD ...` all with ST=1, refusals 0).
+    sys.path.insert(0, "tools")
+    from fsplit import split_defs
+    return split_defs(text, size)
 
 
 def open_port():
@@ -70,10 +69,19 @@ def nums(out):
 
 def main():
     phases = int(sys.argv[1]) if len(sys.argv) > 1 else 20
+    # GUARDRAIL: the deliberate-failure mode must exist, or no check in this file has ever been shown to fail.
+    skip_block = int(sys.argv[2]) if len(sys.argv) > 2 else -1
     chunks = chunk(strip_all(pathlib.Path("tests/ph1.fsx").read_text()))
     per = len(chunks)
     print(f"phase source -> {per} blocks each")
-    fd = open_port(); time.sleep(1.0); drain(fd, 0.6)
+    # GUARDRAIL: HARD-RESET before seeding. Without it the previous run's SEALed, rewound dictionary is still in
+    # RAM, so the phase's own definitions collide and the transcript carries a `?` that has nothing to do with this
+    # run - measured: the same 8-block phase passes clean after a reset and "fails" without one.
+    import subprocess
+    subprocess.run(["python3", "-m", "esptool", "--port", PORT, "--after", "hard_reset", "chip_id"],
+                   capture_output=True)
+    time.sleep(2.0)
+    fd = open_port(); time.sleep(1.2); drain(fd, 0.8)
     line(fd, "0 BLOCK CONSTANT W")
     line(fd, ": BLKBLANK 0 BEGIN DUP 128 < WHILE 32 OVER W + C! 1 + REPEAT DROP ;")
     line(fd, "2 BLOCK DROP BLKBLANK UPDATE SAVE DROP")

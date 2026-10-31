@@ -923,3 +923,43 @@ and `HERE` creeping, and the isolated ingredients are all green — so the fault
 block, several definitions per block, and a chunk boundary falling inside a `CREATE … ,` chain), not in any one
 feature. Next single probe: rename the phase's own definitions to names that cannot collide (hypothesis 5), then split
 one long block into two and watch which failure disappears.
+
+---
+
+## ROOT CAUSE: a block longer than one tib pass loses its tail, and a definition left open poisons every later line
+
+Host trace (`-DP1_TRACE`, dev-only, zero chip bytes) of the phase's **8 blocks** with the safe splitter in place:
+
+```
+[P1 TOK] NX     HERE=912 LATEST=1445 ST=1     <- block 9 (128 B) runs out here
+[P1 TOK] REPEAT HERE=914 LATEST=1445 ST=1
+[P1 END-COMPILING] HERE=918 LATEST=1445 STATE=1 refusals=0 tokens: ... NX REPEAT   <- ';' NEVER ARRIVED
+[P1 TOK] 10     HERE=918 LATEST=1445 ST=1     <- the driver's NEXT line begins
+[P1 TOK] LOAD   HERE=922 LATEST=1445 ST=1     <- so `10 LOAD` is COMPILED into the open definition
+[P1 TOK] ;      HERE=924 LATEST=1445 ST=1     <- and only now does block 9's leftover ';' arrive
+[P1 TOK] 11     HERE=926 LATEST=1445 ST=0
+```
+
+With `refusals=0` and a single later `S2?`, this is the whole fault:
+
+1. the chip's `TIBSZ` is **96** and a block is 128 B, so a block is delivered in **two** passes;
+2. `blk_refill` cuts the first pass back to a space, leaving the tail (here the closing `;`) for the second pass;
+3. the second pass only happens once the current source is dry, so the tail can arrive **after the next line has
+   begun** — and if the machine is still in compile state, that line's `N LOAD` is **compiled** instead of executed;
+4. the rest of the phase therefore never loads, no error is raised, `LATEST` barely moves, and the phase appears to
+   "lose" whatever word the next block needed (`S2?`, `Z4?`, `S1?`).
+
+**Verified not transport.** P2b read 8 byte offsets (0,1,2,3,64,120,126,127) out of each of 9 seeded blocks on the
+chip: **72/72 match**, including the last two bytes. The seeder and the store are clean; the loss is in the loader.
+
+**What is enforced now** — `tools/fsplit.py`:
+- cuts only where the interpreter is in **interpret state** (never inside a `:` definition, never right after a
+  name-parsing word), because a block boundary is not a line boundary;
+- **refuses** a definition that does not fit one block instead of splitting it (the failure is the fix: a silent split
+  is exactly the corruption above);
+- defaults to **92 B, under the chip's 96-byte tib**, so a block is delivered in one pass and no tail can be left;
+- carries a `--selftest` that fails without those rules, wired into `tests/run.sh` so it cannot regress.
+
+**Consequence for phase authors:** a phase's *individual definitions* must fit ~90 B. `tests/ph1.fsx` has definitions
+above that, which is why the 8-block phase now refuses to split rather than loading corruptly — the phase source is
+what needs rewriting, not the loader.

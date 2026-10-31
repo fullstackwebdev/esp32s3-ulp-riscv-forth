@@ -562,9 +562,42 @@ static u8 tl, ti;
 static u8 errf;
 static u32 savehere, savelatest;
 
+/* ---- P1_TRACE: host-only diagnostic (never baked: the whole block is #ifdef HOST) --------------------
+ * GUARDRAIL: a refusal and a not-found print the SAME text on this machine, because mkentry's refusal and
+ * interpret()'s lookup failure both go through err() with PAD holding the token. Six probes were spent
+ * guessing which one the phase hit. The fix is not better guessing: count refusals in a cell and dump the
+ * machine state, plus a ring of the last parsed tokens, from INSIDE err() - i.e. BEFORE the rewind at the
+ * end of interpret(), which is what erases the evidence in the first place.
+ * GUARDRAIL: cost is zero on the chip. This whole section is compiled out of a bake, so it cannot appear in
+ * .text or .rodata and cannot cost a byte of application space. Do not "share" it with the shipping build. */
+#ifdef P1_TRACE
+int p1_trace, p1_refusals;
+static char p1_ring[12][32]; static int p1_n, p1_i;
+static void p1_push(void)                      /* PAD holds the token just parsed */
+{
+    u8 n = rd8(PAD), k;
+    for (k = 0; k < n && k < 31u; k++) p1_ring[p1_i][k] = (char)rd8(PAD + 1u + k);
+    p1_ring[p1_i][k] = 0;
+    p1_i = (p1_i + 1) % 12; if (p1_n < 12) p1_n++;
+}
+static void p1_dump(const char *why)
+{
+    int j;
+    fprintf(stderr, "[P1 %s] HERE=%u LATEST=%u STATE=%u refusals=%d tokens:", why,
+            rd32(V_HERE), rd32(V_LATEST), rd32(V_STATE), p1_refusals);
+    for (j = p1_n; j > 0; j--) fprintf(stderr, " %s", p1_ring[(p1_i + 12 - j) % 12]);
+    fprintf(stderr, "\n");
+}
+#endif
+
 static void err(void)
 {
     u8 i, n = rd8(PAD);
+#ifdef P1_TRACE
+    /* GUARDRAIL: dumped BEFORE the message and before interpret()'s rewind - taking it afterwards reports
+     * the recovered state, which is exactly the information we already have from the prompt. */
+    if (p1_trace) p1_dump("ERR");
+#endif
     for (i = 0; i < n; i++) pl_emit(rd8(PAD + 1 + i));
     pl_emit('?'); pl_emit('\n');
     errf = 1;
@@ -791,6 +824,10 @@ static u16 mkentry(u16 tok, u8 imm)
         for (s = rd32(V_LATEST); s + HDRSZ <= (u32)HDRTOP; s += HDRSZ) {
             if (mem[s + 2u] != (u8)(hs >> 4)) continue;
             if ((mem[s + 1u] >> 4) != (u8)(hs & 0x0fu)) continue;
+#ifdef P1_TRACE
+            /* GUARDRAIL: the counter is the discriminator the message cannot be. */
+            p1_refusals++; if (p1_trace) p1_dump("REFUSE");
+#endif
             err();                          /* names the token, then '?' */
             return 0;
         }
@@ -1565,7 +1602,31 @@ static void interpret(void)
 {
     u8 n, imm; u16 xt; u32 v;
     errf = 0;
+#if defined(OVL_LOAD)
+    /* GUARDRAIL (NOT ENFORCED - see docs/15-overlays.md): a new line arriving while a block still has unread CODE
+     * (not just padding) is a silent corruption: the leftover is delivered by a later blk_refill, i.e. in the middle
+     * of the next line, and if the machine was left in COMPILE state by a block that ended inside a definition, that
+     * line's `N LOAD` is COMPILED instead of executed. Measured on the host trace of a 128 B block: block 9 ended
+     * `... NX REPEAT`, the next line's `10` and `LOAD` were read at STATE=1, and the stray `;` arrived afterwards.
+     * The check that catches it was written and then withdrawn, because it fires on a legitimate pattern this suite
+     * relies on: an intentional refusal (overlay_collide.fs) leaves a partially consumed block whose tail the next
+     * line deliberately discards. Enforcing it needs that pattern expressed differently first.
+     * THE RULE THAT PREVENTS THE BUG IS TOOL-SIDE and is enforced: tools/fsplit.py cuts blocks only at
+     * interpret-state boundaries and refuses a definition that does not fit one block.
+     */
+#endif
     while (!errf && (n = word())) {
+#ifdef P1_TRACE
+        if (p1_trace) {                       /* GUARDRAIL: per-token HERE/LATEST is what dates a rewind or a
+                                               * silent skip; a dump only at error time cannot see a block that
+                                               * quietly never ran. */
+            u8 k2;
+            fprintf(stderr, "[P1 TOK] ");
+            for (k2 = 0; k2 < rd8(PAD); k2++) fputc(rd8(PAD + 1u + k2), stderr);
+            fprintf(stderr, "  HERE=%u LATEST=%u ST=%u\n", rd32(V_HERE), rd32(V_LATEST), rd32(V_STATE));
+            p1_push();
+        }
+#endif
         /* GUARDRAIL: try number() FIRST for a numeric token. The old order was find() then number(),
          * so every literal in the source paid a *failed* full scan of the header chain (81 entries)
          * before being recognised as a number — measured at ~28 000 cycles per literal, versus ~1 139
@@ -1588,6 +1649,11 @@ static void interpret(void)
          * non-numeric token could still parse as a number. With the base fixed at 10 that arm can never be
          * taken: a token that is neither digit-led nor a word cannot parse. It is gone. */
     }
+#ifdef P1_TRACE
+    /* GUARDRAIL: dumping the state at the END of every source is what dates "a definition was left open here".
+     * A rewind does not fire for this case - nothing errored - so the error-time dump cannot see it. */
+    if (p1_trace && rd32(V_STATE)) p1_dump("END-COMPILING");
+#endif
     if (errf) {
         sp = rsp = 0;
         if (rd32(V_STATE)) { wr32(V_HERE, savehere); wr32(V_LATEST, savelatest); }
@@ -1760,6 +1826,26 @@ static int load(const char *file)
     return 0;
 }
 
+#ifdef P1_TRACE
+/* GUARDRAIL: the host fake server answers a FIXED pattern (k + 7n), so a phase's real bytes could never be
+ * replayed on the host - only on the chip, which is expensive and where the diagnostic is one line of text.
+ * `-B <file>` reads "<blk> <hex>" lines into the store and pads the remainder with spaces, exactly as the
+ * chip's seeder does after the stale-tail fix. Without the padding the host would reproduce a DIFFERENT bug. */
+static int p1_load_blocks(const char *path)
+{
+    FILE *f = fopen(path, "r"); char buf[640], hex[640]; unsigned blk; int k, hexlen;
+    if (!f) { fprintf(stderr, "P1: cannot open %s\n", path); return 1; }
+    while (fgets(buf, sizeof buf, f)) {
+        if (sscanf(buf, "%u %639s", &blk, hex) != 2) continue;
+        if (blk >= (unsigned)SRVBLK) { fprintf(stderr, "P1: block %u out of range\n", blk); fclose(f); return 1; }
+        hexlen = (int)strlen(hex) / 2;
+        for (k = 0; k < hexlen && k < BLKSZ; k++) { unsigned v; sscanf(hex + 2 * k, "%2x", &v); srv[blk][k] = (u8)v; }
+        for (; k < BLKSZ; k++) srv[blk][k] = ' ';
+    }
+    fclose(f); return 0;
+}
+#endif
+
 int main(int argc, char **argv)
 {
     const char *dump = 0; int i, interactive = 0;
@@ -1769,6 +1855,9 @@ int main(int argc, char **argv)
 #if defined(P33_BLOCK)
     { u32 n0, k0;   /* the fake file's contents: block n byte k = k + 7n */
       for (n0 = 0; n0 < SRVBLK; n0++) for (k0 = 0; k0 < BLKSZ; k0++) srv[n0][k0] = (u8)(k0 + 7 * n0); }
+#endif
+#ifdef P1_TRACE
+    p1_trace = (getenv("ULP_TRACE") != 0);
 #endif
 #ifdef P31_TRACE
     /* GUARDRAIL: this must be taken between boot_init() and the first load() — after the first file
@@ -1781,6 +1870,9 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-k")) keep_going = 1;
 #endif
         else if (!strcmp(argv[i], "-i")) interactive = 1;
+#ifdef P1_TRACE
+        else if (!strcmp(argv[i], "-B") && i + 1 < argc) { if (p1_load_blocks(argv[++i])) return 1; }
+#endif
         else if (load(argv[i])) return 1;
     }
 #ifndef IMAGE

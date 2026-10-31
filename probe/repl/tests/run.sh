@@ -48,6 +48,11 @@ gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTI
     || { echo "BUILD FAILED: host_blk will not compile" >&2; exit 1; }
 
 fail=0
+# GUARDRAIL: the block-splitting lesson (never cut a block inside a definition, never exceed one tib pass) lives in
+# tools/fsplit.py, which is Python and therefore invisible to the .fs loop below. Its selftest is the test that would
+# have failed on the bug that cost six probes: an oversized definition was silently split, the machine stayed in
+# compile state across the boundary, and every later `N LOAD` was COMPILED instead of executed.
+python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1; }
 for f in tests/*.fs; do
     name=$(basename "$f" .fs)
     want="tests/$name.expected"

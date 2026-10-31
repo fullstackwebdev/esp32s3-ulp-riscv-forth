@@ -60,4 +60,36 @@ very different, and much better, problem.
 
 ## Results (appended, predictions above never edited)
 
-_(none yet)_
+### Session A — device, 2025 run (all five predicted PASS, all five PASSED)
+
+| probe | prediction | result |
+|---|---|---|
+| P2c-a `: ZZ 42 . ;` padded to a full block | ok, `' ZZ` resolves | **ok, `' ZZ` = 794** ✓ |
+| P2c-b `4 CONSTANT QP` padded | ok, `' QP` resolves | **ok, `' QP` = 794** ✓ |
+| P2c-c 128 B ending on a token, no trailing space | 42 printed, ok | **`42` printed, ok, `' ZC` = 794** ✓ |
+| P2c-d block ends on a bare name `CREATE ZT` | ok, `' ZT` resolves | **ok, `' ZT` = 794** ✓ |
+| P2c-e 7 blocks, ONE definition each | all ok, `' E7` resolves | **all 7 ok, LATEST 1481→1463, `' E1` 794, `' E7` 854** ✓ |
+
+Consequence: **padding is not the trigger, a token ending at byte 128 is not the trigger, a block ending on a bare name
+is not the trigger, and seven blocks in sequence is not the trigger.** The only shape still untested is a **colon body
+that spans a block boundary** (`: S1 … REPEAT` closed by `;` at the start of the next block), and the `CREATE … ,`
+chain that a boundary cuts in half. New probe P2c-f added for exactly that.
+
+### Session B — instruments, transport, and the traced host run
+
+| probe | prediction | result |
+|---|---|---|
+| P2 verify checksum instrument | 4 096 and 8 320 | **INSTRUMENT ABANDONED**: `DEPTH` and `DO/LOOP` do not exist on this machine (`DEPTH?`, `DO?`), and two `BEGIN/WHILE/REPEAT` attempts printed the loop counter. Replaced by a `C@`-at-known-offset readback, which needs no loop and cannot be misparsed. |
+| P2b transport before execution | all segments match | **72/72 byte checks MATCH** over 9 seeded blocks (offsets 0,1,2,3,64,120,126,127), including the last two bytes. Seeder and store are out of the suspect list permanently. |
+| P3 per-block, with names | `LATEST` frozen at block 8 | **refuted, and it mattered**: after a hard reset block 8 loads `ok` and `' DATABLK` resolves (794). The earlier "frozen from block 8" reading came from a board that had NOT been reset — the lesson is now a GUARDRAIL in `device_ceiling.py`. |
+| P4 rename (only if a refusal) | failures vanish if name-related | **not name-related**: `CREATE QQ/QP/ZT/VV/TWX/IDXX/Z4` all succeed at the prompt and from blocks, before and after `SEAL`; the host refusal counter reads **0** for the whole phase. |
+| P5 content bisect | 16 B prefix succeeds in isolation | **size, not content, is the trigger**: 128 B blocks lose their final token, 120 B mostly survive, ≤92 B is safe by construction (one tib pass). |
+| P6 length ladder | first failing length 2–3 | **refuted**: 2 blocks green, 7 blocks one-definition-each green (LATEST 1481→1463, `' E7`=854), and an 8-block phase green apart from the tail-loss blocks. Length is not the fault; a definition spanning a **tib pass** is. |
+| P1 traced host run | a refusal, a truncated token, or correct tokens | **none of the four**: `refusals=0`, tokens correct, and the state dump showed `STATE=1` at end-of-source with `10`/`LOAD` read at `ST=1` and the stray `;` arriving afterwards. That is a fifth outcome the table did not list — a **leftover tail delivered after the next line started**. |
+
+### P1b decision (recorded, per the plan's decision tree)
+
+Counter = 0 and no truncated token, so neither P4 nor a parse fault. The trace named a **block/tib pass boundary**
+fault, so the fix went to the splitter (`tools/fsplit.py`) with its own failing selftest, and the engine-side guard was
+written, measured to conflict with an existing intentional-refusal test, and withdrawn with the reason recorded at the
+site in `interpret()`.
