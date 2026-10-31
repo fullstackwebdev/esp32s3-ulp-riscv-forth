@@ -95,7 +95,7 @@ parse, hand-written copies).
 ## Honest limits
 
 154 B of program space (a few small definitions). 128 B blocks, 8 of them, **in the main core's RAM - no
-flash, no PSRAM** (R7 unwritten). Recursion depth ~13 before `ERR_STACK`. One block request in flight, and
+flash, no PSRAM** (R7 unwritten). Recursion depth **15** (a 1-cell-per-level word; 16 is refused with `ERR_STACK`). One block request in flight, and
 a timeout wedges the layer until reset. No names in the dictionary, so no `WORDS` or `SEE`.
 
 ## What is left
