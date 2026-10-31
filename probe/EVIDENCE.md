@@ -1989,3 +1989,22 @@ diagnostic.
 **Honest limits of this configuration:** 128 B blocks (not 512), 154 B of app space, and a backend that is
 still an 8 x 128 B **RAM** array on the HP — **no flash, no PSRAM** (R7 unwritten; the ULP never sees either).
 
+## E-080 — Blocks are now in `tests/`, and one of those tests cannot do its job on the host
+
+**Added (9 checks, all green):** `tests/blocks.fs` (round trip, checksum, dirty refusal, range) and
+`tests/blocks_noserver.fs` (timeout, machine survives, and the documented `ERR_BUSY` wedge). `run.sh` builds a
+**second** host binary with the shipping block flags and routes `tests/blocks*.fs` to it, so the flag set
+lives with the engine rather than in a test file. A `SRV ` line the driver prints at exit is filtered out of
+the golden transcript — a driver diagnostic must not be part of a program's expected output.
+
+**The honest negative result.** Reverting the volatile fix (`mb_get(3u)` → `mailbox[3]`) and re-running
+`blocks.fs` **passes**: GCC does not fold that load on x86 the way it does on rv32 at `-Os`. So that test
+covers the block layer's *semantics* and cannot cover the *codegen* bug, which means no host test can guard
+it. The defence was changed accordingly: every mailbox access now goes through `mb_get`/`mb_set`, so the
+volatile lives in one place and the mistake cannot be made again by forgetting it at a call site.
+`tests/deep.fs` was mutation-checked the same way and **does** bite: with the wrap restored it prints
+`55377888` instead of `55ERR_STACK `.
+
+**Board re-verified after the refactor** (pool 7 853 / 7 856): `0 BLOCK .` → 1072, write/`SAVE 0`, read back
+65, `SPAWN TA SPAWN TB` → 1324, `2 3 + .` → 5.
+

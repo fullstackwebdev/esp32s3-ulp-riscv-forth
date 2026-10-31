@@ -253,6 +253,15 @@ static void blk_place_assert(const char *when)
 static void blk_boot_assert(void)          { if (!blk_boot_ok()) pl_halt(1); }
 static void blk_place_assert(const char *w){ (void)w; }
 #endif
+/* GUARDRAIL: every mailbox access goes through these two, because the volatile moved from "remember it at
+ * each use" to "it lives here". The bug this prevents is real and target-specific: `mailbox[3] != blk_sum()`
+ * was folded to the constant 0 we had just written, so empty blocks verified and blocks with data failed
+ * ERR_CRC — on rv32 at -Os only. The host build does NOT reproduce it (measured: a mutant with the plain
+ * load still passes tests/blocks.fs), which means no host test can guard this. An accessor is the only
+ * defence that does not depend on remembering, on the compiler, or on the target. */
+static u32  mb_get(u32 i) { volatile u32 *p = &mailbox[i]; return *p; }
+static void mb_set(u32 i, u32 v) { volatile u32 *p = &mailbox[i]; *p = v; }
+
 static u32 blk_out;             /* 1 = a request is outstanding. P16: exactly one, ever */
 
 static u32 blk_sum(void)
@@ -272,28 +281,28 @@ static i32 blk_xfer(u32 blk, u32 op)
     if (!blk_place_ok()) { blk_place_assert("xfer"); return BK_BUFOVER; }
     /* GUARDRAIL: the poll must read the status through volatile, or GCC hoists the load out of
      * the loop and the driver only ever sees the value it wrote itself (always 0 = no server). */
-    volatile u32 *st = &mailbox[2];
-    volatile u32 *mbsum = &mailbox[3];
+    /* the status and the checksum are the two words this core only READS, and both are written by
+     * the other core — mb_get is what keeps that honest. */
     if (op == BLK_ABORT) { blk_out = 0; return BK_OK; }   /* the operator says the main core is dead */
     /* GUARDRAIL: one outstanding request is a hardware constraint, not a policy — P16 measured
      * two in flight corrupting silently, with a valid CRC on both. Refuse; do not queue. */
     if (blk_out) return BK_BUSY;
     blk_out = 1;
-    mailbox[0] = blk; mailbox[1] = op;
-    mailbox[3] = (op == BLK_WRITE) ? blk_sum() : 0u;      /* the checksum travels in the mailbox */
-    *st = 0;                                             /* 0 = pending */
+    mb_set(0u, blk); mb_set(1u, op);
+    mb_set(3u, (op == BLK_WRITE) ? blk_sum() : 0u);        /* the checksum travels in the mailbox */
+    mb_set(2u, 0u);                                      /* 0 = pending */
     pl_hw(6, 0, 0);                                      /* doorbell: P23, 176 us */
-    for (i = 0; i < BLKWAIT; i++) if (*st) break;
+    for (i = 0; i < BLKWAIT; i++) if (mb_get(2u)) break;
     /* GUARDRAIL: leave blk_out set on a timeout — a request nobody answered is still out there,
      * so the next BLOCK is refused BUSY instead of racing the answer into a stale buffer. */
-    if (!*st) return BK_NOSERVER;
-    if (*st != 1u) { blk_out = 0; return (i32)(0u - *st); }  /* a nack: the server's own code, negative */
+    if (!mb_get(2u)) return BK_NOSERVER;
+    if (mb_get(2u) != 1u) { u32 stv = mb_get(2u); blk_out = 0; return (i32)(0u - stv); }  /* a nack, negative */
     /* GUARDRAIL: the checksum MUST be read through a volatile lvalue, for the same reason as the status
      * one line above. For a READ we write mailbox[3] = 0 ourselves, so a plain load is CSE'd to the constant
      * 0: every empty block "verified" (0 == 0) and every block with data failed ERR_CRC while the server's
      * log showed both cores holding the same bytes. Measured on the board: file=65 buf=65 sum=65 and the
      * ULP still complained. This is F-108 reappearing because this tree kept an older copy of blk_xfer. */
-    if (op == BLK_READ && *mbsum != blk_sum()) { blk_out = 0; return BK_CRC; }
+    if (op == BLK_READ && mb_get(3u) != blk_sum()) { blk_out = 0; return BK_CRC; }
     blk_out = 0;
     return BK_OK;
 }

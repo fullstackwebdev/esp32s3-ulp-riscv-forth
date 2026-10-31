@@ -26,6 +26,11 @@ export IDF_PATH=/home/user/research/esp32/esp-idf
 gcc -O2 -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
     -o artifacts/host_suite src/uforth.c
 gcc -Os -o artifacts/expand tools/expand.c
+# GUARDRAIL: the block layer is compiled out of the plain host build, so a block test against it would only
+# prove that BLOCK is unknown. A SECOND binary carries the shipping block flags, and tests named blocks*.fs
+# run against that one — the flag set lives here, next to the engine, not in the test file.
+gcc -O2 -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1200 \
+    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_blk src/uforth.c
 
 fail=0
 for f in tests/*.fs; do
@@ -35,8 +40,15 @@ for f in tests/*.fs; do
     # The host loader's own "<file>:<line>: error" line is a driver diagnostic, not machine output.
     # Its presence is NOT asserted here: each error test carries its own 888 abort sentinel instead,
     # so the test says what it means without this script knowing how an abort is implemented.
-    got=$(timeout 30 ./artifacts/host_suite src/p39_prelude.fs "$f" 2>&1 \
-          | grep -a -v ': error$' | ./artifacts/expand || true)
+    case "$name" in
+        blocks*) BIN=artifacts/host_blk ;;
+        *)       BIN=artifacts/host_suite ;;
+    esac
+    # GUARDRAIL: `SRV ` is the host driver's own end-of-run summary of the fake block server, and a
+    # driver diagnostic must not be part of a golden transcript — it made the expected file depend on the
+    # fake server's final state rather than on the program's behaviour.
+    got=$(timeout 120 ./"$BIN" src/p39_prelude.fs "$f" 2>&1 \
+          | grep -a -v ': error$' | grep -a -v '^SRV ' | ./artifacts/expand || true)
     if [ "$got" = "$(cat "$want")" ]; then
         echo "PASS  $name.fs (${#got} bytes)"
     else
@@ -58,9 +70,12 @@ fi
 
 # The expansion table has a failure mode of its own: an unknown code must name itself, never print
 # nothing (an empty reply is indistinguishable from a healthy line).
-unk=$(printf '\x8a' | ./artifacts/expand)
+# GUARDRAIL: use a code that is genuinely unlisted. 0x8a was the probe byte until the block layer claimed it
+# for ERR_BUSY, at which point this check silently started passing the wrong thing (it printed ERR_BUSY and
+# failed) — a "prove the failure path" test is only as good as the malformed input it uses.
+unk=$(printf '\x91' | ./artifacts/expand)
 case "$unk" in
-    *"ERR_ULPCODE 0x8a"*) echo "PASS  unknown message code is named" ;;
+    *"ERR_ULPCODE 0x91"*) echo "PASS  unknown message code is named" ;;
     *) echo "FAIL  unknown code printed '$unk'" >&2; fail=1 ;;
 esac
 

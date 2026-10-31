@@ -1799,3 +1799,17 @@ means zero in the shipping build.
 Limits, stated plainly: 128 B blocks, 154 B of app space, RAM-backed storage on the HP, **no flash and no
 PSRAM**. The countdown script now recognises a block-enabled build instead of adding the layer twice.
 
+**J-98 · The block tests are in the suite — and the mutation check showed one of them cannot fail.**
+Nine checks now run, two of them block-specific, against a second host binary built with the shipping block
+flags. Adding them was routine; verifying that they *bite* was not.
+
+Reverting the volatile fix makes `blocks.fs` pass. GCC folds that load on rv32 at `-Os` and not on x86, so
+the bug that cost a board session is invisible to every host test we can write. Rather than pretend
+otherwise, the code was changed so the mistake cannot be made: `mb_get`/`mb_set` hold the `volatile` in one
+place instead of at each of the six call sites. `deep.fs`, checked the same way, does catch its bug
+(`55377888` instead of `55ERR_STACK `), so not all of the coverage is decorative — but one is, and the
+record says which.
+
+This is R12 with teeth: a test that cannot fail is decoration, and the only way to know the difference is to
+reintroduce the bug and watch.
+
