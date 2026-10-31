@@ -4,7 +4,8 @@
 \ happy path, the checksum path and the no-answer path are all reachable from Forth alone.
 \ GUARDRAIL: the happy path comes FIRST. A request that times out deliberately leaves blk_out set, so
 \ every later call answers ERR_BUSY; the timeout case has its own file for exactly that reason.
-0 BLOCK .
+0 BLOCK 0 BLOCK = .   \ GUARDRAIL: assert the window is STABLE, not that it equals a literal: the
+                      \ address moved when MEMSZ moved (1200 -> 1936) and a hardcoded 1072 turned a good engine red.
 65 0 BLOCK C! UPDATE SAVE .
 0 BLOCK C@ .
 1 BLOCK C@ .

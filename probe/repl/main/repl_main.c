@@ -32,6 +32,8 @@
 #include "ulp_riscv.h"
 #include "ulp_main.h"
 
+static void seed_poll(void);   /* defined after blkfile[]; called from the UART pump */
+
 #define CONSOLE_UART  UART_NUM_0
 #define CONSOLE_BAUD  115200
 
@@ -76,17 +78,8 @@ static void console_task(void *arg)
          * space. Measured on the device: an 88-character definition arrived mangled (`ARITH?`, then `DUP?`)
          * and the benchmark lines — the longest being 88 chars — could not be typed at all.
          * Sizing the read to the free space makes the ring the only limit, which is what the ring is for. */
-        {
-            uint32_t h = ulp_repl_cmd_head;
-            uint32_t t = ulp_repl_cmd_tail;
-            uint32_t space = CMD_SIZE - (h - t);
-            if (space > sizeof buf) space = sizeof buf;
-            if (space > 0u) {
-                int n = uart_read_bytes(CONSOLE_UART, buf, space, 0);
-                for (int i = 0; i < n; i++) CMD_BYTES[(h + (uint32_t)i) & CMD_MASK] = buf[i];
-                if (n > 0) ulp_repl_cmd_head = h + (uint32_t)n;
-            }
-        }
+        /* the UART is read by seed_poll(), which forwards non-seed lines into the ring */
+        seed_poll();   /* fast block seeding, host-side (see seed_poll) */
 
         /* out ring -> UART */
         uint32_t oh = ulp_repl_out_head;
@@ -108,13 +101,125 @@ static void console_task(void *arg)
 
 /* GUARDRAIL: the server body is the one the experimental tree verified on hardware (E-074); it is
  * 2048 B of stack on the HP and never touches the ULP's pool. */
-/* GUARDRAIL: 8 -> 128 blocks. Eight blocks is 1024 B of source, which cannot hold a multi-phase program, and the
- * host has megabytes while the ULP's RTC RAM is the scarce side. Measured on the board: blocks 0..7 answered, 8+
- * nacked, and the 16 KB store that can hold a paged program needed this to change. */
+/* GUARDRAIL: 8 -> 128 blocks (16 KB at the ULP's 128 B transfer size). Eight blocks is 1 024 B of source,
+ * about 600-800 B of compiled code, which is LESS than the 1 183 B of resident app space the overlay build
+ * has - so overlays could not raise the program ceiling at all while the store was 8 blocks. Measured on the
+ * board: blocks 0..7 answered and 8+ nacked. The host has megabytes; the ULP's RAM is the scarce side, so
+ * the store is the cheap place to buy capacity. 128 x 256 B = 32 KB of host RAM. */
 #define BLK_N     128
 #define BLK_SZ    256
 static uint32_t blk_sz;      /* transfer size, published by the ULP */
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
+/* ---- ULP stack high-water probe (row 10 of the A/B) ---------------------------------------------------------
+ * The ULP stack grows down from ulp___stack_top (0x50001ff0) into .bss, so an overflow corrupts engine state
+ * instead of faulting - that is how a 336 B chain silently broke block I/O earlier. The main core can WRITE RTC
+ * slow RAM, so it paints the region above the image with 0xA5 before the ULP starts, and afterwards reports the
+ * lowest byte the ULP has touched. That turns the frame arithmetic into a measurement at zero cost in ULP bytes.
+ *
+ * GUARDRAIL: the paint starts at 0x1EB0, not at pool_end. The pool ends at 0x1EA7 with this image (7847 B) and
+ * painting from below that would erase mem[]/tib/mailbox - a "measurement" that destroys the thing it measures.
+ * If the image grows past 0x1EB0 this must move down with it, which is why the end is asserted at boot.
+ */
+/* GUARDRAIL: the base is READ OFF THE MAP, not guessed. `riscv32-esp-elf-nm -n ulp_main.elf` puts the highest
+ * .bss symbol at `junk` 0x1EA8, so the image ends at 0x1EA9 and the stack occupies [0x1EA9, 0x1FF0) = 327 B.
+ * The first attempt used 0x1EB0 from the pool arithmetic and reported 1 byte, which is impossible for a machine
+ * that enters vm_enter per token - the paint must be verified against this base before any number is believed.
+ * GUARDRAIL: leave the injected report OFF for shipping images (comment out CANARY below): it puts a stray
+ * "<n> ." line on the operator's console four seconds after boot.
+ * GUARDRAIL: never write a nested comment terminator inside this comment. Writing the flag as a quoted C comment
+ * here ended the enclosing block early, so the two functions below became comment text and the call in app_main
+ * failed with "implicit declaration" - which reads like a missing prototype, not a comment bug. */
+/* GUARDRAIL: OFF. Enabling it corrupts the console: injecting a line into the command ring made the ULP emit
+ * binary noise (0x78/0x00 bytes) instead of text, so the report destroyed the very channel it used. The ring is
+ * single-writer per index and the UART pump owns cmd_head in the same task, which is the likely collision - but
+ * the fix is not a patch here: publish the number into an RTC cell and let a FORTH word read it, so the report
+ * travels through the interpreter instead of being spliced into its input.
+ * GUARDRAIL: the base IS settled: nm -n on ulp_main.elf puts the highest .bss symbol at `junk` 0x1EA8, so the
+ * image ends at 0x1EA9 and the stack occupies [0x1EA9, 0x1FF0) = 327 B. 0x1EAC is the map's answer, not the
+ * pool arithmetic that guessed 0x1EB0. */
+/* #define CANARY 1 */
+#define CANARY_BASE 0x1EACu
+#define STACK_TOP   0x1FF0u
+#define CANARY_VAL  0xA5u
+
+static void canary_paint(void)
+{
+    volatile uint8_t *p = (volatile uint8_t *)(ULP_RAM_BASE + CANARY_BASE);
+    uint32_t i;
+    for (i = 0; i < STACK_TOP - CANARY_BASE; i++) p[i] = CANARY_VAL;
+}
+
+static uint32_t canary_used(void)
+{
+    volatile uint8_t *p = (volatile uint8_t *)(ULP_RAM_BASE + CANARY_BASE);
+    uint32_t i, low = STACK_TOP - CANARY_BASE;
+    for (i = 0; i < STACK_TOP - CANARY_BASE; i++) if (p[i] != CANARY_VAL) low = i;
+    /* the stack grows DOWN from STACK_TOP, so the deepest touch is the LOWEST painted byte that changed */
+    return (low < STACK_TOP - CANARY_BASE) ? (STACK_TOP - CANARY_BASE - low) : 0u;
+}
+
+/* GUARDRAIL: this lives AFTER blkfile[] and BLK_N because it writes them; the first placement sat above the
+ * store's declaration and failed with "'BLK_N' undeclared", which reads like a missing include.
+ * Line format:  #b <block> <hex bytes>   - intercepted here, never forwarded to the ULP. */
+static void seed_poll(void)
+{
+    /* GUARDRAIL: 320 bytes, not 180. A full 128-byte block arrives as ~264 hex characters plus the "#b N " prefix,
+     * so a 180-byte line buffer silently seeded 87 of 128 bytes per block and the phase source could not assemble
+     * (measured as IDX? / Z1? during the load, and as a readback of 87 bytes). Size for the worst case. */
+    static char ln[320];
+    static int n;
+    unsigned char c;
+    while (uart_read_bytes(CONSOLE_UART, &c, 1, 0) == 1) {
+        if (c == '\n' || c == '\r') {
+            ln[n] = 0;
+            if (n > 4 && ln[0] == '#' && ln[1] == 'b' && ln[2] == ' ') {
+                unsigned blk = 0, k = 3, w = 0;
+                int hi = 0, bad = 0;
+                while (ln[k] >= '0' && ln[k] <= '9') blk = blk * 10u + (unsigned)(ln[k++] - '0');
+                while (ln[k] == ' ') k++;
+                /* GUARDRAIL: blank the block BEFORE writing the payload. Writing only the payload leaves the rest
+                 * of the block holding whatever a previous seed put there; LOAD then compiles the new text and
+                 * trips over the stale tail, which errors the line and REWINDS the phase - measured as a phase
+                 * whose own definitions vanished (Z6?, and a minimal `: ZZ 42 . ;` in one block + `ZZ` in the
+                 * next answering ZZ?). */
+                if (blk < BLK_N) {
+                    unsigned i2;
+                    for (i2 = 0; i2 < sizeof(blkfile[0]); i2++) blkfile[blk][i2] = (uint8_t)' ';
+                }
+                while (ln[k] && w < (unsigned)sizeof(blkfile[0]) * 2u) {
+                    int v;
+                    char d = ln[k];
+                    if (d >= '0' && d <= '9') v = d - '0';
+                    else if (d >= 'a' && d <= 'f') v = d - 'a' + 10;
+                    else if (d >= 'A' && d <= 'F') v = d - 'A' + 10;
+                    else { bad = 1; break; }
+                    if ((w & 1u) == 0u) hi = v;
+                    else if (blk < BLK_N) blkfile[blk][w >> 1] = (uint8_t)((hi << 4) | v);
+                    w++; k++;
+                }
+                if (!bad && blk < BLK_N) printf("seed: block %u <- %u bytes\n", blk, w / 2u);
+                else                     printf("seed: REJECTED (bad hex, or block >= %d)\n", BLK_N);
+                fflush(stdout);
+                n = 0;
+                continue;                       /* a seed line is consumed here, never forwarded */
+            }
+            /* GUARDRAIL: everything that is NOT a seed line is forwarded into the ULP's command ring from HERE.
+             * The pump used to read the UART as well, and two readers on one port steal each other's bytes:
+             * measured as a mangled command (`LOAD?` where a LOAD was intended) and blocks that never arrived. */
+            {
+                uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, space = CMD_SIZE - (h - tl);
+                uint32_t i;
+                ln[n] = '\r';
+                for (i = 0; i <= (uint32_t)n && i < space; i++) CMD_BYTES[(h + i) & CMD_MASK] = (uint8_t)ln[i];
+                ulp_repl_cmd_head = h + i;
+            }
+            n = 0;
+        } else if (n < (int)sizeof(ln) - 1) {
+            ln[n++] = (char)c;
+        }
+    }
+}
+
 static void block_task(void *arg)
 {
     (void)arg;
@@ -161,9 +266,10 @@ static void block_task(void *arg)
             volatile uint8_t  *buf = (volatile uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr + ulp_repl_blk_off);
             uint32_t blk = mb[0], op = mb[1];
             if (blk >= BLK_N) {
-                /* GUARDRAIL: send the MAGNITUDE of the ULP's negative status, because blk_xfer decodes a nack as
-                 * (i32)(0u - st). This was 2, which arrives as -2 = BK_BUSY, so "no such block" was reported to
-                 * Forth as "server busy". 5 arrives as BK_RANGE, which is what it is. */
+                /* GUARDRAIL: send the MAGNITUDE of the ULP's negative BK_* code, because blk_xfer decodes a
+                 * nack as `(i32)(0u - st)`. This was 2, which decoded as -2 = BK_BUSY, so "no such block"
+                 * arrived at Forth as "server busy" and the operator got a misleading name for a range
+                 * error. 5 decodes as BK_RANGE, which is what it is. */
                 mb[2] = 5;                       /* nack: no such block -> BK_RANGE */
             } else if (op == 0u) {               /* READ */
                 uint32_t s = 0; int i;
@@ -186,8 +292,10 @@ static void block_task(void *arg)
                 uint32_t s = 0; int i;
                 for (i = 0; i < (int)blk_sz; i++) s += buf[i];
                 if ((s & 0xffffu) != mb[3]) {
-                    /* GUARDRAIL: the same rule as the range nack. 0xFFFFFFFC decodes as +4, not -4, so a
-                     * checksum mismatch reached Forth as an unnamed positive status. 4 arrives as BK_CRC. */
+                    /* GUARDRAIL: same decoding rule as the range nack above: 0xFFFFFFFC decodes as +4 (not
+                     * -4), so a checksum mismatch would have reached Forth as an unnamed positive status. 4
+                     * decodes as BK_CRC. This path is not covered by the host tests (they use the engine's
+                     * fake server), so the rule, not a test, is what keeps it honest. */
                     mb[2] = 4;                   /* nack: checksum mismatch -> BK_CRC (-4) */
                 } else {
                     for (i = 0; i < (int)blk_sz; i++) blkfile[blk][i] = buf[i];
@@ -195,6 +303,25 @@ static void block_task(void *arg)
                 }
             }
         }
+        /* Once, after the ULP has done real work, report the painted high-water mark.
+         * GUARDRAIL: report it THROUGH THE ULP'S CONSOLE by injecting a Forth line into the command ring.
+         * printf here goes to a console that emits nothing on this board (/dev/ttyACM0 reads 0 bytes), so the
+         * measurement had no channel at all. The ring is the only visible console, and it needs no ULP bytes. */
+#if defined(CANARY)
+        { static int reported; static uint32_t ticks;
+          if (!reported && ++ticks == 4000u) {
+              char line[24]; int n;
+              uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, space, k;
+              n = snprintf(line, sizeof line, "%u .\r", (unsigned)canary_used());
+              space = CMD_SIZE - (h - tl);
+              if (n > 0 && (uint32_t)n <= space) {
+                  for (k = 0; k < (uint32_t)n; k++) CMD_BYTES[(h + k) & CMD_MASK] = (uint8_t)line[k];
+                  ulp_repl_cmd_head = h + (uint32_t)n;
+                  reported = 1;
+              }
+              /* if the ring is full this retries next tick rather than losing the number silently */
+          } }
+#endif
         vTaskDelay(1);                            /* 1 ms: the ULP's poll is bounded, so keep this short */
     }
 }
@@ -202,6 +329,7 @@ static void block_task(void *arg)
 /* GUARDRAIL: declared here because app_main creates the server before this file defines it — an
  * undeclared-call error, which is the good kind: it fails at compile time instead of linking a task
  * that never starts. */
+
 static void block_task(void *arg);
 
 void app_main(void)
@@ -239,6 +367,9 @@ void app_main(void)
     }
     /* 1 000 ticks at the measured 6.46 us/tick = 6 460 us. The API takes microseconds. */
     ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
+#if defined(CANARY)
+    canary_paint();                      /* before the ULP runs: the only moment the stack is untouched */
+#endif
     ESP_ERROR_CHECK(ulp_riscv_run());
     ESP_LOGI(TAG, "ulp armed");
 

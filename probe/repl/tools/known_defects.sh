@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tools/known_defects.sh — run the probes that pin OPEN DEFECTS, and report them.
 #
-# GUARDRAIL: probes here live OUTSIDE tests/*.fs, which requires a golden per file: a known-defect probe in
+# GUARDRAIL: probes here live OUTSIDE tests/*.fs (fixtures/ is fine), which requires a golden per file: a known-defect probe in
 # there would either fail the suite forever or get its wrong output recorded — and "a green suite must never
 # be achieved by recording a gap". Each entry states the CORRECT behaviour, so a fix reports FIXED (then the
 # probe is promoted to a real test) instead of quietly surviving.
@@ -21,4 +21,8 @@ run() {
         echo "DEFECT  $name: want '$want', got '$got'"
     fi
 }
+# F-BLK-TAIL was reported FIXED in this session: word() now refills when a pass ends on the padding it wrote
+# itself, so a block longer than one pass delivers its remainder. Per this file's own rule the probe was
+# PROMOTED, not deleted: tests/block_boundary.sh builds an engine at the chip's 96-byte pass and asserts both
+# boundary cases (closing ';' past the pass, and a name parsed across it).
 echo "no open-defect probes"

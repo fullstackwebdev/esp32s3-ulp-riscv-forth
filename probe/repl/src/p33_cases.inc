@@ -30,3 +30,11 @@
 #if defined(P43_TASKS)
         L_P_SPAWN: vm_spawn_name(); goto tail;
 #endif
+
+#if defined(OVL_LOAD)
+/* GUARDRAIL: LOAD runs the OUTER interpreter from inside a primitive, so it must not fall through to tail
+ * with a half-finished tib: interpret() consumes tib/ti/tl completely and leaves them at tl, which is the
+ * same state forth_quit() leaves behind. `goto tail` after it is correct; returning early would resume the
+ * caller with ti/tl pointing into a buffer it does not own. */
+        L_P_LOAD:   p_load();       goto tail;
+#endif

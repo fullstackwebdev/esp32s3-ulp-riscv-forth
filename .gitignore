@@ -61,3 +61,8 @@ probe/research/*/RESULTS.txt
 *.rej
 .auto/tmp/
 probe/repl/out/
+
+# GUARDRAIL: probe scratch and built binaries are evidence, not source. They belong in .auto/ (append-only, kept on
+# disk) and must not ride into main: 824 scratch files were committed by a bare `git add -A` and would have merged.
+probe/repl/.auto/
+probe/repl/artifacts/

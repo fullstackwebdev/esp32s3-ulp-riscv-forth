@@ -5,6 +5,7 @@
  * _Static_asserts in uforth.c failed the build instead of letting the assembler jump to the wrong
  * case. Keep those asserts; they are the only thing making this file safe. */
 #define ID_DOCOL 0u
+#define ID_DOCOL 0u
 #define ID_DOVAR 1u
 #define ID_DOCON 2u
 #define ID_EXIT 3u
@@ -70,4 +71,9 @@
 #define ID_WAKE 63u
 #define ID_PAUSE 64u
 #define ID_BLKXFER 65u
+#define ID_BLOCK 66u
+#define ID_UPDATE 67u
+#define ID_SAVE 68u
 #define ID_SPAWN 69u
+#define ID_LIT2 70u
+#define ID_LOAD 71u

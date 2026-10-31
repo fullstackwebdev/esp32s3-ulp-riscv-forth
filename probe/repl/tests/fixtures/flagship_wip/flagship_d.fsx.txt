@@ -1,0 +1,13 @@
+\ flagship phase D: write a transform of the data window INTO BLOCK 13 (paged data out), then UPDATE.
+\ With tab[i]=i the transform is 2*i (mod 256), which phase E recomputes and compares byte for byte.
+4 CONSTANT DATABLK
+13 CONSTANT XFM
+CREATE dw 0 , CREATE xw 0 , CREATE di 0 ,
+: DATA ( -- addr ) dw @ ;
+: XB ( -- addr ) xw @ ;
+: RUND ( -- ) DATABLK BLOCK dw ! XFM BLOCK xw ! 0 di !
+  BEGIN di @ 128 < WHILE
+    di @ DATA + C@ 2 * di @ XB + C!
+    di @ 1 + di ! REPEAT
+  UPDATE SAVE DROP ;
+RUND

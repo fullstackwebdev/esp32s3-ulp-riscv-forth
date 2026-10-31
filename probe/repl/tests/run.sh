@@ -30,15 +30,33 @@ export IDF_PATH=/home/user/research/esp32/esp-idf
 # gap": it must also never be achieved by running the wrong binary.
 gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
     -o artifacts/host_suite src/uforth.c || { echo "BUILD FAILED: host_suite will not compile" >&2; exit 1; }
+# GUARDRAIL: the capacity test compiles the phases at the SHIPPING memory size (MEMSZ 1936). Building it at the
+# host suite's 1200 would fail for the wrong reason (dictionary full) and building it larger would measure a
+# machine that does not exist. This binary is the one tests/capacity.sh measures.
+gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1936 \
+    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DOVL_LOAD -o artifacts/host_cap src/uforth.c \
+    || { echo "BUILD FAILED: host_cap will not compile" >&2; exit 1; }
 gcc -Os -o artifacts/expand tools/expand.c
+# GUARDRAIL: MEMSZ 1200 was fine while the manager was a few words; with the event loop resident the dictionary
+# no longer fits and the manager fails to define partway, which surfaces as a bogus unknown word (EV@?) in an
+# unrelated test. The block binary now matches the shipping MEMSZ.
 # GUARDRAIL: the block layer is compiled out of the plain host build, so a block test against it would only
 # prove that BLOCK is unknown. A SECOND binary carries the shipping block flags, and tests named blocks*.fs
 # run against that one — the flag set lives here, next to the engine, not in the test file.
-gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1200 \
-    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_blk src/uforth.c \
+gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1936 \
+    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DOVL_LOAD -o artifacts/host_blk src/uforth.c \
     || { echo "BUILD FAILED: host_blk will not compile" >&2; exit 1; }
 
 fail=0
+# GUARDRAIL: the block-splitting lesson (never cut a block inside a definition, never exceed one tib pass) lives in
+# tools/fsplit.py, which is Python and therefore invisible to the .fs loop below. Its selftest is the test that would
+# have failed on the bug that cost six probes: an oversized definition was silently split, the machine stayed in
+# compile state across the boundary, and every later `N LOAD` was COMPILED instead of executed.
+python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1; }
+# GUARDRAIL: the loader must hand over a WHOLE block even when a pass ends on padding. That cannot be tested with the
+# shipping host flags (128-byte pass), so the test builds its own engine at the chip's 96-byte pass and asserts both
+# ways a boundary bites: a closing ';' past the pass, and a name parsed across it.
+bash tests/block_boundary.sh || { echo "FAIL  block_boundary" >&2; fail=1; }
 for f in tests/*.fs; do
     name=$(basename "$f" .fs)
     want="tests/$name.expected"
@@ -48,12 +66,24 @@ for f in tests/*.fs; do
     # so the test says what it means without this script knowing how an abort is implemented.
     case "$name" in
         blocks*) BIN=artifacts/host_blk ;;
+        # GUARDRAIL: overlay.fs needs the BLOCK-flag binary too - it was matched by the default arm and
+        # ran against host_suite, which has no LOAD, so the overlay prelude failed to compile and the
+        # transcript read `LOAD?` instead of the eight assertions. A test built for one flag set must
+        # be routed to the binary built with that flag set.
+        overlay*|loop*) BIN=artifacts/host_blk ;;
         *)       BIN=artifacts/host_suite ;;
     esac
     # GUARDRAIL: `SRV ` is the host driver's own end-of-run summary of the fake block server, and a
     # driver diagnostic must not be part of a golden transcript — it made the expected file depend on the
     # fake server's final state rather than on the program's behaviour.
-    got=$(timeout 120 ./"$BIN" src/p39_prelude.fs "$f" 2>&1 \
+    extra=""; flags=""
+    case "$f" in
+        # GUARDRAIL: overlay_collide asserts that a bad definition is REFUSED and then shows what survived, so
+        # it needs -k (host-only, keep going after an error). The transcript still contains the ERR_DICT line.
+        *overlay_collide*|*loop*) extra=src/p39b_overlay.fs; flags=-k ;;
+        *overlay*)         extra=src/p39b_overlay.fs ;;
+    esac
+    got=$(timeout 120 ./"$BIN" $flags src/p39_prelude.fs $extra "$f" 2>&1 \
           | grep -a -v ': error$' | grep -a -v '^SRV ' | ./artifacts/expand || true)
     if [ "$got" = "$(cat "$want")" ]; then
         echo "PASS  $name.fs (${#got} bytes)"
@@ -69,7 +99,48 @@ done
 # the staging buffer is nearly full — so it is never seen in normal use and must be driven directly.
 gcc -Os -o artifacts/ring_test tools/ring_test.c
 if timeout 30 ./artifacts/ring_test >/dev/null; then
-    echo "PASS  ring drain: order, completeness, no double-consume, no livelock"
+    if ./tests/capacity.sh; then
+    echo "PASS  capacity: three phases exceed the single-image size (see above)"
+else
+    echo "FAIL  capacity: a paged program did not beat the monolith" >&2
+    fail=1
+fi
+
+# GUARDRAIL: the A/B control is the engine with NO overlays at its own best MEMSZ. Building it with the overlay
+# switch on would make the control pay for the feature it is supposed to be compared against.
+gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2296 \
+    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_ctl src/uforth.c \
+    || { echo "BUILD FAILED: host_ctl will not compile" >&2; exit 1; }
+
+if ./tests/ceiling_probe.sh; then
+    echo "PASS  ceiling probe: high score reported above"
+else
+    echo "FAIL  ceiling probe: escalation did not beat the safe baseline" >&2
+    fail=1
+fi
+
+if ./tests/ceiling.sh; then
+    echo "PASS  ceiling: window-sized phases raise the ceiling (see above)"
+else
+    echo "FAIL  ceiling: the ceiling probe failed" >&2
+    fail=1
+fi
+
+if ./tests/flagship.sh; then
+    echo "PASS  flagship: six phases measured (see above)"
+else
+    echo "FAIL  flagship: the six-phase program could not be measured" >&2
+    fail=1
+fi
+
+if ./tests/abtest.sh; then
+    echo "PASS  A/B: paged exceeds the no-overlay control (see above)"
+else
+    echo "FAIL  A/B: paging did not beat the control" >&2
+    fail=1
+fi
+
+echo "PASS  ring drain: order, completeness, no double-consume, no livelock"
 else
     echo "FAIL  ring drain" >&2; fail=1
 fi

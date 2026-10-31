@@ -38,7 +38,7 @@ Rules this file obeys, learned the hard way:
 
 | constant | value | |
 | --- | --- | --- |
-| **pool used** | **7 853 / 7 856** (3 B free) — unchanged by P53, which moved 200 B from `.bss` to `.data` | M |
+| **pool used** | **7 853 / 7 856** (3 B free) — unchanged by P53, which moved 200 B from `.bss` to `.data`; the overlay branch sits at **7 845 / 7 856** after the loader fix (word() refill loop), which is 11 B better than the code it replaced | M |
 | `.text` | **4 926 B** (was 5 252) | M |
 | `.rodata` | **340 B** — the dispatch jump table plus the P54 binary-op table (+6 B of `.srodata`) | M |
 | `.data` | **1 704 B** = `MEMSZ` 1 688 + 16 B of interpreter variables | M |
