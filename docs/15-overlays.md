@@ -562,3 +562,43 @@ cost down — which is item 2/3 work, not more phases.
 - **Binary overlays**: not started. They would roughly double code per block (removing the parse cost and the
   source-size limit), which is the one change that could move the 704 B window's effective capacity — but they
   require absolute addresses, a fixed base, and header copying, and they do not change the resident toll.
+
+---
+
+## Items 2 and 3: what happened
+
+### Row 10, the stack canary — channel PROVEN, value still open
+
+The main core paints the region above the pool with `0xA5` before `ulp_riscv_run()` at **zero ULP bytes**, and
+reports the high-water mark by **injecting a Forth line into the ULP's command ring** — the only console that is
+actually visible on this board (`/dev/ttyACM0` exists but emits nothing; reported here because it was the obvious
+wrong turn). The injected line executed: the ULP printed `1 .` → `1 ok`.
+
+So the channel works and the **value is wrong**: one byte cannot be the high-water mark of a machine that enters
+`vm_enter` on every token. `CANARY_BASE` (0x1EB0) is therefore not where the stack lives, and the probe is now
+guarded **off by default** (`/* #define CANARY 1 */`) because its injected line would otherwise appear in every
+console transcript four seconds after boot. Next step: take the base from `ulp_main.map` rather than guessing, and
+verify against a known-deep call (a phase load) before trusting any number.
+
+### Row 4, the 4 KB / 16 KB store sweep — NOT run
+
+Needs ~5 minutes of chip time plus a checker; the host fake serves 64 blocks, so it cannot stand in. The write path
+itself is exercised (phase B writes block 12, phase D writes block 13, phase E reads block 13 back and reports 0
+mismatches), so what is missing is *scale*, not correctness.
+
+### Item 3, binary overlays — NOT started
+
+Scope, so the next session does not have to rediscover it: precompiled overlays need (1) a fixed load base so
+absolute branch targets stay valid — we have one, the sealed `HERE`; (2) the overlay's 3-byte headers copied into
+the header area, with the same collision rule; (3) `PHASE` to load bytes instead of arming a source switch; and
+(4) a way to produce those bytes — the host bake can emit a phase image, which is a `tools/` job, not a ULP one.
+It would roughly double code per block and remove the parse cost, which is the one change that lifts the effective
+capacity of the 704 B window. It does **not** reduce the 846 B resident toll.
+
+### Final state of the branch
+
+Suite **20 PASS / 0 FAIL** (`tests/run.sh`: 19 transcript tests plus `capacity`, `flagship` and the A/B, with the
+control built without overlays). Chip flashed at `MEMSZ` 1936, pool 7 847/7 856. Free space at the prompt: **690 B
+on the chip, 704 B on the host** (the baked manager is slightly smaller than the host-compiled one; both are
+reported rather than one standing in for the other). Verdict unchanged and now measured across six phases:
+**+4 % capacity for an 846 B resident toll → bank the bytes, keep the branch as the experiment.**

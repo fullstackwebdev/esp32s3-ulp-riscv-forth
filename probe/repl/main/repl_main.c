@@ -127,6 +127,12 @@ static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_
  * painting from below that would erase mem[]/tib/mailbox - a "measurement" that destroys the thing it measures.
  * If the image grows past 0x1EB0 this must move down with it, which is why the end is asserted at boot.
  */
+/* GUARDRAIL: OFF by default. With it on, the ULP console receives an injected "<n> ." line four seconds after
+ * boot, which is correct for a measurement and wrong for every other use of the console. The channel is proven
+ * (the injected line executed and printed); the VALUE is not: canary_used() reported 1 byte, which cannot be
+ * right on a machine that calls into vm_enter on every token, so CANARY_BASE is not where the stack lives.
+ * Verify the base against ulp_main.map before trusting a number from this. */
+/* #define CANARY 1 */
 #define CANARY_BASE 0x1EB0u
 #define STACK_TOP   0x1FF0u
 #define CANARY_VAL  0xA5u
@@ -230,13 +236,25 @@ static void block_task(void *arg)
                 }
             }
         }
-        /* once, after the ULP has done real work: report the painted high-water mark */
+        /* Once, after the ULP has done real work, report the painted high-water mark.
+         * GUARDRAIL: report it THROUGH THE ULP'S CONSOLE by injecting a Forth line into the command ring.
+         * printf here goes to a console that emits nothing on this board (/dev/ttyACM0 reads 0 bytes), so the
+         * measurement had no channel at all. The ring is the only visible console, and it needs no ULP bytes. */
+#if defined(CANARY)
         { static int reported; static uint32_t ticks;
           if (!reported && ++ticks == 4000u) {
-              printf("canary: ULP stack used %u B of %u B painted (reserve above the pool)\n",
-                     (unsigned)canary_used(), (unsigned)(STACK_TOP - CANARY_BASE));
-              fflush(stdout); reported = 1;
+              char line[24]; int n;
+              uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, space, k;
+              n = snprintf(line, sizeof line, "%u .\r", (unsigned)canary_used());
+              space = CMD_SIZE - (h - tl);
+              if (n > 0 && (uint32_t)n <= space) {
+                  for (k = 0; k < (uint32_t)n; k++) CMD_BYTES[(h + k) & CMD_MASK] = (uint8_t)line[k];
+                  ulp_repl_cmd_head = h + (uint32_t)n;
+                  reported = 1;
+              }
+              /* if the ring is full this retries next tick rather than losing the number silently */
           } }
+#endif
         vTaskDelay(1);                            /* 1 ms: the ULP's poll is bounded, so keep this short */
     }
 }
@@ -282,7 +300,9 @@ void app_main(void)
     }
     /* 1 000 ticks at the measured 6.46 us/tick = 6 460 us. The API takes microseconds. */
     ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
+#if defined(CANARY)
     canary_paint();                      /* before the ULP runs: the only moment the stack is untouched */
+#endif
     ESP_ERROR_CHECK(ulp_riscv_run());
     ESP_LOGI(TAG, "ulp armed");
 
