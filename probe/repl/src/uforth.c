@@ -1665,7 +1665,12 @@ static u32 pins;
  * served with a wrong checksum, and every other number is a black hole that never answers.
  * GUARDRAIL: this lives in the HOST build only — on the chip the answering side is the main core,
  * and a fake server inside the ULP image would be 16 x 512 B of pool spent to lie to itself. */
-#define SRVBLK 16
+/* GUARDRAIL: 16 -> 64 blocks, HOST ONLY (the fake server does not exist on the chip; the main core serves
+ * there). tests/overlay_capacity.fs needs ~16 blocks of phase source to prove that a paged program beats the
+ * single-image size, and the answering range had to grow with it. The two deliberate failures the other tests
+ * depend on are kept by number: block 5 never answers (tests/blocks_noserver.fs), block 7 answers with a bad
+ * checksum (tests/blocks.fs). 64 x 128 B of .bss in the host binary, 0 B on the chip. */
+#define SRVBLK 64
 static u8 srv[SRVBLK][BLKSZ];
 
 static void srv_answer(void)
@@ -1673,7 +1678,8 @@ static void srv_answer(void)
     u32 n = mailbox[0], op = mailbox[1], k, s = 0;
     /* GUARDRAIL: a block the file does not contain must stay *silent*, not nack — the no-answer
      * path is the one that must be measured, and a fake server that always answers cannot show it. */
-    if (n != 7u && n >= 4u) return;
+    /* blocks 0..63 answer except 5 (silent: the no-answer path) and 7 (bad checksum, below) */
+    if (n == 5u || n >= (u32)SRVBLK) return;
     if (op == BLK_READ)      for (k = 0; k < BLKSZ; k++) wr8(BLKADR + k, srv[n][k]);
     else if (op == BLK_WRITE) for (k = 0; k < BLKSZ; k++) srv[n][k] = rd8(BLKADR + k);
     for (k = 0; k < BLKSZ; k++) s += srv[n][k];

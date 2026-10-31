@@ -338,3 +338,41 @@ the 536 B gets banked.
   whose resident state (token store, variables, helpers) is 600-900 B would leave phases of 100-400 B, i.e. too
   small for a tokenizer — which is why test 2 starts with a numeric program whose resident core is ~40 B and
   writes its data through the block window instead of a resident array.
+
+---
+
+## Test 2 (the capacity claim): scaffolded, HALF DONE — no verdict yet
+
+This is the test that decides whether overlays are worth their 536 B, so its state is recorded precisely.
+
+**Done and verified**
+- The host fake server now serves 64 blocks (host `.bss` only, 0 B on the chip) instead of 4, keeping the two
+  deliberate failures the other tests depend on by number: block 5 never answers (`blocks_noserver.fs`), block 7
+  answers with a bad checksum (`blocks.fs`). Blocks 8-63 now answer, which is what makes multi-block phases
+  possible in an automated test.
+- `tools/blkseed.py` seeds any source file into the store over the REPL (blank → pokes → `UPDATE` → `SAVE`,
+  `--verify` reads every byte back), refusing lines over 88 chars because TIBSZ is 96 on the chip.
+- **Phase A is correct and measured**: `tests/capacity_a.fsx` fills the data window, then computes sum, sum of
+  squares, XOR fold, min and max with one plain loop per statistic. On the host at the shipping `MEMSZ` it
+  prints `8128 690880 0 0 127`, matching a Python re-derivation exactly, and compiles to **606 B**
+  (`HERE` 506 → 1 112) with 7 headers.
+
+**Not done**
+- Phase B (`tests/capacity_b.fsx`) — independent recount, 16-bucket histogram, parity, threshold count and
+  longest ascending run — is written but **fails at run time** and its numbers do not yet match the Python
+  model. Expected numbers for the deterministic fill (`tab[i] = i`) are `8128`, sixteen `8`s, `64 64 64 127`.
+- No generator, no wiring into `tests/run.sh`, no `.expected` transcript, and therefore **no measured total**.
+  The claim "a paged program exceeds the 1 544 B single-image size" remains **unproven**.
+
+**Arithmetic that the finished test must confirm**: total = 606 (phase A) + phase B, so phase B must compile to
+**≥ 939 B** to clear 1 544 B, and must stay ≤ ~1 008 B (the sealed free space). That is a 939-1 008 B window:
+achievable, but the finished test has to hit it rather than be assumed to.
+
+### Two bugs this scaffolding already paid for
+
+- `TAB` re-fetched the block on every access (`: TAB DATABLK BLOCK ;`), so every `C!` write was undone by the
+  next read and the statistics ran on the store's old contents — measured as a sum of 1 171 for a window that
+  should have held 0..127. A phase must cache the window address in its own cell and fetch once.
+- Phase source lines must be **short**. On the chip `TIBSZ` is 96, so a 144-char definition is refused
+  (`line too long`) — and worse, through the block path an over-long line would be dropped after being partly
+  poked. Definitions are split across lines; `blkseed.py` refuses over-long lines for the same reason.
