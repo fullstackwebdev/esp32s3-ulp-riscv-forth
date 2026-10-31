@@ -61,9 +61,11 @@ void pl_halt(int code);                  /* stop the machine; code 0 = no tasks 
  * byte here is a byte of application space, 1:1.
  * GUARDRAIL: the earlier warning "V_XEXIT and V_XSTR are NOT free, the EXIT and PDOTQ case bodies read
  * them" is still the reason to check BOTH files before deleting state — those readers now call XT_PRIM. */
-enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8, V_BASE = 12,
-       PAD = 16,                                  /* counted string, 32 bytes */
-       DICT = 48 };
+/* GUARDRAIL: the BASE slot is gone (see number()): written once, read once, and nothing can change it, so
+ * the 4 B goes back to the code area - PAD starts at 12 and DICT at 44. */
+enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8,
+       PAD = 12,                                  /* counted string, 32 bytes */
+       DICT = 44 };
 
 #ifdef IMAGE
 #include "image.h"
@@ -643,15 +645,21 @@ static u16 find(u8 n, u8 *imm)
     return 0;
 }
 
+/* GUARDRAIL: the base is 10, always, and this parser no longer reads V_BASE. The slot was written ONCE at
+ * boot and read only here — there is no BASE/HEX/DECIMAL word, so a user could never change it — which made
+ * the `A`..`Z` digit path unreachable (every letter is 10..35, i.e. >= the only base it could have been), and
+ * the interpreter's fallback number() for a non-numeric token unreachable for the same reason. All three went
+ * together, and the 4-byte slot went with them: PAD now starts at 12 and DICT at 44.
+ * GUARDRAIL: if base switching is ever wanted it comes back as a real feature (a BASE word plus this
+ * multiplier), not by re-adding a variable that nothing writes. */
 static u8 number(u8 n, u32 *out)
 {
-    u32 b = rd32(V_BASE), v = 0, d; u8 i = 0, neg = 0, c;
+    u32 v = 0; u8 i = 0, neg = 0, c;
     if (n > 1 && rd8(PAD + 1) == '-') { neg = 1; i = 1; }
     for (; i < n; i++) {
         c = rd8(PAD + 1 + i);
-        d = (c >= '0' && c <= '9') ? c - '0' : (c >= 'A' && c <= 'Z') ? c - 'A' + 10 : 99;
-        if (d >= b) return 0;
-        v = v * b + d;
+        if (c < '0' || c > '9') return 0;
+        v = v * 10u + (u32)(c - '0');
     }
     *out = neg ? 0u - v : v;
     return 1;
@@ -1435,9 +1443,10 @@ static void interpret(void)
             if (compiling) clit(v); else PUSH(v);
         } else if ((xt = find(n, &imm))) {
             if (compiling && !imm) cw(xt); else run(xt);
-        } else if (!numeric && number(n, &v)) {
-            if (compiling) clit(v); else PUSH(v);
         } else err();
+        /* GUARDRAIL: there used to be a third arm here - `else if (!numeric && number(...))` - kept so a
+         * non-numeric token could still parse as a number. With the base fixed at 10 that arm can never be
+         * taken: a token that is neither digit-led nor a word cannot parse. It is gone. */
     }
     if (errf) {
         sp = rsp = 0;
@@ -1483,7 +1492,7 @@ void forth_quit(void)
 static void boot_init(void)
 {
     u16 x;
-    wr32(V_HERE, DICT); wr32(V_LATEST, HDRTOP); wr32(V_BASE, 10); wr32(V_STATE, 0);
+    wr32(V_HERE, DICT); wr32(V_LATEST, HDRTOP); wr32(V_STATE, 0);
     /* GUARDRAIL: the boot assert runs on the zero definition state, i.e. before any dictionary word
      * can be compiled — it is the only moment the pool's *shape* can be judged without a definition
      * having already written past the buffer. The per-transfer check covers the rest. */
