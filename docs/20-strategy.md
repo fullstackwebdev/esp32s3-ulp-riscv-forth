@@ -132,3 +132,28 @@ The guide is behind the branch. Fix these before it is published:
 | the program is stored persistently | the block store is **volatile** (host `.bss`) — a reset loses the program until step 5 |
 | a definition must fit ~90 bytes | **retired**; a block may use the full 128 B. What still matters is that a definition must not straddle a **block** boundary in a driver-loaded phase, and `tools/fsplit.py` enforces it |
 | collisions refused by name | still true, and the same message shape as "not found" (`NAME?`), so only `LATEST`/`HERE` deltas or a counter distinguish them |
+
+---
+
+## Step 1 result (measured on the device, three phase slots)
+
+| | |
+|---|---|
+| phase source | 8 blocks, **811 B** of text |
+| compiled | **code 516 B + headers 60 B** (20 definitions) = 576 B payload |
+| block count | **packed 5 blocks (62 %)**, descriptor in its own block 6 (75 %) |
+| gate (≤ 65 % of source blocks) | **PASS — by one block, exactly as the review predicted** |
+
+Two consequences to carry into step 3:
+
+- **The descriptor must share the block stream.** It is ~12 B against a 128 B block; giving it a block of its own costs
+  the whole gate. This is also the difference between 62 % and 75 %, so the loader must pack the image at a block
+  boundary rather than at whatever alignment `sealed HERE` happens to have.
+- **The image writer cannot live in the overlay with the phase.** A Forth dumper compiles to ~370 B; the phase is 516 B;
+  the window is ~690 B on the chip. Measured on the host as `ERR_DICT`. So the writer has to be **resident** (it costs
+  application bytes — the trade must be written down and agreed before it lands) or live as a phase of its own, which
+  removes it from the window at the moment it is needed to read that window.
+
+Note also that the density gain here is **smaller than "no parsing" suggests**: the saving is text (811 B) versus code
+plus headers (576 B) = 29 % in bytes, and block rounding turns that into 8 → 5. The remaining argument for binary is
+therefore not density but **removing the parse bug class and the switch cost** — which step 4's prediction is about.
