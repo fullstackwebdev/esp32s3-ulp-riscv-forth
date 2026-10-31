@@ -521,3 +521,44 @@ questions that unlock it, with what the tree can answer today.
   (~8 B of `.text`) or a GPIO toggle plus a logic analyser. Not faked with host wall-clock.
 - *Do overlays pay above ~1.5× the control?* Unanswered until a 6-phase program runs. Decision rule stands: under
   1.5× bank the bytes, above 2× the machinery has earned its place.
+
+---
+
+## Item 1 done: the six-phase flagship, measured — VERDICT: BANK THE BYTES
+
+Six phases, each measured in its own fresh process (fill + one phase), numbers verified in the pairs that fit
+together. Run every build by `tests/flagship.sh`, wired into `tests/run.sh`.
+
+| phase | job | compiled |
+|---|---|---|
+| A | fill `tab[i] = i`, then sum / min / max | 452 B |
+| B | 16-bucket histogram into **block 12** (paged data write) | 382 B |
+| C | verify the histogram **out of the store**: bucket 0, total, max | 260 B |
+| D | write a derived block (2·i) into **block 13** | 150 B |
+| E | read block 13 back, recompute, count mismatches | 180 B |
+| F | formatted report of the histogram, 3-digit padded | 184 B |
+| | **total** | **1 608 B** |
+
+Control (no overlays, own best MEMSZ): **1 536 B free**, and the same program dies with `ERR_DICT`. Asserted
+number checks: `8128 0 127`, `8 128 8`, `0` mismatches, and sixteen `008`s.
+
+**1 608 B vs 1 536 B = +4 %.** That is far below the agreed threshold (bank under 1.5×, ship above 2×). The reason
+is visible in the table and is the friend's own point made concrete: the toll is fixed at 846 B (manager + loop)
+and what scales is the phase count — but a phase can only be as large as the ~704 B window, so six phases of
+real work add ~1.6 KB, not the ~3 KB the "cost is fixed" argument hoped for. The machinery is not paying for
+itself at this window size.
+
+**Therefore: bank the 846 B.** Keep the branch as an experiment, keep the tests (they are the evidence), and do
+not ship overlays in the shipping image. The honest caveat: this verdict is about *this* window (704 B) and *this*
+authoring effort (six phases of ~270 B average). Larger phases would need a larger window, which needs the resident
+cost down — which is item 2/3 work, not more phases.
+
+## Items 2 and 3: state
+
+- **Row 4 (4 KB / 16 KB store sweep)**: not run. Needs ~5 minutes of chip time and a checker; the host fake serves
+  64 blocks so it cannot stand in.
+- **Row 10 (stack high-water)**: the canary paints and `/dev/ttyACM0` (the main core's console) exists next to the
+  ULP's `/dev/ttyACM1`; the readout is a routing change, not ULP bytes. Not done.
+- **Binary overlays**: not started. They would roughly double code per block (removing the parse cost and the
+  source-size limit), which is the one change that could move the 704 B window's effective capacity — but they
+  require absolute addresses, a fixed base, and header copying, and they do not change the resident toll.

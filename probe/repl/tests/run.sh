@@ -103,6 +103,13 @@ gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTI
     -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_ctl src/uforth.c \
     || { echo "BUILD FAILED: host_ctl will not compile" >&2; exit 1; }
 
+if ./tests/flagship.sh; then
+    echo "PASS  flagship: six phases measured (see above)"
+else
+    echo "FAIL  flagship: the six-phase program could not be measured" >&2
+    fail=1
+fi
+
 if ./tests/abtest.sh; then
     echo "PASS  A/B: paged exceeds the no-overlay control (see above)"
 else
