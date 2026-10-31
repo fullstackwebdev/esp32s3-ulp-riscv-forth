@@ -47,7 +47,7 @@ printf '%-12s %-14s %-10s\n' workload result "dispatches"
 printf '%-12s %-14s %-10s\n' -------- ------ ----------
 : > /dev/null
 rows=()
-for f in bench/arith.fs bench/matrix.fs bench/recursion.fs bench/depth.fs; do
+for f in bench/arith.fs bench/matrix.fs bench/recursion.fs bench/memory.fs bench/depth.fs; do
     name=$(basename "$f" .fs)
     read -r result disp <<<"$(run "$f")"
     # GUARDRAIL: a workload that ENDS in a deliberate error never reaches the exit-time DISP print, so its

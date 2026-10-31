@@ -1830,3 +1830,23 @@ underflows the stack.** A colon word in the same position is fine. That is why t
 is not in the baseline — I marked the workload pending with its reproduction rather than measure a number
 from a failing run. Six months of green tests never called a constant inside a loop.
 
+**J-100 · I filed a defect that was my own mistake, and narrowing it down is what caught me.**
+For an hour the record said "a CONSTANT called from inside a colon definition underflows the stack" — an
+engine defect. Four experiments said otherwise: a DOCON works once, works in a loop, a DOCVAR works in a
+loop, and `CREATE V 0 , 42 V ! V @` answers 42.
+
+The bug was `HERE CONSTANT VB 0 ,`. `HERE` is read before the header exists, so the constant's value is the
+address of **its own header** (590); `@` there returns header bytes (38 666 242) and `!` there corrupts the
+dictionary. That produced exactly the symptoms I had attributed to the engine.
+
+Three things worth keeping from this:
+
+* **The benchmark did its job.** It found a real trap — just not the one I first named.
+* **"Pending because of a bug" was too convenient.** The bug blocked one *formulation*, not the measurement,
+  and the honest move was to narrow it instead of filing it and moving on.
+* **A retraction is a first-class entry.** F-119 stays in the register with RETRACTED on it, because a
+  findings file that only accumulates confirmed items is a file that lies about its own history.
+
+`tests/semantics.fs` now pins the four storage rules and the trap, and the memory workload is in the
+baseline at 862 dispatches.
+

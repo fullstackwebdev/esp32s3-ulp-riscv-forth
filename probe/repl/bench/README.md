@@ -50,12 +50,26 @@ These cost runs to discover and are the rules any new workload must follow:
 6. **A wide expression is a stack-depth bug.** Eight live products before the reduction overflowed 16
    cells; one colon word per matrix entry fixed it.
 
-## Pending — `pending/memory.fs`
+## The memory workload, and the false alarm it caused
 
-The memory-bandwidth workload is written and **blocked by an engine defect it found** (E-081): calling a
-`CONSTANT` (a DOCON word) from inside a colon definition **underflows the stack**. A colon word called the
-same way is fine, so it is specific to DOCON. The file is kept because it is the reproduction; the number
-stays unmeasured rather than invented from a failing run.
+`memory.fs` fills 16 cells then sums them (expected **120**, measured at **862 dispatches**). Getting it to
+run cost a wrong conclusion, which is recorded here on purpose:
+
+The first version used `HERE CONSTANT BUF 0 ,`. That is **not** a variable: `HERE` is read *before* the
+header exists, so the constant's value is the address of its own header. `@` there returns header bytes
+(measured 38 666 242) and `!` there corrupts the dictionary — which looked exactly like an engine defect
+("CONSTANT inside a colon definition underflows the stack", filed as F-119 and **retracted**).
+
+The idiom is:
+
+```forth
+: RES 16 0 BEGIN DUP , 1+ DUP 16 < 0= UNTIL DROP ;   \ reserve, in a word
+CREATE BUF                                            \ name the body AFTER the reserver exists
+RES                                                   \ now write the cells above it
+```
+
+`tests/semantics.fs` pins all four storage rules — CREATE variable, DOCVAR in a loop, CONSTANT once and in a
+loop, and the `HERE CONSTANT` trap itself — so the next person does not re-derive them.
 
 ## What is not here yet
 

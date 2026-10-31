@@ -2043,3 +2043,35 @@ Calling a **DOCON** word (a `CONSTANT`) from inside a colon definition underflow
 colon word the same way is fine. This is why the memory-bandwidth number is not in the baseline: it is
 recorded as pending rather than measured from a failing run.
 
+### E-081 amendment — F-119 did not survive narrowing, and the memory number now exists
+
+The defect reported in E-081 above ("a `CONSTANT` called from inside a colon definition underflows the
+stack") is **wrong**. Four experiments settle it:
+
+| experiment | result |
+|---|---|
+| `CREATE V 0 ,` then `42 V ! V @ .` | **42** — CREATE is the variable idiom |
+| `: RD V @ ;` / `: LP … V @ … UNTIL . ;` | works — a DOCVAR is safe in a loop |
+| `42 CONSTANT K42` then `: RC K42 ;` | **42** — a DOCON is safe in a colon word |
+| `: LC 0 BEGIN K42 … UNTIL . ;` | **3** — a DOCON is safe in a loop |
+
+What actually failed was my own idiom, now measured exactly:
+
+```
+HERE CONSTANT VB 0 ,     VB = 590    HERE after = 600    VB @ = 38 666 242   (header bytes)
+CREATE       V2 0 ,      V2 = 604    HERE after = 608    V2 @ = 0           (a real cell)
+```
+
+`HERE` is read **before** the header exists, so the constant's value is the address of its own header; `@`
+reads a link field and `!` corrupts the dictionary — which produced the stack underflow and the ERR_STACK
+that I mis-filed as an engine defect.
+
+**The memory workload is no longer pending.** With `RES` defined first, `CREATE BUF`, then `RES`:
+
+```
+memory      120      862 dispatches     (16 cells stored, then 16 loaded and summed)
+```
+
+**`tests/semantics.fs`** pins all four storage rules plus the trap (`42423730` = 42 42 3 7 3 0), so the
+distinction between naming a header and naming a body cannot be lost again.
+

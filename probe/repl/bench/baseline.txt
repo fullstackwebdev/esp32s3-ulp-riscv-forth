@@ -5,4 +5,5 @@ prelude_base 261
 arith 832501 15163
 matrix 67000 25651
 recursion 144 5230
+memory 120 862
 depth 0ERR_STACK -

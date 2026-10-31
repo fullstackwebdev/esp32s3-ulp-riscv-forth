@@ -334,10 +334,18 @@ address, no case variation, no deep recursion, and no error path. A suite that g
 certifies the features; coverage has to grow with the **failures**. Every one of those five now has a test that
 fails if the fix is reverted, and the error tests carry an `888 .` sentinel so an abort is visible in the diff.
 
-## F-119 · A CONSTANT called from inside a colon definition underflows the stack
-`0 BLOCK CONSTANT KONST` then `: T1 0 BEGIN KONST DROP 1+ DUP 20 < 0= UNTIL DROP . ;` answers
-**"stack underflow"**, while a colon word called in the same position is fine — so the defect is specific to
-**DOCON** execution from a compiled context. It was found by writing a memory-bandwidth benchmark, which is
-the argument for having benchmarks at all: six months of green tests never called a constant inside a loop.
-Filed as an open defect (E-081); the memory workload is marked pending rather than measured from a failing run.
+## F-119 (RETRACTED) · The "engine defect" was an idiom mistake
+**This finding was wrong and is kept as a correction.** It claimed that calling a `CONSTANT` from inside a
+colon definition underflows the stack. Narrowed with four experiments, the engine is fine: a DOCON works
+once, works in a loop, and a DOCVAR works in a loop. What actually failed was
+`HERE CONSTANT VB 0 ,` — `HERE` is read **before** the header is created, so `VB`'s value is the address of
+`VB`'s own **header** (measured: `VB` = 590, `VB @` = 38 666 242 = header bytes, `HERE` after = 600). `@`
+there reads a link field and `!` there corrupts the dictionary, which presented as exactly the symptoms I
+filed.
+
+The real finding, now tested in `tests/semantics.fs`:
+
+**`HERE CONSTANT X` names a header; `CREATE X ,` names a body.** A buffer must be reserved by a word that
+already exists, and named with `CREATE` *after* it, or the buffer and that word's own code are the same
+bytes. Both mistakes were mine, and the benchmark caught them — which is the argument for having one.
 
