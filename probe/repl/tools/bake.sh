@@ -17,7 +17,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 MEMSZ=${1:-1400}
-FLAGS="-O2 -DHOST -DP43_TASKS -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DP33_NOPAGE -DP30_HANDCOPY -DMEMSZ=$MEMSZ"
+FLAGS="-O2 -fno-strict-aliasing -DHOST -DP43_TASKS -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DP33_NOPAGE -DP30_HANDCOPY -DMEMSZ=$MEMSZ"
 
 # GUARDRAIL: -DP33_BLOCK without -DBLKPRIM (or the reverse) compiles and links and produces a dictionary
 # with no BLOCK words — the failure is a "WORD?" on the chip, not a build error (E-079).

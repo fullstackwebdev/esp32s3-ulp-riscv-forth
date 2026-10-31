@@ -21,7 +21,7 @@ SPARE=3            # keep the same 3 B of headroom the shipping image has
 # tree is worse than a slow one.
 TMP=.auto/tmp; mkdir -p "$TMP"
 RVV_BIN=/home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin
-BAKEFLAGS="-O2 -DHOST -DP43_TASKS -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DP33_NOPAGE -DP30_HANDCOPY -DP54_BINOPS=10"
+BAKEFLAGS="-O2 -fno-strict-aliasing -DHOST -DP43_TASKS -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DP33_NOPAGE -DP30_HANDCOPY -DP54_BINOPS=10"
 
 # 1. twin build (fast). Fails loudly if the twin cannot be produced.
 OUT=$PWD/.auto/tmp/twin timeout 300 probe/repl/tools/measure.sh auto >"$TMP/twin.log" 2>&1 || { echo "TWIN BUILD FAILED"; tail -20 "$TMP/twin.log"; exit 1; }

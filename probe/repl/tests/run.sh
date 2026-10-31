@@ -23,13 +23,13 @@ export IDF_PATH=/home/user/research/esp32/esp-idf
 # shellcheck disable=SC1091
 . "$IDF_PATH/export.sh" >/dev/null 2>&1 || true
 
-gcc -O2 -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
+gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
     -o artifacts/host_suite src/uforth.c
 gcc -Os -o artifacts/expand tools/expand.c
 # GUARDRAIL: the block layer is compiled out of the plain host build, so a block test against it would only
 # prove that BLOCK is unknown. A SECOND binary carries the shipping block flags, and tests named blocks*.fs
 # run against that one — the flag set lives here, next to the engine, not in the test file.
-gcc -O2 -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1200 \
+gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1200 \
     -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_blk src/uforth.c
 
 fail=0

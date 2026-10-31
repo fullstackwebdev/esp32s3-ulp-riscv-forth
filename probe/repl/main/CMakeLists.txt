@@ -33,7 +33,12 @@ string(REGEX MATCH "set\\(CMAKE_C_FLAGS \"([^\"]*)\"" _ulp_m "${_ulp_tc_text}")
 if(NOT CMAKE_MATCH_1)
   message(FATAL_ERROR "ULP toolchain flags not found in ${_ulp_tc} — refusing to build with a guessed baseline")
 endif()
-set(_ulp_cflags "${CMAKE_MATCH_1} -msave-restore")
+# GUARDRAIL: -fno-strict-aliasing is a CORRECTNESS flag here, not a pessimisation. vm_copy copies the VM
+# through a u32* while W/IP are u16, which is a strict-aliasing violation; -O2/-Os exploited it and a resumed
+# task ran another task's body (F-122: measured -O0/-O1 correct, -O2/-Os wrong, this flag correct again).
+# Cost: +16 B of .text, versus +68 B for the type-safe rewrite that removes the violation outright.
+# GUARDRAIL: the day someone writes that rewrite, this flag can go — but it must not be dropped first.
+set(_ulp_cflags "${CMAKE_MATCH_1} -msave-restore -fno-strict-aliasing")
 message(STATUS "ULP C flags: ${_ulp_cflags}")
 idf_build_set_property(EXTRA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${_ulp_cflags}" APPEND)
 
