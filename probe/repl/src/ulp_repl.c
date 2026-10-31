@@ -32,7 +32,7 @@
  * mem[]: the link succeeds, the boot assert is the only thing between that and "every word is unknown"
  * (E-079). Re-bake with tools/bake.sh <MEMSZ>, which owns the flag set, whenever this number moves.
  * 1 200 -> 1 400 is paid for exactly by the mailbox shrink in uforth.c (216 B -> 16 B of .bss). */
-#define MEMSZ    2006          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+#define MEMSZ    2010          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
@@ -126,7 +126,6 @@ volatile u32 repl_wake_count;
  * it, not to delete it. */
 volatile u32 repl_out_drop;
 volatile u32 repl_status;        /* 1 = booted, 0xE0+rc = error, see below */
-volatile u32 repl_cyc_start;
 
 /* GUARDRAIL: .bss is not in the ULP .bin (load_binary writes .text/.rodata/.data only), so an
  * uninitialised static holds whatever the previous image left behind. A zero-initialised variable
@@ -368,9 +367,10 @@ static void drain_cmd(void)
 
 int main(void)
 {
-    u32 c;
-    __asm__ volatile ("rdcycle %0" : "=r"(c));
-    repl_cyc_start = c;
+    /* GUARDRAIL: no rdcycle at wake entry. It fed `repl_cyc_start`, which was written on EVERY wake and
+     * read by nothing in this tree (the only similar reader is p39_main.c, which reads a different variable
+     * in the P39 probe). An rdcycle plus a store per 6.46 ms wake for a value nobody reads is pure cost —
+     * the same audit that removed the depth, switch, line and block-error counters. */
     /* GUARDRAIL: the baked image carries absolute addresses (V_LATEST is the header area's base), so an
      * image baked at a different MEMSZ is not merely stale — it points outside mem[]. Check the shape
      * before the first lookup, because the failure mode otherwise is "every word is unknown" and it looks

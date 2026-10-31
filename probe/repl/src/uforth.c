@@ -49,6 +49,13 @@ u32  pl_hw(int op, u32 a, u32 b);        /* 0 gpio_get 1 gpio_set 2 adc 3 ms 4 w
 void pl_halt(int code);                  /* stop the machine; code 0 = no tasks left */
 
 /* ---- memory map: system variables live inside mem[] ---- */
+/* GUARDRAIL: the system area is packed, because every byte here pushes the code area up and costs app
+ * space 1:1. V_XEXIT and V_XSTR are gone: both were assigned once by host-only boot code and read by
+ * nothing (the compiler that emits EXIT/.\" uses cw() with the token directly). Removing them lets PAD
+ * start at 20 instead of 24, and DICT at 52 instead of 56, which is 4 B back into the code area. */
+/* GUARDRAIL: V_XEXIT and V_XSTR are NOT free even though uforth.c only *assigns* them — the EXIT and
+ * PDOTQ case bodies in p31_cases.inc read them to emit their own tokens, and grepping one file was how
+ * this was nearly deleted. */
 enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8, V_BASE = 12,
        V_XLIT = 16, V_XEXIT = 18, V_XSTR = 20,   /* xts the C code compiles */
        PAD = 24,                                  /* counted string, 32 bytes */
@@ -374,7 +381,7 @@ static i32 blk_xfer(u32 blk, u32 op)
 /* GUARDRAIL: 10 bits of xt/2 is 2 KiB of code area, and the host suite already builds at MEMSZ 2048 —
  * at 2048 the last even offset is 2046 and xt/2 == 1023 still fits. Anything above this assert must
  * either widen the xt field (a 4th byte, i.e. no saving) or move to a token-indexed xt. */
-_Static_assert(MEMSZ <= 2048, "xt is stored as xt/2 in 10 bits: the code area must stay under 2 KiB");
+_Static_assert(MEMSZ <= 4094, "xt is stored as xt/2 in 11 bits: the code area must stay under 4 KiB");
 /* Prove, rather than assume, that find()'s direct `mem[h]` reads are in range: the loop keeps h below
  * HDRTOP and this says the header area is inside mem[]. */
 _Static_assert((HDRTOP) <= MEMSZ, "the header area lives inside mem[]: find() indexes it without rd8()");
@@ -568,7 +575,13 @@ static u32 hash_pad(u8 n)
      * over the 85 baked names at 13 bits (and at 12, but not at 11: SAVE vs THEN). Changing the seed,
      * the multiplier or this mask invalidates that search: re-run tools/hashsearch.py on a fresh
      * -DP54_NAMES dump, then re-bake — the -d path re-checks the stored keys pairwise and exits 3. */
-    return h & 0x1fffu;                      /* 13 bits: the entry has 10 for xt/2 and 1 for immediate */
+    /* GUARDRAIL: the width is a MEASURED choice, and 12 bits is what the ceiling needs. The entry is
+     * imm(1) | xt/2(11) | hash(12) = 24, so xt can reach 4094 — without the 11th xt bit, MEMSZ was capped at
+     * 2048 and any further text saving stopped being bankable as app space. djb2/m33 with this seed was
+     * measured collision-free at 13 AND at 12 bits (but not at 11: SAVE vs THEN). Changing the seed, the
+     * multiplier or this mask invalidates that: re-run tools/hashsearch.py on a fresh -DP54_NAMES dump and
+     * re-bake — the -d path re-checks the stored keys pairwise and exits 3 on a collision. */
+    return h & 0x0fffu;                      /* 12 bits: 11 for xt/2 and 1 for the immediate flag */
 }
 
 static u16 find(u8 n, u8 *imm)
@@ -586,9 +599,9 @@ static u16 find(u8 n, u8 *imm)
         /* The 8-bit filter first: a miss is one lbu, which is what all but one of these iterations is.
          * P46 measured this loop as the single largest cost of typing at this REPL. byte 2 holds hash
          * bits 5..12; byte 1 holds hash bits 0..4 in its top 5 bits. */
-        if (mem[h + 2u] != (u8)(hs >> 5)) continue;
+        if (mem[h + 2u] != (u8)(hs >> 4)) continue;
         b1 = mem[h + 1u];
-        if ((b1 >> 3) != (u8)(hs & 0x1fu)) continue;
+        if ((b1 >> 4) != (u8)(hs & 0x0fu)) continue;
         b0 = mem[h];
 #ifdef P31_TRACE
         if (p31_nhit < (int)(sizeof p31_hits / sizeof p31_hits[0])) p31_hits[p31_nhit++] = h;
@@ -599,7 +612,7 @@ static u16 find(u8 n, u8 *imm)
          * halfword down (measured: SPAWN resolved to xt 94 while its own header said 190, and nothing
          * printed `?` — the wrong-word silence this dictionary exists to avoid). */
         *imm = (u8)(b0 & 1u);
-        return (u16)((((u32)(b1 & 7u)) << 8) | (b0 & 0xfeu));
+        return (u16)((((u32)(b1 & 0x0fu)) << 8) | (b0 & 0xfeu));
     }
     return 0;
 }
@@ -653,7 +666,7 @@ static u16 mkhdr_pad(u8 cf, u8 imm)
      * clobber h+3, which is the already-written entry ABOVE (entries grow DOWN), and a wr32 at h - 1
      * pays one byte of the free gap to keep the write word-shaped — measured at +72 B of .text, which
      * is a bad trade for one byte of app space. */
-    v = ((hs << 11) | ((x >> 1) & 0x3ffu) << 1) | (u32)(imm & 1u);
+    v = ((hs << 12) | (((x >> 1) & 0x7ffu) << 1)) | (u32)(imm & 1u);
     wr16(x, cf);                                    /* the code field lives at the xt, in the code area */
     /* GUARDRAIL: printed BEFORE the header write so a bake that runs out of room still names the word that
      * broke it; a dump taken after the write would silently miss the last entry. */
