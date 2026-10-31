@@ -715,3 +715,37 @@ correction fixes.
 GUARDRAIL recorded in the generator: the cell index must equal the scan's position. Dropping a scan by patching its
 body left two scans writing the same cell, so the report printed a zero and a doubled value — the arithmetic was
 right and the *report* was wrong, which reads exactly like a broken scan.
+
+---
+
+## The escalating probe: HIGH SCORE, found rather than asserted
+
+`tests/ceiling_probe.sh` (in the suite) starts at a safe 3 phases, adds one at a time, and stops at the first
+failure. It reports the last configuration that worked:
+
+```
+escalated to 18 phases; stopped by the store (133 > 128 blocks)
+HIGH SCORE: 18 phases, 9288 B compiled, 126/128 store blocks
+safe baseline 3 phases; high score vs safe: 18 > 3 PASS
+9288 B vs control 1536 B: 604% of the control
+```
+
+So the highest working configuration is **18 window-sized phases, 9 288 B of compiled code, 6.0× the control**,
+and it stops on **store capacity** (126 of 128 blocks), not on RAM or on the manager.
+
+Honest labelling, because it matters: the store bound is **computed** from comment-stripped source bytes, not
+probed — on the host every phase is measured in a fresh process, so nothing accumulates and no N would ever fail
+there. The output names its stopping condition for exactly that reason. The measured version needs the chip, where
+blocks are real; that script is the remaining piece.
+
+The three numbers now agree with each other and with the theory:
+
+| configuration | compiled | vs control |
+|---|---|---|
+| 1 image (control) | 1 536 B | — |
+| 6 phases × 268 B (the strawman) | 1 608 B | +4 % |
+| 9 phases × 516 B | 4 644 B | 302 % |
+| **18 phases × 516 B (high score)** | **9 288 B** | **604 %** |
+
+The multiple tracks total phases, because the 846 B toll is fixed and the per-phase ceiling is the window. That is
+the argmax of this design at the current store size.
