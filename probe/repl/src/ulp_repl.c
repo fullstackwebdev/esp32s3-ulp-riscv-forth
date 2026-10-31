@@ -48,10 +48,20 @@
  * primitive subset (~344 B), not a bigger window.
  * GUARDRAIL: the mailbox is 4 words (blk, op, status, checksum) — blk, op and checksum are written before
  * the doorbell and status last, so the ULP never reads a half-copied buffer. */
+/* GUARDRAIL: OFF in the P52 bench build only, and off means UNDEFINED — `#define P33_BLOCK 0` still satisfies
+ * `#if defined(P33_BLOCK)` at uforth.c:174/473/889, so the first attempt at a lean bench image changed the
+ * section sizes by exactly 0 B and cost a build cycle. Blocks cost ~300 B of primitive bodies plus 4 B per
+ * header; the P52 workloads use none of them. Lowering MEMSZ instead would move the header area image.h was
+ * baked against (F-79: an image baked at a different MEMSZ points outside mem[]). */
 #define P33_BLOCK 1
 #define BLKPRIM   1
 #define BLKSZ     128
 #define BLK_MB    4
+/* P52: DEVICE BENCH BUILD ONLY — OFF for shipping. P52_LINECYC adds a per-line rdcycle pair and a
+ * number-printer, P42_COUNT adds a load/add/store to every dispatch. Measured cost of both: .text
+ * 5 250 -> 5 496 and 65 B of pool headroom against the shipping image's 3 B. */
+/* #define P52_LINECYC 1 */
+/* #define P42_COUNT   1 */
 #define P30_HANDCOPY 1
 #define P33_NOPAGE 1            /* no frames, no page table */
 /* R4: SPAWN + the task driver. GUARDRAIL: tasks are stepped from run_line(), NOT from inside
@@ -62,6 +72,9 @@
  * is lost — measured with 376 B AND 556 B of C stack, so it is not stack overflow. Root cause not
  * found; do not re-enable until it is. The dictionary is baked: image.h must be regenerated with the
  * same P43_TASKS setting, or SPAWN's header points at a case that is not compiled. */
+/* GUARDRAIL: 0 in the P52 bench build only. Tasks cost ~280 B of .bss and ~200 B of text, and the
+ * shipping image has 3 B of pool; the scheduler is not in the interpreter's path, so leaving it out does
+ * not change dispatch cost or any workload result — it buys the space the instrument needs. */
 #define P43_TASKS 1
 #define IMAGE
 
@@ -259,6 +272,49 @@ static int is_bench_line(void)
 }
 #endif /* P42_BENCH */
 
+#ifdef P52_LINECYC
+/* ------------------------------------------------- P52 line cycle records ----
+ * GUARDRAIL: the instrument sits OUTSIDE the path it measures. rdcycle is read at the LINE BOUNDARY in
+ * drain_cmd(), never inside interpret() or vm_enter(): P42 attempt 1 put instrumentation in the dispatch
+ * loop and invalidated every cycle it reported. Two reads per line against a ~1e6-cycle workload is noise.
+ * GUARDRAIL: publish the record count LAST. The host prints a slot only when the count says it is new, so a
+ * count written before its values would print a half-written record — the same write-status-last rule the
+ * block mailbox already follows. A "" ::: "memory" barrier keeps the compiler from sinking the stores.
+ * GUARDRAIL: no record array. The first version kept 8 (cycles, dispatches) slots so the host could read them
+ * later, and that cost 68 B of .bss for a buffer nothing read — the values are printed straight from locals
+ * immediately after the bracket closes, which is also the only way to keep them attributable to the line that
+ * produced them. Publishing the count LAST stays the rule for anything that does get published. */
+static u32 linec_t0, lined_t0;
+
+/* GUARDRAIL: the ULP has no libc formatter, so a number is printed by the ENGINE: push it, then interpret
+ * ".". That costs ~1 600 cycles and therefore runs AFTER the bracket closes — never inside it. */
+static void saynum(u32 v)
+{
+    errf = 0; sp = 0; rsp = 0;
+    ds[0] = v; sp = 1u;
+    tib[0] = '.'; tib[1] = ' '; tl = 2u; ti = 0u;
+    interpret();
+    tl = 0u; ti = 0u; sp = 0;
+}
+
+static void line_bench_begin(void)
+{
+    __asm__ volatile ("rdcycle %0" : "=r"(linec_t0));
+    lined_t0 = p42_dispatches;
+}
+
+static void line_bench_end(void)
+{
+    u32 c, cyc, dsp;
+    __asm__ volatile ("rdcycle %0" : "=r"(c));
+    cyc = c - linec_t0;
+    dsp = p42_dispatches - lined_t0;
+    /* marker on its own line: "C <cycles> D <dispatches>" — the driver parses exactly this */
+    pl_emit('\n'); pl_emit('C'); pl_emit(' '); saynum(cyc);
+    pl_emit('D'); pl_emit(' '); saynum(dsp); pl_emit('\n');
+}
+#endif /* P52_LINECYC */
+
 static void drain_cmd(void)
 {
     u32 t = repl_cmd_tail;
@@ -272,7 +328,13 @@ static void drain_cmd(void)
         u8 c = repl_cmd[(t + i) & CMD_MASK];
         if (c == '\r' || c == '\n') {
             pl_emit('\n');
+#ifdef P52_LINECYC
+            line_bench_begin();
+#endif
             run_line();
+#ifdef P52_LINECYC
+            line_bench_end();
+#endif
         } else if (c == 8 || c == 127) {
             if (ti > 0) { ti--; msg(MSG_ERASE); }
         } else if (c >= 32 && c < 127) {

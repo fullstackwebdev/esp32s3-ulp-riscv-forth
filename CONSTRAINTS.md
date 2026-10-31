@@ -74,9 +74,13 @@ every write (`ERR_DICT`), because after they meet the damage looks like a wrong-
 
 | constant | value | |
 | --- | --- | --- |
-| **dispatch** | **1 139 cycles ≈ 60 µs** (was 1 758 before the `lhu` fetch) | M |
+| **dispatch, primitive in a tight loop** | **400.1 and 409.6 cycles** (two independent workloads, within 2.4 %) | M |
+| dispatch, literal-heavy line | 1 139 cycles ≈ 60 µs (was 1 758 before the `lhu` fetch) | M |
+| cost of compiling one definition | ~17 000–25 000 cycles | M |
 | **typed literal** | **1 623 cycles** (was ~28 000 before number-first parse + direct `find`) | M |
-| **throughput** | **≈16 681 dispatches/s** | D |
+| **throughput** | **≈47 500 dispatches/s** at 400 cycles; 16 681 at 1 139 | M / D |
+| `arith` on the chip | **6 059 696 cycles / 15 145 dispatches = 319 ms** | M |
+| `recursion` on the chip | **2 125 198 cycles / 5 188 dispatches = 112 ms** | M |
 | block fetch | **144 µs** polling, **176 µs** doorbell, **3.55 MB/s** | M |
 | block fetch in token-equivalents | **≈2.4 tokens' worth of time** | D |
 | host poll interval | 1 FreeRTOS tick = **10 ms** → the block latency bound | M |
@@ -137,7 +141,10 @@ compared** — the host is a different machine, and cycles belong to the board.
 | claim | why | what would settle it |
 | --- | --- | --- |
 | `BLKWAIT` wall-clock ≈0.2–0.4 s | derived from an iteration count, never timed | time a `BLOCK` that nobody answers, on the board |
-| "≈909 / 1 538 / 314 ms on chip" for the workloads | dispatch counts × 1 139 cycles, **not** measured | `rdcycle` around each workload on the board |
+| `memory` and `matrix` on the chip | they **fail**: `RES` writes 16 cells (64 B) and `,` has no dictionary bound, so it erased headers and `.` became unknown — see F-120 | more application space (a re-baked `image.h` at a larger `MEMSZ`), not more cycles |
+
+The on-chip wall-clocks were on this list and are now measured for `arith` and `recursion` (P52, `rdcycle`
+at the line boundary, cross-validated against the host dispatch counts to within 5 and 2 dispatches).
 
 The `.text` / `.bss` split was on this list and has been removed: one `riscv32-esp-elf-size -A` on the current
 ELF gives **5 252 / 308 / 1 216 / 1 077 = 7 853**, which is the same total the countdown reports. An
@@ -164,7 +171,17 @@ tests/run.sh
 #   probe/repl/probe-results/ holds the P42/P46 RESULT.md files with the raw cycle counts
 ```
 
-## 10. The shape of the constraint
+## 10. Two bounds that are not where you expect
+
+| bound | who enforces it | evidence |
+| --- | --- | --- |
+| header area vs code | **enforced** (`ERR_DICT`) | `image_boot_assert`, `PUSH_HDR` |
+| `,` (append a cell) | **NOT enforced** | P52: 16 commas erased headers silently; `.` became unknown (F-120) |
+
+The second is an open defect. Until it is fixed, "reserve a buffer with `,`" is only safe while the total
+stays under the free application space — 154 B in the shipping image, so **not** 16 cells plus definitions.
+
+## 11. The shape of the constraint
 
 7 853 of 7 856 bytes are spent. There are no free features left: every addition from here is a **trade**, and
 the honest statement of the limit is that the machine is at **99.96 % utilisation** with 154 B of program

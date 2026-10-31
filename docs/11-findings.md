@@ -349,3 +349,17 @@ The real finding, now tested in `tests/semantics.fs`:
 already exists, and named with `CREATE` *after* it, or the buffer and that word's own code are the same
 bytes. Both mistakes were mine, and the benchmark caught them — which is the argument for having one.
 
+## F-120 · `,` appends past the header area without a bound check
+The header path checks before it writes (`ERR_DICT`), and `image_boot_assert` checks the baked layout at
+boot. The comma path does not. Measured on the device (P52): with 154 B of application space, `RES`
+(`16 0 BEGIN DUP , 1+ DUP 16 < 0= UNTIL DROP`) writes 64 B, runs into the header area, and erases headers.
+
+The symptom is not "dictionary full". It is **`.` becomes an unknown word** — the machine loses the ability
+to report anything, and the marker printed `C .? D .?`. A later `CREATE` then executed in **0 dispatches**,
+and two loop workloads completed in ~28 700 cycles, i.e. one iteration instead of 500, because their
+definitions were gone.
+
+**Fix:** guard the comma path exactly as the header path is guarded —
+`if (V_HERE + 4 > V_LATEST) { err(ERR_DICT); break; }` — and let it be loud, because the alternative is a
+wrong-word bug that reads as "the engine is broken".
+
