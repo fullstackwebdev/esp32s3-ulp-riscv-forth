@@ -1,4 +1,0 @@
-SEAL
-: CREATE WW 0 ,
-HERE .
-LATEST .
