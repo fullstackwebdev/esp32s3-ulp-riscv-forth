@@ -127,13 +127,25 @@ static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_
  * painting from below that would erase mem[]/tib/mailbox - a "measurement" that destroys the thing it measures.
  * If the image grows past 0x1EB0 this must move down with it, which is why the end is asserted at boot.
  */
-/* GUARDRAIL: OFF by default. With it on, the ULP console receives an injected "<n> ." line four seconds after
- * boot, which is correct for a measurement and wrong for every other use of the console. The channel is proven
- * (the injected line executed and printed); the VALUE is not: canary_used() reported 1 byte, which cannot be
- * right on a machine that calls into vm_enter on every token, so CANARY_BASE is not where the stack lives.
- * Verify the base against ulp_main.map before trusting a number from this. */
+/* GUARDRAIL: the base is READ OFF THE MAP, not guessed. `riscv32-esp-elf-nm -n ulp_main.elf` puts the highest
+ * .bss symbol at `junk` 0x1EA8, so the image ends at 0x1EA9 and the stack occupies [0x1EA9, 0x1FF0) = 327 B.
+ * The first attempt used 0x1EB0 from the pool arithmetic and reported 1 byte, which is impossible for a machine
+ * that enters vm_enter per token - the paint must be verified against this base before any number is believed.
+ * GUARDRAIL: leave the injected report OFF for shipping images (comment out CANARY below): it puts a stray
+ * "<n> ." line on the operator's console four seconds after boot.
+ * GUARDRAIL: never write a nested comment terminator inside this comment. Writing the flag as a quoted C comment
+ * here ended the enclosing block early, so the two functions below became comment text and the call in app_main
+ * failed with "implicit declaration" - which reads like a missing prototype, not a comment bug. */
+/* GUARDRAIL: OFF. Enabling it corrupts the console: injecting a line into the command ring made the ULP emit
+ * binary noise (0x78/0x00 bytes) instead of text, so the report destroyed the very channel it used. The ring is
+ * single-writer per index and the UART pump owns cmd_head in the same task, which is the likely collision - but
+ * the fix is not a patch here: publish the number into an RTC cell and let a FORTH word read it, so the report
+ * travels through the interpreter instead of being spliced into its input.
+ * GUARDRAIL: the base IS settled: nm -n on ulp_main.elf puts the highest .bss symbol at `junk` 0x1EA8, so the
+ * image ends at 0x1EA9 and the stack occupies [0x1EA9, 0x1FF0) = 327 B. 0x1EAC is the map's answer, not the
+ * pool arithmetic that guessed 0x1EB0. */
 /* #define CANARY 1 */
-#define CANARY_BASE 0x1EB0u
+#define CANARY_BASE 0x1EACu
 #define STACK_TOP   0x1FF0u
 #define CANARY_VAL  0xA5u
 

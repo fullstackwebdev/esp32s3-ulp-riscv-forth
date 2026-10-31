@@ -602,3 +602,47 @@ control built without overlays). Chip flashed at `MEMSZ` 1936, pool 7 847/7 856.
 on the chip, 704 B on the host** (the baked manager is slightly smaller than the host-compiled one; both are
 reported rather than one standing in for the other). Verdict unchanged and now measured across six phases:
 **+4 % capacity for an 846 B resident toll → bank the bytes, keep the branch as the experiment.**
+
+---
+
+## Items 2 and 3, closed as far as the evidence allows
+
+### Row 4 — CLOSED on hardware: 16 KB round trip, 0 mismatches
+
+A single Forth word pair on the chip (`ALL` writes all 128 blocks with byte = block number, `CHK` reads each one
+back and sums it) reports **0 mismatches** and `cb @ = 128`. That is the full store — 128 × 128 B = **16 384 B
+written and read back through BLOCK/UPDATE/SAVE** — so the 4 KB claim is a subset and "data at scale through the
+store" is measured, not extrapolated.
+
+### Row 10 — the base is settled, the channel is proven, and the probe is OFF
+
+- **Base, from the map rather than arithmetic**: `riscv32-esp-elf-nm -n ulp_main.elf` puts the highest `.bss`
+  symbol at `junk` 0x1EA8, so the image ends at 0x1EA9 and the stack occupies **[0x1EA9, 0x1FF0) = 327 B**. The
+  earlier 0x1EB0 was a guess from the pool total; the code now carries 0x1EAC from the map.
+- **Channel, proven**: injecting a Forth line into the ULP's command ring reaches the only visible console
+  (`/dev/ttyACM0` exists but emits nothing on this board). The ULP executed the injected line and printed it.
+- **But the probe corrupts the console**: with the injection enabled the ULP emits binary noise (`0x78`/`0x00`),
+  so the report destroys the channel it uses. The ring is single-writer per index and the UART pump owns
+  `cmd_head` in the same task, which is the likely collision — but patching that here is not the answer.
+- **Probe is OFF** (`/* #define CANARY 1 */`), because it puts a stray line on the operator's console four
+  seconds after boot even when it works.
+- **Costed next step**: publish the number into an RTC cell the ULP can read (a new sys-var costs 4 B of app
+  space, like `V_SEAL` did) and report it from a Forth word, so the value travels through the interpreter rather
+  than being spliced into its input. That is 4 B + ~10 B of text in a debug-only build.
+
+### Item 3 — binary overlays: NOT implemented, and now measured as not able to move the metric
+
+The deciding number is the per-phase window, not the store. Measured across the six flagship phases:
+
+| | source transport (today) | binary transport (hypothetical) |
+|---|---|---|
+| total bytes | 4 174 B | 1 608 B |
+| blocks used (of 128) | **33 (26 %)** | 13 (10 %) |
+| per-phase capacity | bounded by the **690 B window** | **same 690 B window** |
+
+So binary overlays would reduce store use from 26 % to 10 % of a store that is already not binding, and would
+not change how much code a phase can hold — that is set by `LATEST HERE -` at the prompt, which binary transport
+does not touch. Their only other benefit is switch latency (no parsing), and that is currently **unmeasurable**
+(`MS` is a delay primitive; there is no clock). Implementing them is therefore deferred on evidence, not on
+effort: the change that would move the verdict is reducing the 846 B resident toll or widening the window, and
+binary overlays do neither.
