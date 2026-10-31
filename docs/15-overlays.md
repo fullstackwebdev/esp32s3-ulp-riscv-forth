@@ -485,3 +485,39 @@ which is why phase C had to be trimmed from six scans to four. Rows 6, 7, 10 and
 results, and are listed as such. On the evidence so far the A/B is **positive but thin**: +10 % capacity for a
 318 B regression and a rules-based programming model (handlers run to completion, phases are swapped by a
 resident loop, cross-phase work is an event).
+
+---
+
+## Unlocking the "positive but thin" verdict: the questions, and what is measured
+
+The verdict is positive but thin (+10 % capacity, 318 B of loop). The friend's correction is right: the cost is
+FIXED and the benefit scales with phase count, so the deciding number is not 3 phases but N. These are the
+questions that unlock it, with what the tree can answer today.
+
+**Answered by measurement**
+
+- *Where did the 318 B go?* Attributing it word by word (`PUMP` 156 B, `RESET` 49 B, the rest in cells, `POST`,
+  `EV?`, `EV@` and `PHASE`'s round-trip counter). `RESET` was six stores for four that matter; trimming it and
+  making an event *be* a block number (dropping the `8 +` map) recovered 14 B → **704 B free**.
+- *What is the cost per additional phase?* Zero resident bytes: a phase is code that lives in the overlay area
+  and is discarded. The fixed toll is the manager + loop; the scaling part is each phase's own size.
+- *What limits a phase?* `LATEST HERE -` at the prompt: 704 B now. Phase A is 606 B, so there is room for one
+  phase of that size, not two.
+- *Does the store hold what a 6-phase program needs?* 128 blocks × 128 B = 16 KB of source; at the measured
+  density (~24 B of source per B of compiled code) that is ~4-5 KB of code — enough for ~6 phases.
+- *What breaks when a phase touches paged data?* **The window holds ONE block.** Fetching the data block and the
+  destination block and keeping both addresses silently reads the wrong bytes (measured: histogram buckets
+  summing to 44 instead of 128). The legal pattern is read → compute in phase-local cells → fetch the
+  destination → write → `SAVE`. `UPDATE` alone leaves the store's old bytes (measured: all zeros).
+
+**Still open**
+
+- *What is the marginal cost of the 4th, 5th, 6th phase?* Needs a program of that many phases. The flagship is
+  started but shelved: `tests/fixtures/flagship_wip/` holds phase A (works, 606 B) and the histogram phase being
+  rewritten to the one-window pattern, plus the note that D/E/F are unwritten.
+- *Where is the stack high-water mark?* The canary paints and its channel exists (`/dev/ttyACM0` is present
+  alongside the ULP's `/dev/ttyACM1`); the readout is a routing change, not ULP bytes.
+- *What does a switch cost in time?* `MS` is a delay, not a clock, so this needs either a dispatcher counter
+  (~8 B of `.text`) or a GPIO toggle plus a logic analyser. Not faked with host wall-clock.
+- *Do overlays pay above ~1.5× the control?* Unanswered until a 6-phase program runs. Decision rule stands: under
+  1.5× bank the bytes, above 2× the machinery has earned its place.

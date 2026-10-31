@@ -29,15 +29,18 @@ UPDATE SAVE DROP
 UPDATE SAVE DROP
 SEAL
 
-\ row 5: two events for the SAME phase cause ONE block round trip, not one per event
-0 POST 0 POST
+\ row 5: two events for the SAME phase cause ONE block round trip, not one per event.
+\ GUARDRAIL: an event IS a phase block number (the loop does not map events to phases any more), so these
+\ posts name blocks 8 and 9, not 0 and 1. Posting 0 asked to load block 0 - a real block - and the phase
+\ never matched the seeded handler, which read as an empty queue.
+8 POST 8 POST
 brt @ .                  \ 0
 8 PHASE
 EV? .                    \ 0 - the loop drained both events
 brt @ .                  \ 1
 
 \ row 8: a full 4-slot ring rejects the fifth event and counts it (never silent)
-1 POST 1 POST 1 POST 1 POST 1 POST
+9 POST 9 POST 9 POST 9 POST 9 POST
 qovf @ .                 \ 1
 
 \ row 9: 50 rotations across two phases leave the dictionary exactly sealed

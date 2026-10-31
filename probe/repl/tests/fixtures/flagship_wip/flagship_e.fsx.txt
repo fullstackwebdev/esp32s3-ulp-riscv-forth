@@ -1,0 +1,14 @@
+\ flagship phase E: read BLOCK 13 back, recompute 2*i from BLOCK 4, count mismatches. Zero mismatches is the
+\ paged-data round trip; a nonzero count is printed so a failure is never silent.
+4 CONSTANT DATABLK
+13 CONSTANT XFM
+CREATE dw 0 , CREATE xw 0 , CREATE ei 0 , CREATE bad 0 ,
+: DATA ( -- addr ) dw @ ;
+: XB ( -- addr ) xw @ ;
+: RUND ( -- ) DATABLK BLOCK dw ! XFM BLOCK xw ! 0 ei ! 0 bad !
+  BEGIN ei @ 128 < WHILE
+    ei @ DATA + C@ 2 * 255 AND   ei @ XB + C@   <
+    IF bad @ 1 + bad ! THEN
+    ei @ 1 + ei ! REPEAT ;
+: RUNE ( -- ) RUND bad @ . ;
+RUNE

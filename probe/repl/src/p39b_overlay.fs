@@ -51,10 +51,15 @@ CREATE qh 0 , CREATE qt 0 , CREATE qovf 0 , CREATE brt 0 ,
 : POST ( ev -- ) qt @ 1 + 3 AND qh @ = IF DROP 1 qovf ! EXIT THEN q qt @ + C! qt @ 1 + 3 AND qt ! ;
 : EV?  ( -- f )  qh @ qt @ <> ;
 : EV@  ( -- ev )  q qh @ + C@ qh @ 1 + 3 AND qh ! ;
-: RESET ( -- )  -1 curblk ! 0 ovlrun ! 0 qh ! 0 qt ! 0 qovf ! ;
+\ GUARDRAIL: RESET touches only what a failed load can leave wrong: the phase, the ring, the loss counter.
+\ It used to clear ovlrun too, which is 4-5 B of stores for a cell every block sets before use - measured at
+\ 49 B for the six-store version.
+: RESET ( -- )  -1 curblk !  0 qh !  0 qt !  0 qovf ! ;
 : PUMP ( -- )
   BEGIN 1 WHILE
     EV? 0= IF EXIT THEN
-    q qh @ + C@ 8 +  DUP curblk @ = IF  DROP EV@ ovlrun @ EXECUTE
+\ GUARDRAIL: an event IS the phase block number, so PUMP does not map events to phases (the `8 +` cost ~6 B
+\ and made the queue's meaning depend on where phases start). Post block numbers.
+    q qh @ + C@  DUP curblk @ = IF  DROP EV@ ovlrun @ EXECUTE
     ELSE  DUP curblk ! PHASE EXIT THEN
   REPEAT ;
