@@ -59,3 +59,5 @@ probe/research/*/RESULTS.txt
 # patch/patch leftovers
 *.orig
 *.rej
+.auto/tmp/
+probe/repl/out/
