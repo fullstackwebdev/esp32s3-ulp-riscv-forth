@@ -975,6 +975,9 @@ static void blk_errmsg(i32 st)
     else if (st == BK_NOSERVER) c = MSG_ERR_NOSERVER;
     else if (st == BK_CRC)      c = MSG_ERR_CRC;
     else if (st == BK_BUFOVER)  c = MSG_ERR_BUFOVER;
+    /* GUARDRAIL: BK_RANGE was missing, so a block number past the store's end reached Forth as
+     * ERR_UNNAMED -5: right status, wrong name. */
+    else if (st == BK_RANGE)    c = MSG_ERR_RANGE;
     else if (st == BK_DIRTY)    c = MSG_ERR_DIRTY;
     msg(c);
 }

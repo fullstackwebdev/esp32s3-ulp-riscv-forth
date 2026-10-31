@@ -108,7 +108,10 @@ static void console_task(void *arg)
 
 /* GUARDRAIL: the server body is the one the experimental tree verified on hardware (E-074); it is
  * 2048 B of stack on the HP and never touches the ULP's pool. */
-#define BLK_N     8
+/* GUARDRAIL: 8 -> 128 blocks. Eight blocks is 1024 B of source, which cannot hold a multi-phase program, and the
+ * host has megabytes while the ULP's RTC RAM is the scarce side. Measured on the board: blocks 0..7 answered, 8+
+ * nacked, and the 16 KB store that can hold a paged program needed this to change. */
+#define BLK_N     128
 #define BLK_SZ    256
 static uint32_t blk_sz;      /* transfer size, published by the ULP */
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
@@ -158,7 +161,10 @@ static void block_task(void *arg)
             volatile uint8_t  *buf = (volatile uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr + ulp_repl_blk_off);
             uint32_t blk = mb[0], op = mb[1];
             if (blk >= BLK_N) {
-                mb[2] = 2;                       /* nack: no such block */
+                /* GUARDRAIL: send the MAGNITUDE of the ULP's negative status, because blk_xfer decodes a nack as
+                 * (i32)(0u - st). This was 2, which arrives as -2 = BK_BUSY, so "no such block" was reported to
+                 * Forth as "server busy". 5 arrives as BK_RANGE, which is what it is. */
+                mb[2] = 5;                       /* nack: no such block -> BK_RANGE */
             } else if (op == 0u) {               /* READ */
                 uint32_t s = 0; int i;
                 for (i = 0; i < (int)blk_sz; i++) { buf[i] = blkfile[blk][i]; s += blkfile[blk][i]; }
@@ -180,7 +186,9 @@ static void block_task(void *arg)
                 uint32_t s = 0; int i;
                 for (i = 0; i < (int)blk_sz; i++) s += buf[i];
                 if ((s & 0xffffu) != mb[3]) {
-                    mb[2] = 0xFFFFFFFCu;         /* nack: checksum mismatch (BK_CRC) */
+                    /* GUARDRAIL: the same rule as the range nack. 0xFFFFFFFC decodes as +4, not -4, so a
+                     * checksum mismatch reached Forth as an unnamed positive status. 4 arrives as BK_CRC. */
+                    mb[2] = 4;                   /* nack: checksum mismatch -> BK_CRC (-4) */
                 } else {
                     for (i = 0; i < (int)blk_sz; i++) blkfile[blk][i] = buf[i];
                     mb[2] = 1u;
