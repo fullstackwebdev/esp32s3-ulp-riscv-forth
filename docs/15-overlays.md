@@ -379,7 +379,7 @@ achievable, but the finished test has to hit it rather than be assumed to.
 
 ---
 
-## Test 2, measured: three phases compile to 1 712 B (monolith 1 544 B)
+## Test 2, ASSERTED IN THE SUITE: three phases compile to 1 852 B (+19 % over the monolith)
 
 Each phase was compiled at the shipping `MEMSZ` 1936 (sealed `HERE` 506) and its size read from the `HERE`
 delta:
@@ -418,3 +418,34 @@ Verdict so far, honestly stated: **the capacity claim is measured and positive (
 11 %, not the +36 % the earlier density estimate predicted, because three phases of ~600 B is what the authoring
 actually produced. A larger margin needs more scans per phase (each phase can hold up to 1 008 B, so ~50 % more
 again is available), which is authoring, not engineering.
+
+
+---
+
+## Test 2 is now a suite test that can fail (`tests/capacity.sh`)
+
+Run every build by `tests/run.sh`, it measures each phase's compiled size at the shipping `MEMSZ` 1936 from the
+`HERE` delta and asserts three things:
+
+| | measured | assertion |
+|---|---|---|
+| phase A — fill, then sum / sumsq / xor / min / max | **606 B** ≤ 1 008 | fits the sealed window |
+| phase B — scans 1-6 | **608 B** ≤ 1 008 | fits |
+| phase C — scans 7-12 | **638 B** ≤ 1 008 | fits |
+| **total** | **1 852 B** > 1 544 | **paged program beats the largest single image, +19 %** |
+
+It also asserts the *numbers* each phase prints, as concatenated digits derived independently in Python
+(`812869088000127`, `81281646464690880`, `43261644032127`), so a phase that still compiles but computes wrongly
+fails the test.
+
+Verified that it can fail: with `LIMIT` raised to 2 000 the test prints `FAIL (does not exceed the monolith)` and
+exits 1. A test that cannot fail would not be evidence.
+
+Scope, stated plainly: this measures **capacity** — three phases, each rewound before the next, driven from
+files. The **block transport** is asserted separately by `tests/overlay.fs` and `tests/overlay_collide.fs` (a
+block-defined word loads, runs through a hook, is refused on a resident collision, and 40 load/drop cycles leave
+both pointers sealed). What is still *not* covered is a multi-block phase travelling through the store:
+`tools/mkcapacity.py` generates that test and it fails on a chunk boundary that still crosses a block wrongly;
+the generated attempt is shelved in `tests/fixtures/overlay_capacity_wip.fs` rather than deleted, and the three
+generator faults found on the way are recorded in its GUARDRAILs (backslash comments swallow a chunk, fixed
+128-byte cuts splice tokens, and a cut between definitions is the only safe boundary).

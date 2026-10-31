@@ -30,6 +30,12 @@ export IDF_PATH=/home/user/research/esp32/esp-idf
 # gap": it must also never be achieved by running the wrong binary.
 gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
     -o artifacts/host_suite src/uforth.c || { echo "BUILD FAILED: host_suite will not compile" >&2; exit 1; }
+# GUARDRAIL: the capacity test compiles the phases at the SHIPPING memory size (MEMSZ 1936). Building it at the
+# host suite's 1200 would fail for the wrong reason (dictionary full) and building it larger would measure a
+# machine that does not exist. This binary is the one tests/capacity.sh measures.
+gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1936 \
+    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DOVL_LOAD -o artifacts/host_cap src/uforth.c \
+    || { echo "BUILD FAILED: host_cap will not compile" >&2; exit 1; }
 gcc -Os -o artifacts/expand tools/expand.c
 # GUARDRAIL: the block layer is compiled out of the plain host build, so a block test against it would only
 # prove that BLOCK is unknown. A SECOND binary carries the shipping block flags, and tests named blocks*.fs
@@ -81,7 +87,14 @@ done
 # the staging buffer is nearly full — so it is never seen in normal use and must be driven directly.
 gcc -Os -o artifacts/ring_test tools/ring_test.c
 if timeout 30 ./artifacts/ring_test >/dev/null; then
-    echo "PASS  ring drain: order, completeness, no double-consume, no livelock"
+    if ./tests/capacity.sh; then
+    echo "PASS  capacity: three phases exceed the single-image size (see above)"
+else
+    echo "FAIL  capacity: a paged program did not beat the monolith" >&2
+    fail=1
+fi
+
+echo "PASS  ring drain: order, completeness, no double-consume, no livelock"
 else
     echo "FAIL  ring drain" >&2; fail=1
 fi

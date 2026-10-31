@@ -41,23 +41,32 @@ def strip_comments(text):
     for line in text.splitlines():
         cut = line.find("\\")
         out.append((line if cut < 0 else line[:cut]).rstrip())
-    return " ".join(x for x in out if x) + " "
+    # GUARDRAIL: keep the NEWLINES. They are the only reliable "safe cut" marker: a block maps control
+    # bytes to spaces, so a newline in a block is harmless, and cutting there never separates a
+    # name-taking word (CREATE, :, CONSTANT) from the name on its own line.
+    return "\n".join(x for x in out if x) + "\n"
 
 def chunk_at_spaces(text, size=128):
-    """Split into <=size byte chunks, each ending at a SPACE.
+    """Split into <=size byte chunks, each ending just after a `;` at top level.
 
-    GUARDRAIL: fixed 128-byte cuts are wrong. Successive LOADs concatenate the blocks into one token stream, so
-    a token straddling a block boundary is spliced across two blocks and arrives as two halves - measured as
-    `ETER?` from a half `LITERAL`. Each chunk therefore ends at the last space that fits, and the block is
-    space-padded by the blanking step that precedes the pokes.
+    GUARDRAIL: cutting at a SPACE is not enough. Forth state crosses the split: a chunk that ends with
+    `CREATE` leaves the next token -- the first token of the NEXT block -- to be parsed as the created word's
+    NAME, so block 9's first word quietly replaced the primitive. Measured: loading blocks 8..9 answered
+    `DATABLK?`, and longer runs produced steadily stranger tokens (`SEED?`, `IDX?`, `SS?`) as each boundary
+    mis-named one more word. Cutting only after `; ` keeps every chunk between two definitions, which is the
+    only boundary the interpreter does not care about.
     """
     chunks, i = [], 0
     while i < len(text):
         end = min(i + size, len(text))
         if end < len(text):
-            cut = text.rfind(" ", i + 1, end)
+            cut = text.rfind("\n", i + 1, end)
             if cut > i:
                 end = cut + 1
+            else:
+                sp = text.rfind(" ", i + 1, end)
+                if sp > i:
+                    end = sp + 1
         chunks.append(text[i:end])
         i = end
     return chunks
