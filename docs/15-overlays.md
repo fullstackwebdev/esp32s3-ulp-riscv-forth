@@ -774,3 +774,34 @@ is still partial** — 16 KB store round trip (0 mismatches), phase loading from
 semantics, and 40-load rotation all pass on the chip, but the *store-bound escalation* is not measured there.
 The script, the seeder and the two fixes are checked in so the next session starts from the failing `>?` rather than
 from a blank page.
+
+---
+
+## Why the device escalation fails (diagnosed, not yet cured)
+
+Asked whether it was "too much data to the unit". **No** — that is ruled out by measurement:
+
+- seeded blocks read back **byte-exact** on the ULP (`52 32 67 79` = `4 CO`, the start of the phase source),
+- every seed line is now **acknowledged per block** and retried if not.
+
+What it actually is, in order of discovery:
+
+1. **The seed line buffer was 180 B** while a 128-byte block arrives as ~264 hex characters: blocks were silently
+   truncated to **87 of 128 bytes**. Fixed (320 B), and readback confirms full blocks.
+2. **Comment handling across chunk boundaries.** A block has no line structure (`blk_refill` maps newlines to
+   spaces), so a `\` comment swallows the rest of the **block** — measured as `IDX?` when a phase's first block was
+   entirely a comment. And `(` consumes to `)`, so a chunk boundary inside `( -- )` leaves an unterminated comment
+   that eats real code — measured as `--?` immediately after a phase's first block loaded cleanly (+84 B). Both are
+   now stripped before seeding. **File transport never sees the second one**, which is why the host probe never
+   tripped it: a file is not cut at 128 bytes.
+3. **Open:** a phase's own definitions do not survive into its later blocks on the chip. `8 LOAD` compiles (+84 B,
+   no error), yet block 13's text fails with `Z6?` although `CREATE z6 0 ,` is provably inside block 8's chunk. So
+   the defect is in how successive LOADs of one phase share a dictionary on the chip, not in the bytes, not in the
+   seeder, and not in the store. Next probe: immediately after `8 LOAD`, ask the ULP whether `z6` is findable
+   (`' Z6 .`), and compare `LATEST` before/after each of the phase's seven LOADs — that distinguishes "the
+   definition never happened" from "the header was lost".
+
+Consequence: **host high score 18 phases / 9 288 B / 604 %** with the store bound computed; the **device**
+escalation remains unmeasured, though the device independently proves the store (16 KB round trip), one-block phase
+loading, arm-from-inside-a-block, and 40-load rotation. The script, the seeder and all three fixes are checked in at
+the failing `Z6?`.

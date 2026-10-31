@@ -12,7 +12,7 @@ LITERAL).
 GUARDRAIL: the rewind between phases is `2 OVL` (block 2, blanked first), not a second load: phases must not
 accumulate in the overlay area, or the dictionary fills and a resident word vanishes.
 """
-import os, select, sys, termios, time, pathlib
+import os, re, select, sys, termios, time, pathlib
 
 PORT = "/dev/ttyACM1"
 HERE0 = None
@@ -40,18 +40,17 @@ def line(fd, s, quiet=0.30, cap=6.0):
     return drain(fd, quiet, cap)
 
 def strip_comments(text):
-    """Drop backslash comments and join to one line.
+    """Remove backslash comments AND ( ... ) stack comments, then join to one line.
 
-    GUARDRAIL: a block has no line structure - blk_refill maps newlines to spaces - so a single `\\` comment
-    swallows the rest of the BLOCK, not the rest of the line. Measured on the device: phase 1 failed with IDX?
-    because its first block was entirely a comment. The host generator already learned this; this was the same
-    lesson in a new script.
+    GUARDRAIL: both kinds must go before a source file is cut into 128-byte blocks. A block has no line structure,
+    so a backslash comment swallows the rest of the BLOCK (measured: IDX? when a phase's first block was entirely a
+    comment), and `(` consumes to `)`, so a chunk boundary inside `( -- )` leaves an unterminated comment that eats
+    real code (measured: `--?` immediately after a phase's first block loaded cleanly, +84 B). File transport never
+    sees the second one because a file is not cut at 128 bytes; block transport always can.
     """
-    out = []
-    for line in text.splitlines():
-        cut = line.find("\\")
-        out.append((line if cut < 0 else line[:cut]).rstrip())
-    return " ".join(x for x in out if x)
+    text = re.sub(r"\\.*", "", text)
+    text = re.sub(r"\([^)]*\)", "", text)
+    return " ".join(text.split())
 
 
 def chunk_at_spaces(text, size=128):
@@ -85,9 +84,21 @@ def main():
             if base + k >= 128:
                 break
             hexs = chunk.encode().hex()
-            out = line(fd, f"#b {base+k} {hexs}", quiet=0.10, cap=2.0)
-            if "REJECTED" in out:
-                print("  seed rejected:", out.strip()); return 2
+            # GUARDRAIL: verify EVERY seed line and retry. A fire-and-forget loop dropped a block now and then,
+            # and the symptom was a phase whose `CREATE z6` line had vanished (`Z6?`) - which reads like a code
+            # bug in the phase, not like a lost seeding line.
+            ok = False
+            for attempt in range(3):
+                out = line(fd, f"#b {base+k} {hexs}", quiet=0.30, cap=3.0)
+                if f"seed: block {base+k} <-" in out:
+                    ok = True; break
+                if "REJECTED" in out:
+                    print("  seed rejected:", out.strip()); return 2
+                out = line(fd, f"#b {base+k} {hexs}", quiet=0.30, cap=3.0)
+                if f"seed: block {base+k} <-" in out:
+                    ok = True; break
+            if not ok:
+                print(f"  seed of block {base+k} never acknowledged after 3 attempts"); return 2
             seeded.append(base+k)
     print(f"seeded {len(seeded)} blocks")
 
