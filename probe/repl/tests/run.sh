@@ -79,5 +79,9 @@ case "$unk" in
     *) echo "FAIL  unknown code printed '$unk'" >&2; fail=1 ;;
 esac
 
-./countdown.sh || true
+# GUARDRAIL: the suite reports BEHAVIOUR only. It used to end with `./countdown.sh`, a third reporter of the
+# image budget: after the app-space re-bake it printed "app space 354 B, 131 B free pool" for a lever — two
+# different headroom figures in one line, neither of them earned. Pool is owned by flash_safe.sh (which
+# REFUSES to flash when over) and app space by tools/bake.sh (which prints code/headers/free from the image
+# it just baked). A number reported by three tools is a number that will disagree with itself.
 exit $fail

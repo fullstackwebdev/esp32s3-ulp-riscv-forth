@@ -231,7 +231,11 @@ the inline cases and a fallback call; then validate — which is **board-only**,
 
 ## Standing metric: blocks countdown
 
-`probe/repl/countdown.sh`, printed on every green suite run:
+**RETIRED.** `probe/repl/countdown.sh` was deleted: after application space moved into the bake, it mixed a
+pool model (`-r`, `-s`, `-a` lever savings) with a baked-image measurement and printed two different
+headroom figures on one line — e.g. `app space 354 B, 131 B free pool` for a lever that had banked nothing.
+Pool is owned by `flash_safe.sh` (refuses to flash when over), app space by `tools/bake.sh` (prints
+code/headers/free from the image it baked). The historical numbers below are kept as the record of P47–P52.
 
 ```
 blocks countdown: 800 B to go  [pool 7852/7856]

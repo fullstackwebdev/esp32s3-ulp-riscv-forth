@@ -67,8 +67,16 @@ of a parsed list).
 **Lesson:** without a standing number, effort drifts to whatever is measurable rather than what matters.
 **Cost:** weeks of "620 B of app space" that was never achievable (needs an 8 180 B pool), and a block cost quoting
 968 B when the plumbing alone was another ~500 B (F-06, E-059).
-**Do instead:** define the metric, write the script that prints it, and print it after *every* change
-(`probe/repl/countdown.sh` is the current example).
+**Do instead:** define the metric, write the script that prints it, and print it after *every* change — and
+give the metric **one owner**. The current pair: `probe/repl/flash_safe.sh` owns the pool (it *refuses* to
+flash when over) and `probe/repl/tools/bake.sh` owns application space (it prints code/headers/free from the
+image it just baked).
+
+**And retire the reporter when the metric moves.** `countdown.sh` was that script for P47–P52 and was deleted
+in P53: once application space moved into `image.h`, its lever model (`-r`, `-s`, `-a`) still reduced *pool*
+while it printed the *baked* app space beside it — one line claiming both `app space 354 B` and `131 B free`.
+A metric that is computed twice will eventually disagree with itself, and the version people read will be the
+wrong one.
 
 ## R8 — Know what the host cannot answer, and say so up front
 

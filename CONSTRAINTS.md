@@ -162,8 +162,11 @@ approximation in a reference file is a to-do, and this one was a single command 
 cd probe/repl && export IDF_PATH=/home/user/research/esp32/esp-idf && . $IDF_PATH/export.sh
 riscv32-esp-elf-size -A build/esp-idf/main/ulp_main/ulp_main.elf
 
-# pool headroom and app space (reads V_HERE and V_LATEST out of the baked image)
-./countdown.sh
+# app space, straight from a fresh bake (prints "code N + headers M, free K")
+./tools/bake.sh $(sed -nE 's/^#define MEMSZ +([0-9]+).*/\1/p' src/ulp_repl.c)
+
+# pool headroom is enforced, not reported: this refuses to flash when over budget
+./flash_safe.sh
 
 # the acceptance surface (checksums + dispatch counts)
 ./bench/run.sh            # compare
