@@ -21,6 +21,10 @@
 #if !defined(P31_SUBSET) || defined(P_HAVE_LIT)
         L_P_LIT:   PUSH(rd32_paged(ip)); ip += 4; goto tail;
 #endif
+        /* GUARDRAIL: LIT2's operand is a HALFWORD, so `ip += 2` — using the LIT form's +4 would step over
+         * the next token and execute an operand as code. The compiler only emits it for v <= 0xffff, and
+         * anything larger (including every negative number, which is 0xffffffff) keeps the 6-byte LIT. */
+        L_P_LIT2:  PUSH(rd16_paged(ip)); ip += 2; goto tail;
 #if !defined(P31_SUBSET) || defined(P_HAVE_BRANCH)
         L_P_BRANCH:  ip = rd16_paged(ip); goto tail;
 #endif
@@ -172,7 +176,7 @@
             goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_SEMI)
-        L_P_SEMI:   cw(rd16(V_XEXIT)); wr32(V_STATE, 0); goto tail;
+        L_P_SEMI:   cw(XT_PRIM(P_EXIT)); wr32(V_STATE, 0); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_CREATE)
         L_P_CREATE: if (mkhdr(P_DOVAR)) a4(); goto tail;
@@ -199,7 +203,7 @@
             i = ti; while (ti < tl && tib[ti] != '"') ti++;
             n = ti - i; if (ti < tl) ti++;
             if (rd32(V_STATE)) {
-                cw(rd16(V_XSTR)); a = rd32(V_HERE); wr8(a, n);
+                cw(XT_PRIM(P_PDOTQ)); a = rd32(V_HERE); wr8(a, n);
                 for (b = 0; b < n; b++) wr8(a + 1 + b, tib[i + b]);
                 wr32(V_HERE, (a + n + 2) & ~1u);
             } else for (b = 0; b < n; b++) pl_emit(tib[i + b]);

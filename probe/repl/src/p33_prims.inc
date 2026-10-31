@@ -24,3 +24,8 @@ X(SAVE,"SAVE",0)
  * are the calls that were missing, which is why --gc-sections had deleted vm_task_init entirely. */
 X(SPAWN,"SPAWN",0)
 #endif
+/* P58: a literal that fits a halfword is 4 B, not 6 B. The engine reads the operand with rd16_paged() and
+ * steps 2, so the compiled code area shrinks by 2 B for every small literal in the image — and app space is
+ * the code area's mirror image. Appended HERE, after every other entry, so all existing ids are unchanged:
+ * tokens are PRIM_TAG - 2*id, so inserting one in the middle would renumber the whole vocabulary. */
+X(LIT2,"LIT2",0)

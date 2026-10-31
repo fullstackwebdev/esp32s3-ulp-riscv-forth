@@ -56,13 +56,14 @@ void pl_halt(int code);                  /* stop the machine; code 0 = no tasks 
 /* GUARDRAIL: V_XEXIT and V_XSTR are NOT free even though uforth.c only *assigns* them — the EXIT and
  * PDOTQ case bodies in p31_cases.inc read them to emit their own tokens, and grepping one file was how
  * this was nearly deleted. */
+/* GUARDRAIL: the three xt slots (V_XLIT/V_XEXIT/V_XSTR) are GONE with XT_PRIM: they were boot-assigned
+ * copies of values the compiler can compute. That releases 6 B, so PAD starts at 16 and DICT at 48 — every
+ * byte here is a byte of application space, 1:1.
+ * GUARDRAIL: the earlier warning "V_XEXIT and V_XSTR are NOT free, the EXIT and PDOTQ case bodies read
+ * them" is still the reason to check BOTH files before deleting state — those readers now call XT_PRIM. */
 enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8, V_BASE = 12,
-       V_XLIT = 16, V_XEXIT = 18, V_XSTR = 20,   /* xts the C code compiles */
-       /* GUARDRAIL: PAD starts at 22, not 24. The three xt slots end at 21, so 22..23 were padding, and
-        * every byte of padding here pushes the code area up and costs app space 1:1. Byte access has no
-        * alignment requirement and 22 is even, so nothing is lost by tightening. DICT follows at 54. */
-       PAD = 22,                                  /* counted string, 32 bytes */
-       DICT = 54 };
+       PAD = 16,                                  /* counted string, 32 bytes */
+       DICT = 48 };
 
 #ifdef IMAGE
 #include "image.h"
@@ -389,6 +390,10 @@ static i32 blk_xfer(u32 blk, u32 op)
  * capped at PRIM_ADDR_MAX and the _Static_assert below says so — the previous assert allowed an address whose
  * token would decode as a primitive id, i.e. a silently wrong-word dispatch at the top of the code area. */
 #define PRIM_TAG   4094u         /* token of primitive id 0; id n is PRIM_TAG - 2n (+imm) */
+/* GUARDRAIL: a primitive's token is now ARITHMETIC, not stored state. V_XLIT/V_XEXIT/V_XSTR used to hold
+ * three boot-assigned copies of it (6 B of the system area plus a store each, and PAD could not start
+ * before them). Any id is a compile-time constant, so the token is one too — compute it. */
+#define XT_PRIM(id) ((u16)(PRIM_TAG - 2u * (u32)(id)))
 /* GUARDRAIL: 10 bits of xt/2 is 2 KiB of code area, and the host suite already builds at MEMSZ 2048 —
  * at 2048 the last even offset is 2046 and xt/2 == 1023 still fits. Anything above this assert must
  * either widen the xt field (a 4th byte, i.e. no saving) or move to a token-indexed xt. */
@@ -653,7 +658,14 @@ static u8 number(u8 n, u32 *out)
 }
 
 static void cw(u16 v) { u32 h = rd32(V_HERE); wr16(h, v); wr32(V_HERE, h + 2); }
-static void clit(u32 v) { cw(rd16(V_XLIT)); cw(v); cw(v >> 16); }
+/* GUARDRAIL: `v <= 0xffff` is the halfword test, and it deliberately does NOT use a signed test: -1 is
+ * 0xffffffff, which needs all four operand bytes, so a signed comparison would emit a 4-byte literal that
+ * LIT2 would read as 0xffff and the stack would quietly hold the wrong number. */
+static void clit(u32 v)
+{
+    if (v <= 0xffffu) { cw(XT_PRIM(P_LIT2)); cw((u16)v); }
+    else { cw(XT_PRIM(P_LIT)); cw(v); cw(v >> 16); }
+}
 static void a4(void) { wr32(V_HERE, (rd32(V_HERE) + 3) & ~3u); }
 
 /* build a header from the name currently in PAD; returns the xt */
@@ -1197,6 +1209,10 @@ static void vm_enter(void)
 #if !defined(P31_SUBSET) || defined(P_HAVE_LIT)
         [P_LIT] = DISP_ENT(L_P_LIT),
 #endif
+        /* GUARDRAIL: no P_HAVE_ guard. LIT2 is not a P54-converted op — it has no kernel arm — so the
+         * subset gate must not be able to drop its slot while cw() keeps emitting its token: that would
+         * dispatch L_BAD and every literal in the image would report a corrupt token. */
+        [P_LIT2] = DISP_ENT(L_P_LIT2),
 #if !defined(P31_SUBSET) || defined(P_HAVE_LITERAL)
         [P_LITERAL] = DISP_ENT(L_P_LITERAL),
 #endif
@@ -1477,9 +1493,7 @@ static void boot_init(void)
 #define X(id, name, imm) \
     { const char *s = name; u8 n = 0; while (s[n]) { wr8(PAD + 1 + n, s[n]); n++; } wr8(PAD, n); \
       x = mkhdr_prim(P_##id, imm); \
-      if (P_##id == P_LIT) wr16(V_XLIT, x); \
-      if (P_##id == P_EXIT) wr16(V_XEXIT, x); \
-      if (P_##id == P_PDOTQ) wr16(V_XSTR, x); }
+      (void)x; }
     #include "p33_prims.inc"
 #undef X
 }
