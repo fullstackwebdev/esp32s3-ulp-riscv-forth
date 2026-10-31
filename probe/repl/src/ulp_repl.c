@@ -32,7 +32,7 @@
  * mem[]: the link succeeds, the boot assert is the only thing between that and "every word is unknown"
  * (E-079). Re-bake with tools/bake.sh <MEMSZ>, which owns the flag set, whenever this number moves.
  * 1 200 -> 1 400 is paid for exactly by the mailbox shrink in uforth.c (216 B -> 16 B of .bss). */
-#define MEMSZ    1400          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+#define MEMSZ    1688          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
@@ -69,6 +69,13 @@
 /* #define P42_COUNT   1 */
 #define P30_HANDCOPY 1
 #define P33_NOPAGE 1            /* no frames, no page table */
+/* P54 idea 1 (measured in probe/research/P54-ops): 10 same-shape primitive bodies (+ - * AND OR XOR
+ * LSHIFT RSHIFT < U<) become one table-driven kernel. Measured there: .text 5 252 -> 4 972, .rodata
+ * 308 -> 364, pool -224 B, and the baked dictionary is BYTE-IDENTICAL because no word changes.
+ * GUARDRAIL: the rung number is load-bearing. `-DP54_BINOPS` with no value builds rung 1, which measures
+ * 0 B — GCC folds a one-entry table back into a direct call, so the kernel does not even exist. A rung
+ * below 10 silently measures the old code, which is why the value is written here and not passed ad hoc. */
+#define P54_BINOPS 10
 /* R4: SPAWN + the task driver. GUARDRAIL: tasks are stepped from run_line(), NOT from inside
  * vm_enter(): vm_switch overwrites the live machine, so a switch taken mid-dispatch would resume the
  * outer interpreter with a task's stacks. The outer VM is saved around the run for the same reason. */

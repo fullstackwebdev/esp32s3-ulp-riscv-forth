@@ -20,6 +20,13 @@
         case P_SAVE:   p_blk_save();   break;
 #endif
 
+#if defined(P54_BINOPS)
+/* P54: the labels and the shared body for the same-shape binary ops (ADD…ULT). GUARDRAIL: the include
+ * goes LAST so the hand-written BLKXFER/BLOCK/SPAWN cases above keep their positions and a P54 build still
+ * reads as `p31 bodies (subset) + this engine's additions + the P54 table`. */
+#include "p54_cases.inc"
+#endif
+
 #if defined(P43_TASKS)
         case P_SPAWN: vm_spawn_name(); break;
 #endif

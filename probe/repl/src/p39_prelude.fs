@@ -17,8 +17,13 @@
 \ GUARDRAIL: P51 moved the immediate flag from bit 7 of the header's length byte to bit 0 of the
 \ 4-byte header key, so the old `LATEST 2 + DUP C@ 128 OR SWAP C!` wrote into the middle of the hash and
 \ made the word it had just defined unfindable — the symptom was `IF?` three lines later, not an error
-\ at IMMEDIATE. The header is one cell now: read it, set bit 0, write it back.
-: IMMEDIATE  LATEST DUP @ 1 OR SWAP ! ;
+\ at IMMEDIATE.
+\ GUARDRAIL: P54 made the entry 3 bytes with the flag at BIT 0 again (`imm | xt/2<<1 | hash13<<11`),
+\ so this is a one-byte operation on the newest entry's first byte. Do not go back to `@`/`!`: a 32-bit
+\ read at V_LATEST on a 3-byte stride spans two entries and would rewrite the older one, and the same
+\ raw-address arithmetic then reads as correct in a transcript (`HERE?`, `IF?`) — a whole prelude span
+\ of debugging for one word. Byte access only, and only through C@/C!, never W@/W!.
+: IMMEDIATE  LATEST DUP C@ 1 OR SWAP C! ;
 
 \ GUARDRAIL: P38 fix 1 — IF/ELSE used `['] 0BRANCH ,` for the branch *token*. P_COMMA writes a
 \ 4-byte, 4-aligned cell (a4() + wr32) while a token is 2 bytes (cw), so the compiled stream was

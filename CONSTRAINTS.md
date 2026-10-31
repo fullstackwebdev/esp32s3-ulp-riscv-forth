@@ -39,25 +39,28 @@ Rules this file obeys, learned the hard way:
 | constant | value | |
 | --- | --- | --- |
 | **pool used** | **7 853 / 7 856** (3 B free) — unchanged by P53, which moved 200 B from `.bss` to `.data` | M |
-| `.text` | **5 252 B** | M |
-| `.rodata` | **308 B** — the 67-entry dispatch jump table and nothing else | M |
-| `.data` | **1 416 B** = `MEMSZ` 1 400 + 16 B of interpreter variables | M |
+| `.text` | **4 926 B** (was 5 252) | M |
+| `.rodata` | **340 B** — the dispatch jump table plus the P54 binary-op table (+6 B of `.srodata`) | M |
+| `.data` | **1 704 B** = `MEMSZ` 1 688 + 16 B of interpreter variables | M |
 | `.bss` | **877 B** (task records 280, `vm_live` 136, rings 128+64, `tib` 128, mailbox 16, counters) | M |
 | ULP image on the wire | **6 780 B** | M |
-| `MEMSZ` | **1 400** | M |
-| `BLKADR` | **1 272** = `MEMSZ` − `BLKSZ` 128 | M |
+| `MEMSZ` | **1 688** | M |
+| `BLKADR` | **1 560** = `MEMSZ` − `BLKSZ` 128 | M |
 | code area (used) | **578 B** | M |
-| dictionary | **340 B for 85 words** (4 B per header) | M |
-| **free program space** | **354 B** | M |
+| dictionary | **255 B for 85 words** (3 B per header: `hash13 \| xt10/2 \| imm1`) | M |
+| **free program space** | **727 B** | M |
 
-Shape of `mem[]` at `MEMSZ` 1 400: code **578 B** growing up from `DICT` 56, headers **340 B** (85 words ×
-4 B) growing down from `HDRTOP` = `BLKADR` 1 272, block window `[1 272, 1 400)`, and **354 B free** between
+Shape of `mem[]` at `MEMSZ` 1 688: code **578 B** growing up from `DICT` 56, headers **255 B** (85 words ×
+3 B) growing down from `HDRTOP` = `BLKADR` 1 560, block window `[1 560, 1 688)`, and **727 B free** between
 code top and the newest header. The two regions are checked before every header write (`ERR_DICT`) — but
 **not** before a `,`, see §10 — because once they meet the damage reads as a wrong-word bug, not an error.
 
-**354 B is 2.3× what this machine shipped with, bought without removing a single feature** (P53): `.bss`
-carried a 216 B mailbox for a 4-word protocol, and every byte freed in `.bss` moves 1:1 into `MEMSZ`, which
-is 1:1 into application space. The bake and the build must agree on `MEMSZ` — `tools/bake.sh` owns both.
+**727 B is 4.7× what this machine shipped with, bought without removing a single feature.** Two waves:
+P53 found 200 B of `.bss` allocated to a 4-word protocol (`mailbox[54]`); P54 measured three text levers —
+a table-driven kernel for 10 same-shape primitives (**−224 B**, dictionary byte-identical), a shared tail for
+the error paths (**−52 B**), and 3-byte headers (**−85 B** of dictionary for **−8 B** of text). Every byte
+freed in `.text`/`.bss` moves 1:1 into `MEMSZ`, which is 1:1 into application space. The bake and the build
+must agree on `MEMSZ` and on every flag that shapes the dictionary — `tools/bake.sh` owns both.
 
 ## 3. Per-unit costs
 
@@ -65,7 +68,7 @@ is 1:1 into application space. The bake and the build must agree on `MEMSZ` — 
 | --- | --- | --- |
 | token | **2 B** (16-bit token, 32-bit cell) | M |
 | literal | **6 B** (`LIT` token + 4 B cell) | M |
-| header | **4 B** = `hash20 \| xt11 \| imm1` | M |
+| header | **3 B** = `hash13 \| xt10 (÷2) \| imm1` | M |
 | primitive body | **29.5 B** average; 64 bodies = 1 890 B | M |
 | dispatcher `vm_enter` | **2 404 B ≈ 50 % of `.text`** | M |
 | `VM` struct | **136 B** (`DS[16]` + `RS[16]` + `SP`/`RSP`/`W`/`IP`) | M |
@@ -140,6 +143,11 @@ compared** — the host is a different machine, and cycles belong to the board.
 | `-Oz` vs `-Os` | **0 B** (byte-identical) | M |
 | `-fno-jump-tables` | +88 B net | M |
 | `-fno-builtin`, `-fno-stack-protector` | **0 B** | M |
+| **P54** table-driven kernel, 10 same-shape primitives | `.text` −280, `.rodata` +56 = **pool −224 B**; dictionary byte-identical | M |
+| **P54** shared tail for `msg()`/`errf` selection | **pool −52 B** (the win was a duplicated six-way selection, not the 20 call sites) | M |
+| **P54** 3-byte headers + `wr8`/`wr16` pinned `noinline` | **−85 B of dictionary**, `.text` −8 B — the −8 is only real because the `noinline` pin holds it | M |
+| **P54 rejected**: 1-byte tokens | ceiling **118 B** (tokens are only 236 B of the 578 B code area); prototype −44 B for **+352 B** | M |
+| **P54 rejected**: merged rings | 64 + 128 B are already one contiguous 192 B block; a merge has **no array byte** to win | M |
 
 ## 8. Do not trust these two yet
 
@@ -187,14 +195,15 @@ tests/run.sh
 | `,` (append a cell) | **NOT enforced** | P52: 16 commas erased headers silently; `.` became unknown (F-120) |
 
 The second is an open defect. Until it is fixed, "reserve a buffer with `,`" is only safe while the total
-stays under the free application space — now **354 B**, which is why the `RES` workload that erased headers
+stays under the free application space — now **727 B**, which is why the `RES` workload that erased headers
 at 154 B completes: measured on the board, 128 B of appends (two `RES`) followed by `2 3 + .` → **5**.
 
 ## 11. The shape of the constraint
 
 7 853 of 7 856 bytes are spent. There are no free features left: every addition from here is a **trade**, and
-the honest statement of the limit is that the machine is at **99.96 % utilisation** with 154 B of program
-space, 2 KiB of RAM-backed block storage, 15 levels of recursion, and two task slots.
+the honest statement of the limit is that the machine is at **99.96 % utilisation** with **727 B** of program
+space (4.7× the 154 B it shipped with), 1 KiB of RAM-backed block storage, 15 levels of recursion, and two
+task slots.
 
 The immutable part — 8 176 B, ~19 MHz, and no path from the coprocessor to flash, PSRAM or the main core's
 512 KB — is the project's premise, not its obstacle.
