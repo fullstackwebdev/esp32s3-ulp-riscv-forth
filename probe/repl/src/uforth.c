@@ -687,7 +687,10 @@ static u16 mkhdr(u8 cf)
 #ifndef NTSK
 #define NTSK 2
 #endif
-typedef struct { VM vm; u16 entry; u8 state; } TSK;   /* state: 0 free, 1 ready, 2 done */
+/* GUARDRAIL: no `entry` field. It stored the word's xt and was read by nothing — the task's start address
+ * already lives in vm.W, which is what vm_task_init sets and what the dispatcher resumes from. Removing the
+ * field also removes its store (padding absorbed the bytes, so this is a text win, not a bss one). */
+typedef struct { VM vm; u8 state; } TSK;   /* state: 0 free, 1 ready, 2 done */
 static TSK tsk[NTSK];
 static int cur = -1;                  /* -1 = run() is the outer interpreter, not a task */
 /* GUARDRAIL: the switch counters are gone (vm_switches, vm_sw_taskexit, vm_sw_first). Each was
@@ -821,7 +824,7 @@ static void vm_task_init(int k, u16 xt)
 #endif
     tsk[k].vm.SP = 0; tsk[k].vm.RSP = 0;
     tsk[k].vm.W = xt; tsk[k].vm.IP = 0;  /* ip 0 = the task's outermost word ends via EXIT */
-    tsk[k].entry = xt; tsk[k].state = 1;
+    tsk[k].state = 1;
 }
 
 #if defined(BLKPRIM)
@@ -831,10 +834,12 @@ static void vm_task_init(int k, u16 xt)
  * code on the stack and does NOT hand back the buffer — and the cost is three headers.
  * GUARDRAIL: the failures are NAMED, not silent. GUARDRAIL: their text lives on the host (msg_codes.h):
  * a string per message here would put back the .rodata the message-code change removed. */
-static u32 blkvars[3];                  /* 0 blkn, 1 blkerr, 2 blkdirty */
+static u32 blkvars[2];                  /* 0 blkn, 1 blkdirty */
+/* GUARDRAIL: there is no BLK_VBLKERR slot. It was written on a refused block and on every xfer result and
+ * read by NOBODY — the error reaches Forth as the pushed status and the host as the message code, so the
+ * cached copy was pure cost (two stores plus 4 B of .bss). Same audit as the depth/switch/line counters. */
 #define BLK_VBLKN   0u
-#define BLK_VBLKERR 1u
-#define BLK_VBLKDRT 2u
+#define BLK_VBLKDRT 1u
 
 static void blk_errmsg(i32 st)
 {
@@ -853,7 +858,7 @@ static void blk_errmsg(i32 st)
 static void p_blk_block(void)               /* ( n -- addr | code ) */
 {
     i32 n = (i32)POP(), st;
-    if (n < 0) { blkvars[BLK_VBLKERR] = (u32)BK_RANGE; msg(MSG_ERR_RANGE); PUSH((u32)BK_RANGE); return; }
+    if (n < 0) { msg(MSG_ERR_RANGE); PUSH((u32)BK_RANGE); return; }
     /* GUARDRAIL: one buffer, many blocks. Fetching a DIFFERENT block while the current one is dirty used to
      * discard the edits with no error at all (measured: write block 0, fetch block 1, SAVE, read block 0 ->
      * 0). Silent data loss is the worst outcome because the program believes it wrote. Refuse by name. */
@@ -864,7 +869,6 @@ static void p_blk_block(void)               /* ( n -- addr | code ) */
     repl_blk_req = 1u;                      /* tell the main core something is waiting */
     st = blk_xfer((u32)n, BLK_READ);
     repl_blk_req = 0u;
-    blkvars[BLK_VBLKERR] = (u32)st;
     if (st == BK_OK) { blkvars[BLK_VBLKDRT] = 0u; PUSH(BLKADR); return; }
     blk_errmsg(st); PUSH((u32)st);
 }
@@ -876,7 +880,6 @@ static void p_blk_save(void)                /* ( -- st ) */
     repl_blk_req = 1u;
     st = blk_xfer(blkvars[BLK_VBLKN], BLK_WRITE);
     repl_blk_req = 0u;
-    blkvars[BLK_VBLKERR] = (u32)st;
     if (st == BK_OK) blkvars[BLK_VBLKDRT] = 0u;
     PUSH((u32)st);
 }
