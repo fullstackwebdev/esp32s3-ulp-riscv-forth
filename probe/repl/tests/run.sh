@@ -94,6 +94,19 @@ else
     fail=1
 fi
 
+# GUARDRAIL: the A/B control is the engine with NO overlays at its own best MEMSZ. Building it with the overlay
+# switch on would make the control pay for the feature it is supposed to be compared against.
+gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2296 \
+    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_ctl src/uforth.c \
+    || { echo "BUILD FAILED: host_ctl will not compile" >&2; exit 1; }
+
+if ./tests/abtest.sh; then
+    echo "PASS  A/B: paged exceeds the no-overlay control (see above)"
+else
+    echo "FAIL  A/B: paging did not beat the control" >&2
+    fail=1
+fi
+
 echo "PASS  ring drain: order, completeness, no double-consume, no livelock"
 else
     echo "FAIL  ring drain" >&2; fail=1
