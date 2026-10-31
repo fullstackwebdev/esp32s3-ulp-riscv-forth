@@ -706,8 +706,11 @@ static u16 mkhdr(u8 cf)
 /* GUARDRAIL: no `entry` field. It stored the word's xt and was read by nothing — the task's start address
  * already lives in vm.W, which is what vm_task_init sets and what the dispatcher resumes from. Removing the
  * field also removes its store (padding absorbed the bytes, so this is a text win, not a bss one). */
-typedef struct { VM vm; u8 state; } TSK;   /* state: 0 free, 1 ready, 2 done */
-static TSK tsk[NTSK];
+/* GUARDRAIL: the VM and its state are separate arrays, not a struct. `{ VM vm; u8 state; }` cost 140 B per
+ * slot because VM is 136 and the u8 padded it to a 4-byte boundary — 4 B of pure padding times NTSK. Two
+ * arrays keep every VM 136-aligned and put the states in one byte each. */
+static u8 tskstate[NTSK];   /* 0 free, 1 ready, 2 done */
+static VM tskvm[NTSK];
 static int cur = -1;                  /* -1 = run() is the outer interpreter, not a task */
 /* GUARDRAIL: the switch counters are gone (vm_switches, vm_sw_taskexit, vm_sw_first). Each was
  * incremented once per switch and read by NOTHING — not the boot banner, not the suite, not the bench, not
@@ -754,14 +757,14 @@ static int vm_next_ready(int from)
      * caller's own slot, and for from == -1 that is 0 then 1 — measured, not derived from the modulo:
      * tests/ntsk.fs and the on-device two-task run both exercise spawn-spawn-run. */
     int k = (from + 1) & (NTSK - 1), o = k ^ (NTSK - 1);
-    if (tsk[k].state == 1) return k;
-    if (tsk[o].state == 1) return o;
+    if (tskstate[k] == 1) return k;
+    if (tskstate[o] == 1) return o;
     return -1;
 #else
     int k, i;
     for (i = 1; i <= NTSK; i++) {
         k = (from + i) % NTSK;
-        if (tsk[k].state == 1) return k;
+        if (tskstate[k] == 1) return k;
     }
     return -1;
 #endif
@@ -769,7 +772,7 @@ static int vm_next_ready(int from)
 
 #if defined(P30_HANDCOPY)
 /* ---- P30 D: hand-written VM copy and task zeroing ----
- * GUARDRAIL: `tsk[from].vm = *V` is a 136 B struct copy, and at -Os rv32imc GCC emits a libgcc `memcpy`
+ * GUARDRAIL: `tskvm[from] = *V` is a 136 B struct copy, and at -Os rv32imc GCC emits a libgcc `memcpy`
  * *call* for it (232 B, P29) — the saving only exists if the copies are word moves the pattern matcher
  * cannot turn back into a library call, so they are unrolled four words per iteration and the loop
  * bound is the struct's own size, not a byte count. Measured: a plain `while (n--) *p++ = 0;` and
@@ -801,8 +804,8 @@ static void vm_dump(const char *tag, int k)
         fprintf(stderr, "[%-6s] live   W=%u IP=%u SP=%u RSP=%u cur=%d\n", tag,
                 (unsigned)V->W, (unsigned)V->IP, V->SP, V->RSP, cur);
     else
-        fprintf(stderr, "[%-6s] tsk%d   state=%u W=%u IP=%u SP=%u RSP=%u\n", tag, k, tsk[k].state,
-                (unsigned)tsk[k].vm.W, (unsigned)tsk[k].vm.IP, tsk[k].vm.SP, tsk[k].vm.RSP);
+        fprintf(stderr, "[%-6s] tsk%d   state=%u W=%u IP=%u SP=%u RSP=%u\n", tag, k, tskstate[k],
+                (unsigned)tskvm[k].W, (unsigned)tskvm[k].IP, tskvm[k].SP, tskvm[k].RSP);
 }
 #define VMDBG(tag, k) vm_dump(tag, k)
 #else
@@ -814,20 +817,20 @@ static void vm_switch(int next)
     int from = cur;    VMDBG("enter", -1); VMDBG("enter", 0); VMDBG("enter", 1);
 #ifdef VM_TASK_TRACE
     fprintf(stderr, "[layout] sizeof(VM)=%u sizeof(TSK)=%u &live=%p &tsk0=%p &tsk1=%p V=%p\n",
-            (unsigned)sizeof(VM), (unsigned)sizeof(TSK), (void*)&vm_live, (void*)&tsk[0], (void*)&tsk[1], (void*)V);
+            (unsigned)sizeof(VM), (unsigned)sizeof(tskstate), (void*)&vm_live, (void*)&tskvm[0], (void*)&tskvm[1], (void*)V);
 #endif
 #if defined(P30_HANDCOPY)
     /* GUARDRAIL: the struct copy compiles to a libgcc memcpy *call* on rv32imc at -Os (232 B, P29), so
      * copy word by word here — and copy the stacks by element, not by memcpy, or the saving is zero. */
-    if (from >= 0) vm_copy(&tsk[from].vm, V);
+    if (from >= 0) vm_copy(&tskvm[from], V);
 #else
-    if (from >= 0) tsk[from].vm = *V;    /* struct copy = the whole switch point */
+    if (from >= 0) tskvm[from] = *V;    /* struct copy = the whole switch point */
 #endif
     cur = next;
 #if defined(P30_HANDCOPY)
-    if (next >= 0) vm_copy(V, &tsk[next].vm);
+    if (next >= 0) vm_copy(V, &tskvm[next]);
 #else
-    if (next >= 0) *V = tsk[next].vm;
+    if (next >= 0) *V = tskvm[next];
     VMDBG("after", -1); VMDBG("after", 0); VMDBG("after", 1);
 #endif
 }
@@ -838,7 +841,7 @@ static int vm_task_leave(void)
 {
     int nx;
     if (cur < 0) return 0;               /* outer interpreter: a plain C return is right */
-    tsk[cur].state = 2;
+    tskstate[cur] = 2;
     nx = vm_next_ready(cur);
     /* P29: the fourth hook, called for real when the last task retires. GUARDRAIL: keep this call on
      * the retire path — a hook that nothing calls is a stub, and a stub's bytes are not the layer's. */
@@ -854,21 +857,21 @@ static int vm_task_leave(void)
 static void vm_task_init(int k, u16 xt)
 {
     int j;
-#if defined(P30_HANDCOPY)
-    /* GUARDRAIL: P29's two 16-iteration zero loops compile to a libgcc `memset` call (168 B); keep the
-     * four-words-per-iteration form, which the loop-distribute-pattern pass does not recognise —
-     * rewriting it as one loop over DS and RS restores the memset call and the 168 B with it. */
-    {
-        u32 *zp = (u32 *)&tsk[k].vm;
-        int zn = (int)(sizeof(VM) / 4);
-        while (zn > 0) { zp[0] = zp[1] = zp[2] = zp[3] = 0u; zp += 4; zn -= 4; }
+    /* GUARDRAIL: typed four-at-a-time zeroing, EXACTLY sizeof(VM) bytes. The previous form walked a u32*
+     * for sizeof(VM)/4 = 34 words in groups of four, so it wrote 36 words — two words (8 B) PAST the record.
+     * That was invisible only because the old TSK struct had 4 B of trailing padding per slot and the overrun
+     * landed in it; the moment the VM and its state moved to separate arrays (P64) the overrun started
+     * zeroing the NEXT task's record: measured as `tasks.fs` printing "2" and `tasks_pause.fs` printing "34"
+     * (only the last-spawned task ever ran) and a third SPAWN no longer being refused.
+     * GUARDRAIL: DS/RS are u32 arrays so unrolling them four at a time is legal AND cheap; the u8/u16 scalars
+     * are assigned by name. Do not go back to a word loop over the whole struct. */
+    for (j = 0; j < SD; j += 4) {
+        tskvm[k].DS[j] = tskvm[k].DS[j+1] = tskvm[k].DS[j+2] = tskvm[k].DS[j+3] = 0u;
+        tskvm[k].RS[j] = tskvm[k].RS[j+1] = tskvm[k].RS[j+2] = tskvm[k].RS[j+3] = 0u;
     }
-#else
-    for (j = 0; j < SD; j++) { tsk[k].vm.DS[j] = 0; tsk[k].vm.RS[j] = 0; }
-#endif
-    tsk[k].vm.SP = 0; tsk[k].vm.RSP = 0;
-    tsk[k].vm.W = xt; tsk[k].vm.IP = 0;  /* ip 0 = the task's outermost word ends via EXIT */
-    tsk[k].state = 1;
+    tskvm[k].SP = 0; tskvm[k].RSP = 0;
+    tskvm[k].W = xt; tskvm[k].IP = 0;  /* ip 0 = the task's outermost word ends via EXIT */
+    tskstate[k] = 1;
 }
 
 #if defined(BLKPRIM)
@@ -943,7 +946,7 @@ static int vm_spawn_name(void)
     if (!n) { err(); return -1; }
     xt = find(n, &im);
     if (!xt) { err(); return -1; }
-    for (k = 0; k < NTSK; k++) if (tsk[k].state != 1) break;
+    for (k = 0; k < NTSK; k++) if (tskstate[k] != 1) break;
     /* GUARDRAIL: err() prints the word in PAD, which here is the NAME BEING SPAWNED — so a full table
      * reported `TC?` and looked exactly like an unknown word (the same confusion that made the block
      * id-drift present as a bare `?`). A full table is its own failure and must say so. */

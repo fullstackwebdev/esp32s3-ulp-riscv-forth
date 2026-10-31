@@ -32,11 +32,17 @@
  * mem[]: the link succeeds, the boot assert is the only thing between that and "every word is unknown"
  * (E-079). Re-bake with tools/bake.sh <MEMSZ>, which owns the flag set, whenever this number moves.
  * 1 200 -> 1 400 is paid for exactly by the mailbox shrink in uforth.c (216 B -> 16 B of .bss). */
-#define MEMSZ    2026          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+#define MEMSZ    2051          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
-#define TIBSZ     128           /* P22: the line buffer, matched to the ring size */
+/* GUARDRAIL: 96, not 128. The line buffer is 32 B of .bss for a 127-character limit that nothing uses:
+ * the longest line any device workload types is 88 characters (bench/arith.fs), and the prelude's 98-character
+ * lines are loaded by the HOST bake, which sets -DTIBSZ=128 independently (tools/bake.sh), so the bake is
+ * unaffected. The device limit becomes 95 characters and an over-long line is REFUSED BY NAME
+ * (MSG_LINE_TOO_LONG) — loud, not silent. GUARDRAIL: the host suite still builds at TIBSZ 128, so a test
+ * line longer than 94 would pass there and fail on the chip: keep typed lines short. */
+#define TIBSZ     96
 /* P47: the VM switch was two libgcc `memcpy` calls (136 B struct copies) and a `memset`, 127
  * instructions = 7 % of text. uforth.c already carries hand-written word copies behind this flag;
  * measured here at -356 B (text 5 156 -> 4 800), which is the largest byte win available without
@@ -436,7 +442,7 @@ int main(void)
              * hundreds of times — measured as a wall of "tasks need an empty stack" filling the log.
              * Retiring is loud, bounded, and recoverable: spawn again from a clean prompt. */
             int k;
-            for (k = 0; k < NTSK; k++) if (tsk[k].state == 1) tsk[k].state = 2;
+            for (k = 0; k < NTSK; k++) if (tskstate[k] == 1) tskstate[k] = 2;
             msg(MSG_TASK_STACK);
         } else {
             vm_run_tasks();
