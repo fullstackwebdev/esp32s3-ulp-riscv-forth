@@ -327,3 +327,10 @@ sides cannot drift, and `.rodata` fell 372 → **268** — which is now *only* t
 the engine through `tools/expand.c`, which includes the same header: the test proves the operator's view,
 not a filter's own copy.
 
+## F-118 · Coverage tracked the code, not the failures
+Five real defects were found in one afternoon (stack wrap, `rd16` wrap, `IMMEDIATE`/header flag, image `MEMSZ`
+drift, hash-vs-name economics). The suite caught **none** of them: it exercises six stack cells, no wild
+address, no case variation, no deep recursion, and no error path. A suite that grows with the *features*
+certifies the features; coverage has to grow with the **failures**. Every one of those five now has a test that
+fails if the fix is reverted, and the error tests carry an `888 .` sentinel so an abort is visible in the diff.
+

@@ -1905,3 +1905,44 @@ SPAWN TA SPAWN TB             -> ok / 1324
 (deferred by decision); `-Oz` byte-identical to `-Os`; `-mrelax` 0; `-fno-jump-tables` +88 net;
 `-fno-omit-frame-pointer` +376; `-fno-crossjumping` +386.
 
+## E-078 — Coverage extended to every hole found, and an inventory of the levers used
+
+**Tests: 2 → 7 checks.** Each one is tied to a specific defect and fails if the fix is reverted.
+
+| check | hole it closes | how it fails without the fix |
+|---|---|---|
+| `deep.fs` | stack wrap (F-115) | `15 FIB .` → `ERR_STACK`; the trailing `888 .` never prints |
+| `addr.fs` | `rd16` bound wrap (F-116) | `-1 @ .` etc. → `0000` instead of a wild read |
+| `lookup.fs` | hash dictionary: case + newest-wins (P51) | `7 sq . 7 Sq .` → `4949`, redefinition → `27` |
+| `ntsk.fs` | task-table bound | third `SPAWN` → `ERR_TASKS`, `888` suppressed |
+| `suite.fs` | the original 26 assertions | unchanged, piped through the real expander |
+| ring drain | `msg_drain_ring` "does not fit" path → livelock | order/completeness/exactly-once over a wrapping 128 B ring |
+| unknown code | a code with no string must name itself | `0x8a` → `ulp: ERR_ULPCODE 0x8a (unknown code)` |
+
+`tests/run.sh` now loops over `tests/*.fs` against `tests/<name>.expected`, so adding a case cannot be
+forgotten by the runner. Error tests carry an `888 .` abort sentinel rather than the script knowing how an
+abort is implemented.
+
+**Still uncovered, named rather than implied:** `ERR_DICT` (dictionary exhaustion — needs hundreds of
+definitions), `image_boot_assert` `0x51` (needs a deliberately mismatched image), a deliberate hash collision
+(the bake checks every run, but no test constructs one), and the block layer's `ERR_DIRTY`/CRC paths (manual
+board runs only, E-074).
+
+**Optimisation inventory, all measured:**
+
+| lever | result | state |
+|---|---|---|
+| `-msave-restore` | −224 B text | **adopted** |
+| hash dictionary (P51) | −406 B dictionary | **adopted** |
+| one-byte message codes | −104 B rodata | **adopted** |
+| `NTSK 3→2` | −140 B bss, −12 B text | **adopted** |
+| `P30_HANDCOPY`, `lhu` (P42), number-first `interpret`/`find` (P46) | −356 B / −35 % cycles / 17× on literals | adopted earlier |
+| computed goto | −6 B | measured, **skipped by decision** |
+| `UC_FOLD` accessors | −14 B (−22 B with cgoto) | measured, **skipped by decision** |
+| `-Oz`, `-mrelax`, `-fomit-frame-pointer`, `-fira-*`, `-falign-*` | 0 | no action |
+| `-fno-jump-tables` | +88 B net | rejected |
+| `-fno-omit-frame-pointer`, `-fno-crossjumping`, `-fno-ipa-icf` | +376 / +386 / +22 | rejected |
+| `-fno-builtin`, `-fno-stack-protector`, `-flto` | 0 (and LTO is a no-op in one TU) | no action |
+
+Total on the table but unused: **22 B** (computed goto + folded accessors), against **29 B of spare pool**.
+

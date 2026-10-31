@@ -1759,3 +1759,20 @@ un-checking the accessors as proposed **+40 B** (only 13 body lines are safe, an
 `UC_FOLD` −14 B (−22 B with cgoto, deferred by decision), `-Oz` identical to `-Os`, `-mrelax` 0,
 `-fno-jump-tables` +88 net. Repo is now under git with a checkpoint commit.
 
+**J-96 · Five bugs, zero caught by the suite, and 22 bytes of known-safe lever left unspent.**
+The honest answers to "did we use everything safe" and "did we cover the holes" were *almost* and *no*.
+
+Coverage: the suite exercised six stack cells out of sixteen, no wild address, no case variation, no deep
+recursion and no error path — so it certified the features and none of the failures. There are now seven
+checks, each named after the defect it would have caught, and each one fails if the fix is reverted. The
+runner loops over `tests/*.fs`, so a new case cannot be forgotten, and error tests carry an `888 .` sentinel so
+"the load aborted" is visible in a diff instead of being known to the script.
+
+Levers: everything measured is either adopted or rejected with a number. The only safe bytes still on the
+table are computed goto (−6) and the folded accessors (−22) — 22 B, skipped by decision, against 29 B of
+spare pool. `-Oz` is byte-identical to `-Os`, `-mrelax` is a no-op here, and the rest of the flag surface
+costs bytes rather than saving them.
+
+What is still unproven is written down rather than implied: `ERR_DICT`, the `0x51` image assert, a
+deliberately constructed hash collision, and the block layer's dirty/CRC paths.
+

@@ -129,6 +129,16 @@ After:
 12. Record the result in `probe/EVIDENCE.md` and, if it changed a decision, in `docs/JOURNAL.md`.
 13. Update the register (`docs/11-findings.md`) if a fact changed, and the countdown if a budget moved.
 
+## R12 — A green suite certifies only what it exercises
+
+**Lesson:** the tests were green for months while `SD 16` corrupted the stack, because the suite's deepest
+expression used **6 of 16 cells**. The bug was found by an agent, not by the suite.
+**Cost:** a silent wrong answer (`15 FIB .` → 377 instead of 610) and a hard hang, shipped and untested.
+**Do instead:** after every bug, add a test that **fails without the fix**, and drive it through the same path
+production uses — the message-code tests are piped through the real `msg_expand.h`, and error tests carry an
+explicit **abort sentinel** (`888 .`) so "the load stopped" is observable in the diff. One test per hole, and
+the hole is named in the test's own header comment.
+
 **Fail loud:** an invalid probe is written down as INVALID with its defects listed (see E-060, E-069, E-070). A
 negative result that is recorded is worth more than a positive one that is guessed — twice in this project the
 recorded negative stopped a week of work.
