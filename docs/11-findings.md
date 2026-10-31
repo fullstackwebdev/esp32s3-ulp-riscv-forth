@@ -392,8 +392,25 @@ What is known:
   into locals — changed the symptom (1212 → 122) without fixing it, so it is a necessary but not sufficient
   part of the fix. Reverted rather than shipped, because a partial fix that changes one wrong output into
   another is not progress.
-- The remaining suspect is the paused task's saved `W`/`IP`: the resumed body starts at the first task's
-  continuation, which is what a save into the wrong record (or a load from the wrong record) looks like.
+**Flight-recorder trace (`-DVM_TASK_TRACE`, host-only, zero cost when off)** narrows it to the LOAD:
+
+| step | live machine | tsk0 | tsk1 |
+| --- | --- | --- | --- |
+| at spawn | `W=180` (interpreter) | `state=1 W=568` | `state=1 W=590` |
+| switch into task 0 | **`W=568` ✓** | — | — |
+| task 0 hits `PAUSE` | `W=568 RSP=1` | — | — |
+| save before switch | — | **`W=568 RSP=1` ✓ landed correctly** | — |
+| after the load | **`W=54 RSP=255` ✗** | — | `state=2 W=590` |
+
+So: the records are right at spawn, the first load is right, the save lands right — and then the machine that
+should be task 1 has `W=54` (`DICT`) and `RSP=255` (the underflow marker), i.e. it looks like a machine that
+ran off the end rather than like any task record. `tsk1.state` also reads 2 before task 1 ever executed.
+
+Layout is NOT the cause: `sizeof(VM)=136`, `sizeof(TSK)=140`, records exactly 140 apart, `V == &vm_live`.
+
+Next probe (one build): dump the raw 136 bytes of `V` and of `tsk[1].vm` immediately after the load and
+compare — that distinguishes "the load did not happen" from "something overwrote the live machine between
+the load and the next trace line".
 
 **Guarded by** `tests/known_defects/tasks_pause.fs` + `tools/known_defects.sh`, which asserts the CORRECT
 string (`1324`) and prints `FIXED` when it starts passing. It lives outside `tests/*.fs` on purpose: that

@@ -243,6 +243,7 @@
             int nx;
             if (!ip) goto tail;                          /* PAUSE as the last token: nothing to resume */
             w = rd16_paged(ip); ip += 2;             /* same as the loop tail below */
+            VMDBG("pause", -1);
             nx = vm_next_ready(cur);
             if (nx < 0) goto top;                    /* single ready task: its own turn again */
             vm_sw_pause++;

@@ -786,9 +786,32 @@ static void vm_copy(VM *d, const VM *s)
 
 /* Save the live machine into `saved`, load another one. No C stack involved: the
  * caller is inside run()'s loop and simply continues executing the new machine. */
+#ifdef VM_TASK_TRACE
+#include <stdio.h>
+/* GUARDRAIL: host-only flight recorder for F-122: it prints the LIVE machine and every task record around
+ * a switch, so "which record did the save land in" is READ rather than argued. Behind a flag because it
+ * costs .text, and because a trace inside the scheduler is instrumentation inside the thing it measures. */
+static void vm_dump(const char *tag, int k)
+{
+    if (k < 0)
+        fprintf(stderr, "[%-6s] live   W=%u IP=%u SP=%u RSP=%u cur=%d\n", tag,
+                (unsigned)V->W, (unsigned)V->IP, V->SP, V->RSP, cur);
+    else
+        fprintf(stderr, "[%-6s] tsk%d   state=%u W=%u IP=%u SP=%u RSP=%u\n", tag, k, tsk[k].state,
+                (unsigned)tsk[k].vm.W, (unsigned)tsk[k].vm.IP, tsk[k].vm.SP, tsk[k].vm.RSP);
+}
+#define VMDBG(tag, k) vm_dump(tag, k)
+#else
+#define VMDBG(tag, k) ((void)0)
+#endif
+
 static void vm_switch(int next)
 {
-    int from = cur;
+    int from = cur;    VMDBG("enter", -1); VMDBG("enter", 0); VMDBG("enter", 1);
+#ifdef VM_TASK_TRACE
+    fprintf(stderr, "[layout] sizeof(VM)=%u sizeof(TSK)=%u &live=%p &tsk0=%p &tsk1=%p V=%p\n",
+            (unsigned)sizeof(VM), (unsigned)sizeof(TSK), (void*)&vm_live, (void*)&tsk[0], (void*)&tsk[1], (void*)V);
+#endif
 #if defined(P30_HANDCOPY)
     /* GUARDRAIL: the struct copy compiles to a libgcc memcpy *call* on rv32imc at -Os (232 B, P29), so
      * copy word by word here — and copy the stacks by element, not by memcpy, or the saving is zero. */
@@ -801,6 +824,7 @@ static void vm_switch(int next)
     if (next >= 0) vm_copy(V, &tsk[next].vm);
 #else
     if (next >= 0) *V = tsk[next].vm;
+    VMDBG("after", -1); VMDBG("after", 0); VMDBG("after", 1);
 #endif
 }
 
