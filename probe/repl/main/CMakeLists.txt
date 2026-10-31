@@ -38,7 +38,19 @@ endif()
 # task ran another task's body (F-122: measured -O0/-O1 correct, -O2/-Os wrong, this flag correct again).
 # Cost: +16 B of .text, versus +68 B for the type-safe rewrite that removes the violation outright.
 # GUARDRAIL: the day someone writes that rewrite, this flag can go — but it must not be dropped first.
-set(_ulp_cflags "${CMAKE_MATCH_1} -msave-restore -fno-strict-aliasing")
+# GUARDRAIL: seven flags measured one at a time on the twin, each against the shipping baseline, then as a
+# set: -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink
+# -fno-move-loop-invariants. Together .text 4 788 -> 4 696 (-92 B, and every byte of text is a byte of
+# application space). Each was negative ALONE too (-12, -42, -24, -8, -4, -2 and the set re-measured at -92);
+# none was accepted from an assumption. They disable value-range propagation, loop-invariant motion, full
+# redundancy elimination, scalar-evolution copy propagation, forward propagation and sinking.
+# GUARDRAIL: this is a TRADEOFF, not free optimisation: those passes normally make code faster and smaller,
+# and on this target they make it BIGGER (more live values across the big switch, more spill/restore traffic
+# in a machine with 16 registers). Expect modestly slower dispatch; the objective here is bytes, and the
+# correctness proof is the host suite run with this exact flag set plus the board checks, NOT this comment.
+# GUARDRAIL: the HOST build does not use these flags, so a green host suite alone would NOT validate them —
+# tests/run.sh's binaries are built without them. Run the twin check when changing this line.
+set(_ulp_cflags "${CMAKE_MATCH_1} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants")
 message(STATUS "ULP C flags: ${_ulp_cflags}")
 idf_build_set_property(EXTRA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${_ulp_cflags}" APPEND)
 

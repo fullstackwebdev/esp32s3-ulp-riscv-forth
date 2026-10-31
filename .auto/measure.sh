@@ -36,6 +36,25 @@ read -r TEXT RODATA SRODATA DATA BSS TOTAL <<<"$("$RVV_BIN/riscv32-esp-elf-size"
 MEMSZ_NOW=$(( DATA - 16 ))
 HEADROOM=$(( POOL - TOTAL - SPARE ))
 M=$(( MEMSZ_NOW + HEADROOM ))
+# GUARDRAIL: the TWIN is optimistic and by a variable amount — measured at 18 B after the seven -fno-tree-*
+# flags went in (the twin linked 5 657 B of non-data, the shipping build 5 675 B), so the twin's ceiling of
+# 2 180 did not fit the real image (pool 7 871 > 7 856) and the flash guard refused it. A metric that
+# reports a ceiling the shipping image cannot reach is a lie in the direction that hurts: it says "keep".
+# GUARDRAIL: so cross-check against the REAL shipping ELF, which is also the artifact that gets flashed, and
+# take the SMALLER ceiling. It requires a real build after source changes — which is already true for
+# compile_commands.json (see the note at the top).
+REAL=probe/repl/build/esp-idf/main/ulp_main/ulp_main.elf
+if [ -f "$REAL" ]; then
+  read -r RT RR RS RD RB <<<"$("$RVV_BIN/riscv32-esp-elf-size" -A "$REAL" | awk '
+    /^\.text/{t+=$2} /^\.rodata/{r+=$2} /^\.srodata/{sr+=$2} /^\.data/{d+=$2} /^\.bss/{b+=$2}
+    END{print t+0, r+0, sr+0, d+0, b+0}')"
+  RTOTAL=$(( RT + RR + RS + RB ))
+  MREAL=$(( POOL - SPARE - RTOTAL - 16 ))
+  if [ "$MREAL" -lt "$M" ]; then
+    echo "note: twin ceiling $M reduced to $MREAL by the real build (twin is optimistic)" >&2
+    M=$MREAL
+  fi
+fi
 
 # 3. bake at M to learn headers/code/free (the dictionary side of app space)
 gcc $BAKEFLAGS -DMEMSZ=$M -o "$TMP/bake" probe/repl/src/uforth.c
