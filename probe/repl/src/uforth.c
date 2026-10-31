@@ -150,7 +150,14 @@ static u32 rd32_paged(u32 va)
  * address never escapes is dead-store-eliminated together with --gc-sections, and the first P22 link
  * reported a fit that was 728 B of budget lines short because of exactly that. */
 static u8  cmd_ring[128], out_ring[256];   /* 384 B, .bss (P04) */
-static u32 mailbox[54];                    /* 216 B, .bss (P04 status mailbox) */
+/* GUARDRAIL: sized from the PROTOCOL (BLK_MB = blk, op, status, checksum), not from P04's legacy status
+ * array. It was `mailbox[54]`: 216 B of .bss for 4 indexed words (mb_get/mb_set), i.e. 200 B that bought
+ * nothing — the single largest feature-neutral source of application space in the whole image. Keeping the
+ * size derived from BLK_MB means the array cannot drift from the protocol that indexes it. */
+#ifndef BLK_MB
+#define BLK_MB 4                 /* the host bake has no ulp_repl.c; keep both ends on one number */
+#endif
+static u32 mailbox[BLK_MB];
 #if !defined(P33_NOPAGE)
 static u8  ptab_lru_reserve[234];          /* 250 - 16 of ptab[] above, .bss (4.3 "page table + LRU") */
 #endif

@@ -363,3 +363,14 @@ definitions were gone.
 `if (V_HERE + 4 > V_LATEST) { err(ERR_DICT); break; }` — and let it be loud, because the alternative is a
 wrong-word bug that reads as "the engine is broken".
 
+## F-121 · 200 B of `.bss` were allocated for a protocol that indexes four words
+`static u32 mailbox[54]` — 216 B — while `BLK_MB` is 4 and only `mb_get`/`mb_set` at indices 0..3 are ever
+used. It was P04's status mailbox, kept after the block protocol was reduced to four words.
+
+Because application space is `V_LATEST − V_HERE` and both live in `mem[]`, every byte of `.bss` freed is a
+byte available to `MEMSZ`: `mailbox[BLK_MB]` plus `MEMSZ` 1 200 → 1 400 moved **200 B** into the dictionary
+gap. Measured: application space **154 → 354 B**, pool unchanged at 7 853 / 7 856, nothing removed.
+
+The general rule, now in `countdown.sh` and `CONSTRAINTS.md`: **`.bss` and `.text` are not "overhead", they
+are the app space.** Audit them by symbol before concluding that a machine this size cannot grow.
+

@@ -1850,3 +1850,24 @@ Three things worth keeping from this:
 `tests/semantics.fs` now pins the four storage rules and the trap, and the memory workload is in the
 baseline at 862 dispatches.
 
+**J-101 · The biggest gain was 200 B of array nobody indexed.**
+Application space had been 154 B for the whole project. The audit took one command (`nm -S --size-sort`) and
+found `static u32 mailbox[54]` — 216 B of `.bss` for a protocol that indexes four words, left over from
+P04's status mailbox. `countdown.sh` had even modelled the fix as an optional `-m` scenario for weeks.
+
+Sizing it from `BLK_MB` instead of a legacy 54, and moving the 200 B into `MEMSZ` (1 200 → 1 400) with a
+re-bake, gives **354 B of application space — 2.3× — with no word, primitive or feature removed.**
+
+Three things this taught:
+
+* **Audit by symbol, not by belief.** I had been reasoning about `.bss` as "tasks 280, rings 96+64, vm_live
+  136, mailbox 216..." for sessions without noticing that one of those numbers was pure waste.
+* **The lever was already written down.** `countdown.sh -m`. A modelled lever that is not adopted is a
+  decision that has quietly been made by forgetting.
+* **Adopting a lever must retire its flag.** `-m` would now double-count 200 B, so it exits 2 with a named
+  message instead of quietly reporting a bigger number — the same rule as the block layer being counted
+  twice (P43).
+
+Next candidate, feature-neutral and unbuilt: the 4-byte header (`hash20|xt11|imm1`) could become 3 B
+(`hash13|xt10/2|imm1`) for **+85 B**, at the cost of two loads per lookup and a bake-time collision search.
+

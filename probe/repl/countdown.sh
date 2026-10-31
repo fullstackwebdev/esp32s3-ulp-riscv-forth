@@ -60,7 +60,8 @@ PY
 )
 
 # Optional scenario flags, each one a MEASURED lever (see docs/13-levers.md):
-#   -m  mailbox[54] -> 16 B          : BLK_CODE loses 200 B of block-layer bss
+#   -m  ADOPTED in P53 — the mailbox is now mailbox[BLK_MB] (16 B), so this flag would double-count
+#       200 B that are already in MEMSZ. It now refuses instead of quietly reporting a bigger number.
 #   -b  256 B blocks instead of 512  : the buffer need halves
 #   -a N  assembly dispatcher saves N bytes of text
 #   -r N  further ring shrink saves N bytes of bss
@@ -68,7 +69,10 @@ PY
 MAILBOX=0; BLK_256=0; ASM=0; RINGS=0; STACK=0
 while [ $# -gt 0 ]; do
     case "$1" in
-        -m) MAILBOX=1 ;;
+        # GUARDRAIL: a scenario flag that keeps modelling a change AFTER the change landed double-counts it —
+        # the same class of error as the block layer being counted twice (P43). Adopting the lever must retire
+        # the flag loudly, not silently.
+        -m) echo "countdown: -m is ADOPTED (P53): mailbox is already 16 B and MEMSZ already 1400" >&2; exit 2 ;;
         -b) BLK_256=1 ;;
         -a) ASM=$2; shift ;;
         -r) RINGS=$2; shift ;;

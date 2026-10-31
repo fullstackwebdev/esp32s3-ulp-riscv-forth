@@ -27,7 +27,12 @@
  * ceiling is 2058 and not the 2064 the previous arithmetic implied — the ring edit itself moved text by
  * 6 B. 2 048 is the round number that keeps a 10 B margin: app space 912 B, pool 7 846 of 7 856.
  * Recompute this constant whenever .text or .bss changes; overflow is silent (E-054). */
-#define MEMSZ    1200          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+/* GUARDRAIL: MEMSZ and src/image.h are ONE decision, not two. The image embeds V_LATEST as an absolute
+ * address (base of the header area), so raising MEMSZ without re-baking points the dictionary outside
+ * mem[]: the link succeeds, the boot assert is the only thing between that and "every word is unknown"
+ * (E-079). Re-bake with tools/bake.sh <MEMSZ>, which owns the flag set, whenever this number moves.
+ * 1 200 -> 1 400 is paid for exactly by the mailbox shrink in uforth.c (216 B -> 16 B of .bss). */
+#define MEMSZ    1400          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */

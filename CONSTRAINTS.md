@@ -38,21 +38,26 @@ Rules this file obeys, learned the hard way:
 
 | constant | value | |
 | --- | --- | --- |
-| **pool used** | **7 853 / 7 856** (3 B free) | M |
+| **pool used** | **7 853 / 7 856** (3 B free) — unchanged by P53, which moved 200 B from `.bss` to `.data` | M |
 | `.text` | **5 252 B** | M |
 | `.rodata` | **308 B** — the 67-entry dispatch jump table and nothing else | M |
-| `.data` | **1 216 B** = `MEMSZ` 1 200 + 16 B of interpreter variables | M |
-| `.bss` | **1 077 B** (task records 280, rings 96+64, `vm_live` 136, mailbox 216, counters) | M |
+| `.data` | **1 416 B** = `MEMSZ` 1 400 + 16 B of interpreter variables | M |
+| `.bss` | **877 B** (task records 280, `vm_live` 136, rings 128+64, `tib` 128, mailbox 16, counters) | M |
 | ULP image on the wire | **6 780 B** | M |
-| `MEMSZ` | **1 200** | M |
-| `BLKADR` | **1 072** = `MEMSZ` − `BLKSZ` 128 | M |
+| `MEMSZ` | **1 400** | M |
+| `BLKADR` | **1 272** = `MEMSZ` − `BLKSZ` 128 | M |
 | code area (used) | **578 B** | M |
 | dictionary | **340 B for 85 words** (4 B per header) | M |
-| **free program space** | **154 B** | M |
+| **free program space** | **354 B** | M |
 
-Shape of `mem[]`: code grows **up** from `DICT` 56; headers grow **down** from `HDRTOP` (= `BLKADR` with
-blocks on, else `MEMSZ`); the block window occupies `[BLKADR, MEMSZ)`. The two regions are checked before
-every write (`ERR_DICT`), because after they meet the damage looks like a wrong-word dispatch, not an error.
+Shape of `mem[]` at `MEMSZ` 1 400: code **578 B** growing up from `DICT` 56, headers **340 B** (85 words ×
+4 B) growing down from `HDRTOP` = `BLKADR` 1 272, block window `[1 272, 1 400)`, and **354 B free** between
+code top and the newest header. The two regions are checked before every header write (`ERR_DICT`) — but
+**not** before a `,`, see §10 — because once they meet the damage reads as a wrong-word bug, not an error.
+
+**354 B is 2.3× what this machine shipped with, bought without removing a single feature** (P53): `.bss`
+carried a 216 B mailbox for a 4-word protocol, and every byte freed in `.bss` moves 1:1 into `MEMSZ`, which
+is 1:1 into application space. The bake and the build must agree on `MEMSZ` — `tools/bake.sh` owns both.
 
 ## 3. Per-unit costs
 
@@ -179,7 +184,8 @@ tests/run.sh
 | `,` (append a cell) | **NOT enforced** | P52: 16 commas erased headers silently; `.` became unknown (F-120) |
 
 The second is an open defect. Until it is fixed, "reserve a buffer with `,`" is only safe while the total
-stays under the free application space — 154 B in the shipping image, so **not** 16 cells plus definitions.
+stays under the free application space — now **354 B**, which is why the `RES` workload that erased headers
+at 154 B completes: measured on the board, 128 B of appends (two `RES`) followed by `2 3 + .` → **5**.
 
 ## 11. The shape of the constraint
 
