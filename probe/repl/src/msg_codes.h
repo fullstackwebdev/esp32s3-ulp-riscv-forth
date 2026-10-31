@@ -33,7 +33,14 @@
   X(MSG_TASK_STACK,    0x86, "\ntasks need an empty stack\n")  \
   X(MSG_ERR_DICT,      0x87, "ERR_DICT ")                      \
   X(MSG_ERR_TASKS,     0x88, "ERR_TASKS ")                   \
-  X(MSG_ERR_STACK,     0x89, "ERR_STACK ")
+  X(MSG_ERR_STACK,     0x89, "ERR_STACK ")                    \
+  X(MSG_ERR_BUSY,      0x8a, "ERR_BUSY ")                     \
+  X(MSG_ERR_NOSERVER,  0x8b, "ERR_NO_SERVER ")                \
+  X(MSG_ERR_CRC,       0x8c, "ERR_CRC ")                      \
+  X(MSG_ERR_BUFOVER,   0x8d, "ERR_BUFOVER ")                  \
+  X(MSG_ERR_DIRTY,     0x8e, "ERR_DIRTY ")                    \
+  X(MSG_ERR_RANGE,     0x8f, "ERR_RANGE ")                    \
+  X(MSG_ERR_UNNAMED,   0x90, "ERR_UNNAMED ")
 
 /* The names, for the ULP (which uses them and never sees the text) and for host code that wants to
  * emit a code in a test. Enum constants cost no storage: the strings above are only macro arguments. */

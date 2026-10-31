@@ -10,6 +10,16 @@
             break;
 #endif
 
+#if defined(BLKPRIM)
+/* R5: BLOCK / UPDATE / SAVE. GUARDRAIL: the X entries in p33_prims.inc and these cases are two halves of
+ * one primitive — with only the header, the token dispatches to `default: err()`, which prints the word in
+ * PAD and is indistinguishable from "unknown word" (F-107's shape again). Measured: BLOCK existed in the
+ * dictionary at xt=184 with cf=67 and still answered `BLOCK?`. */
+        case P_BLOCK:  p_blk_block();  break;
+        case P_UPDATE: p_blk_update(); break;
+        case P_SAVE:   p_blk_save();   break;
+#endif
+
 #if defined(P43_TASKS)
         case P_SPAWN: vm_spawn_name(); break;
 #endif

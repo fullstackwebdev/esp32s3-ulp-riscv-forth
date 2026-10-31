@@ -1946,3 +1946,46 @@ board runs only, E-074).
 
 Total on the table but unused: **22 B** (computed goto + folded accessors), against **29 B of spare pool**.
 
+## E-079 — R5 + R4 in ONE image on the chip, and the four bugs that separated them from working
+
+**Yes: blocks and multi-tasking coexist.** Measured from the ELF: `pool 7 853 / 7 856` (3 B spare),
+`MEMSZ 1 200`, `BLKSZ 128`, `BLKADR 1 072`, headers 340 B, app space 154 B. On the board:
+
+```
+0 BLOCK .        -> 1072 ok        (BLKADR = MEMSZ - BLKSZ)
+65 0 BLOCK C!    -> ok             UPDATE -> ok      SAVE . -> 0 ok
+0 BLOCK C@ .     -> 65 ok          1 BLOCK C@ .     -> 0 ok
+1 BLOCK .        -> ERR_DIRTY -7 ok (refuses to clobber unsaved edits)
+SPAWN TA SPAWN TB           -> 1324
+SPAWN TA SPAWN TB SPAWN TC  -> ERR_TASKS 1324
+0 BLOCK C@ .     -> 70 ok          (blocks still work after tasks ran)
+2 3 + .          -> 5 ok
+```
+
+**Four defects had to be fixed to get here, and every one was a "two owners" or "wrong sibling" bug:**
+
+1. **The three primitives existed only as headers.** `p33_prims.inc` had no `X(BLOCK…)` entries and
+   `p33_cases.inc` had no `case P_BLOCK:` — so the word was absent; adding only the X entries produced a
+   token that found its header and fell to `default: err()`, which prints the word in PAD and looks exactly
+   like "unknown word". A primitive needs **both halves**.
+2. **`BLKSZ` had two owners.** The ULP built at 128, the host server kept `#define BLK_SZ 256`: every SAVE
+   checksummed 256 B against the ULP's 128, nacked with a plausible code, and the extra 128 B **overwrote
+   the ULP's `.bss`** — the visible symptom was a second boot banner appearing mid-session. The ULP now
+   publishes `blk_sz` and the host refuses to serve a size that does not fit.
+3. **Publish-on-first-run is wrong when RTC RAM survives a reset.** After a reflash, `repl_magic` still read
+   "already ran", the initialisation was skipped, and the host got `blk_sz = 0` — every copy loop did
+   nothing and SAVE reported `+4` (a nacked checksum over zero bytes). The addresses are now republished
+   every wake.
+4. **F-108 came back**: this tree's `blk_xfer` still read `mailbox[3]` non-volatile, so for a READ the load
+   was CSE'd to the `0` we had just written. Empty blocks "verified" (0 == 0) and blocks with data failed
+   `ERR_CRC` while the server logged `file=65 buf=65 sum=65`.
+
+**Two traps that cost time and are worth recording:** `BLKWAIT 4096` (~2 ms) is shorter than the host's
+10 ms poll, so the first request timed out and — because a timed-out request deliberately keeps `blk_out`
+set — every later call answered `ERR_BUSY`; and a **`blk_sz` initialisation placed inside `#if defined
+(BLK_DEBUG)`** means the size is zero in the shipping build. A variable that decides correctness is not a
+diagnostic.
+
+**Honest limits of this configuration:** 128 B blocks (not 512), 154 B of app space, and a backend that is
+still an 8 x 128 B **RAM** array on the HP — **no flash, no PSRAM** (R7 unwritten; the ULP never sees either).
+

@@ -27,13 +27,31 @@
  * ceiling is 2058 and not the 2064 the previous arithmetic implied — the ring edit itself moved text by
  * 6 B. 2 048 is the round number that keeps a 10 B margin: app space 912 B, pool 7 846 of 7 856.
  * Recompute this constant whenever .text or .bss changes; overflow is silent (E-054). */
-#define MEMSZ    1704          /* V_HERE 1146 -> 578 B app space; pool 7852 (P47 freed 356 B) */
+#define MEMSZ    1200          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+ * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
+ * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
 #define TIBSZ     128           /* P22: the line buffer, matched to the ring size */
 /* P47: the VM switch was two libgcc `memcpy` calls (136 B struct copies) and a `memset`, 127
  * instructions = 7 % of text. uforth.c already carries hand-written word copies behind this flag;
  * measured here at -356 B (text 5 156 -> 4 800), which is the largest byte win available without
  * deleting a requirement. Spent on MEMSZ: app space 226 -> 578 B, R4 intact. */
+/* GUARDRAIL: P33_BLOCK/BLKPRIM/BLKSZ/BLK_MB live HERE, in the same header the bake must use, because
+ * BLKADR = MEMSZ - BLKSZ is baked into the image as an absolute and computed again in the ULP; a bake with
+ * a different BLKSZ puts the buffer where the dictionary expects it to be and the first fetch overwrites
+ * definitions (F-107's cousin). 256 B halves the window; at 144 us per fetch the extra fetches are cheap
+ * per command, and 512 B does not fit the pool alongside R4.
+ * GUARDRAIL: 1 200 / 128 is a MEASURED fitting point, not a preference: with the block primitive bodies
+ * actually linked the image is 8 139 B at MEMSZ 1 500 (283 B over the 7 856 B pool), and overflow is
+ * silent — the linker succeeds, the ULP stack runs into .bss, and the machine boots printing nothing.
+ * 1 200 / 128 lands at 7 839 B and still leaves ~154 B of app space. The honest fix for app space is the
+ * primitive subset (~344 B), not a bigger window.
+ * GUARDRAIL: the mailbox is 4 words (blk, op, status, checksum) — blk, op and checksum are written before
+ * the doorbell and status last, so the ULP never reads a half-copied buffer. */
+#define P33_BLOCK 1
+#define BLKPRIM   1
+#define BLKSZ     128
+#define BLK_MB    4
 #define P30_HANDCOPY 1
 #define P33_NOPAGE 1            /* no frames, no page table */
 /* R4: SPAWN + the task driver. GUARDRAIL: tasks are stepped from run_line(), NOT from inside
@@ -314,6 +332,16 @@ int main(void)
      * --gc-sections removes them, which is what keeps this image inside the 7 856 B pool. */
     return 0;
 #else
+    /* GUARDRAIL: republished on EVERY wake, not once. `repl_magic` lives in RTC RAM, which survives a
+     * reset, so after flashing a new image the first-run block is skipped and the host reads the PREVIOUS
+     * image's addresses — measured: the block size read 0, every SAVE nacked with a bogus +4, and no byte
+     * ever moved. Four stores per wake is nothing against handing the host a wrong pointer.
+     * GUARDRAIL: these are OFFSETS into RTC slow memory; the host adds SOC_RTC_DATA_LOW. */
+    repl_mem_addr = (u32)&mem[0];
+    repl_blk_off  = (u32)BLKADR;
+    repl_blk_sz   = (u32)BLKSZ;
+    repl_mb_addr  = (u32)&mailbox[0];
+
     drain_cmd();
 
 #ifdef P43_TASKS

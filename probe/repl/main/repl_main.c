@@ -18,6 +18,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
+#include "soc/soc.h"
 /* The ULP writes ONE byte per message into repl_out[] (0x81..) and msg_expand.h turns it back into text
  * here. Every other byte in that ring is ASCII (echoed input, digits, the offending word, '?', '\n'), so a
  * byte >= 0x80 is unambiguously a code, and the expansion is a substitution at the same position in the
@@ -51,6 +52,17 @@ static const char *TAG = "repl";
 extern const uint8_t bin_start[] asm("_binary_ulp_main_bin_start");
 extern const uint8_t bin_end[]   asm("_binary_ulp_main_bin_end");
 
+/* ---- R5: the block byte server -------------------------------------------------
+ * The ULP cannot reach flash or PSRAM: it sees only its own 256 B window in RTC RAM. This task is the
+ * other end of the protocol — it polls one flag, copies bytes, checksums, and writes the status LAST so
+ * the ULP can never read a half-copied buffer. Backend today is an 8 x 256 B RAM array; flash (R7) plugs
+ * in here without touching the protocol, which is the whole point of keeping the coprocessor dumb.
+ * GUARDRAIL: the ULP links at address 0, so the addresses it publishes are OFFSETS into RTC slow memory.
+ * Dereferencing one directly panics: LoadProhibited, EXCVADDR = the mailbox offset (E-073).
+ * GUARDRAIL: created BEFORE the console pump: a higher-priority task that never yields can starve app_main,
+ * and then anything created after it silently never exists. */
+#define ULP_RAM_BASE ((uint32_t)SOC_RTC_DATA_LOW)
+
 static void console_task(void *arg)
 {
     (void)arg;
@@ -82,9 +94,99 @@ static void console_task(void *arg)
             if (n) uart_write_bytes(CONSOLE_UART, out, n);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(1);
     }
 }
+
+/* GUARDRAIL: the server body is the one the experimental tree verified on hardware (E-074); it is
+ * 2048 B of stack on the HP and never touches the ULP's pool. */
+#define BLK_N     8
+#define BLK_SZ    256
+static uint32_t blk_sz;      /* transfer size, published by the ULP */
+static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
+static void block_task(void *arg)
+{
+    (void)arg;
+    /* GUARDRAIL: the first board run answered ERR_NO_SERVER on the ULP side while this task looked
+     * healthy, so the server now reports what it can actually see: the published addresses once, and a
+     * count of requests. Without this the only symptom is a timeout on the other core. */
+    /* GUARDRAIL: this diagnostics block interleaves with the operator's own echo and turns a clean
+     * transcript into noise. Keep it behind a flag, OFF by default: the console is the product. */
+    /* GUARDRAIL: this initialisation must NOT be inside a debug guard. It spent one build inside
+     * `#if defined(BLK_DEBUG)`, so with debug off `blk_sz` stayed 0, every copy loop did nothing, and the
+     * only symptom was SAVE reporting +4 (a nacked checksum over zero bytes) while the data never moved.
+     * A variable that decides correctness is not a diagnostic.
+     * GUARDRAIL: the size comes from the ULP, never from a local constant: two `#define BLK_SZ` values that
+     * disagree make every SAVE nack with a plausible code and overrun mem[] on the way. Refuse to serve
+     * rather than serve wrongly. */
+    blk_sz = (uint32_t)ulp_repl_blk_sz;
+    if (blk_sz == 0u || blk_sz > BLK_SZ) {
+        printf("FATAL: ULP block size %u does not fit this server (%u)\n", (unsigned)blk_sz, (unsigned)BLK_SZ);
+        fflush(stdout);
+        vTaskDelete(NULL);
+    }
+#if defined(BLK_DEBUG)
+    printf("blksrv up: mem=0x%08x blkoff=%u mb=0x%08x blksz=%u\n",
+           (unsigned)ulp_repl_mem_addr, (unsigned)ulp_repl_blk_off,
+           (unsigned)ulp_repl_mb_addr, (unsigned)blk_sz);
+    fflush(stdout);
+#endif
+#if defined(BLK_DEBUG)
+    uint32_t seen = 0;
+#endif
+    for (;;) {
+        if (ulp_repl_blk_req) {
+#if defined(BLK_DEBUG)
+            if (seen < 3) {
+                volatile uint32_t *dbg = (volatile uint32_t *)(ULP_RAM_BASE + ulp_repl_mb_addr);
+                printf("blksrv: req #%u blk=%u op=%u sum=%u\n", (unsigned)++seen,
+                       (unsigned)dbg[0], (unsigned)dbg[1], (unsigned)dbg[3]);
+                fflush(stdout);
+            }
+            seen++;
+#endif
+            volatile uint32_t *mb = (volatile uint32_t *)(ULP_RAM_BASE + ulp_repl_mb_addr);
+            (void)0;
+            volatile uint8_t  *buf = (volatile uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr + ulp_repl_blk_off);
+            uint32_t blk = mb[0], op = mb[1];
+            if (blk >= BLK_N) {
+                mb[2] = 2;                       /* nack: no such block */
+            } else if (op == 0u) {               /* READ */
+                uint32_t s = 0; int i;
+                for (i = 0; i < (int)blk_sz; i++) { buf[i] = blkfile[blk][i]; s += blkfile[blk][i]; }
+                /* GUARDRAIL: a checksum disagreement between the two cores has three possible owners —
+                 * the store, the copy, or the check — and the board transcript cannot tell them apart.
+                 * Print what this core actually has AFTER the copy, so the ULP's complaint has a number
+                 * to compare against instead of being an argument about who is wrong. */
+#if defined(BLK_DEBUG)
+                if (seen <= 6) {
+                    printf("blksrv: READ blk=%u file=%u,%u buf=%u,%u sum=%u\n", (unsigned)blk,
+                           (unsigned)blkfile[blk][0], (unsigned)blkfile[blk][1],
+                           (unsigned)buf[0], (unsigned)buf[1], (unsigned)(s & 0xffffu));
+                    fflush(stdout);
+                }
+#endif
+                mb[3] = s & 0xffffu;
+                mb[2] = 1u;
+            } else {                             /* WRITE */
+                uint32_t s = 0; int i;
+                for (i = 0; i < (int)blk_sz; i++) s += buf[i];
+                if ((s & 0xffffu) != mb[3]) {
+                    mb[2] = 0xFFFFFFFCu;         /* nack: checksum mismatch (BK_CRC) */
+                } else {
+                    for (i = 0; i < (int)blk_sz; i++) blkfile[blk][i] = buf[i];
+                    mb[2] = 1u;
+                }
+            }
+        }
+        vTaskDelay(1);                            /* 1 ms: the ULP's poll is bounded, so keep this short */
+    }
+}
+
+/* GUARDRAIL: declared here because app_main creates the server before this file defines it — an
+ * undeclared-call error, which is the good kind: it fails at compile time instead of linking a task
+ * that never starts. */
+static void block_task(void *arg);
 
 void app_main(void)
 {
@@ -132,5 +234,11 @@ void app_main(void)
     printf("ulp woke %u times\n", (unsigned)ulp_repl_wake_count);
     fflush(stdout);
 
+    /* GUARDRAIL: console_task installs the UART driver, so it must exist before anything that prints at
+     * startup — created the other way round, the server's own "blk size" diagnostic went nowhere and a
+     * size of 0 looked like a silent protocol failure. The server still gets a higher priority, so it can
+     * never be starved by the pump. */
     xTaskCreate(console_task, "console", 4096, NULL, 10, NULL);
+    BaseType_t ok = xTaskCreate(block_task, "blocksrv", 2048, NULL, 12, NULL);
+    printf("blocksrv %s\n", ok == pdPASS ? "up" : "FAILED"); fflush(stdout);
 }

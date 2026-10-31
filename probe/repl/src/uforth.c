@@ -176,11 +176,38 @@ static u8  ptab_lru_reserve[234];          /* 250 - 16 of ptab[] above, .bss (4.
 #define BLKSZ  512              /* one block = one buffer; 4 blocks = a 2 KB file */
 #endif
 #ifndef BLKWAIT
-#define BLKWAIT 4096            /* iterations, not cycles: ~10x P16's 2740-cycle fetch */
+/* GUARDRAIL: 4096 iterations is ~2 ms — shorter than the host's poll interval, so the FIRST request timed
+ * out and then answered ERR_BUSY forever (a timed-out request deliberately keeps blk_out set, so one missed
+ * poll bricks the layer until reset). Measured on the chip: `0 BLOCK .` -> ERR_NO_SERVER, then everything
+ * ERR_BUSY. The host polls every FreeRTOS tick (10 ms), so the wait must be comfortably longer than that:
+ * 2 000 000 iterations ~= 0.2-0.4 s, which is the value the experimental tree validated on hardware. */
+#define BLKWAIT 2000000         /* iterations, not cycles: must exceed the host's 10 ms poll interval */
 #endif
 #define BLKADR (MEMSZ - BLKSZ)  /* the buffer's Forth address: the top of mem[] */
+/* ---- published for the MAIN CORE (R5) ----
+ * `mem` and `mailbox` are static, so the ULP map generator never exports them and the host cannot reach
+ * the buffer or the request words by symbol. Publish their ADDRESSES at first run and let the host use a
+ * pointer into RTC slow memory — remembering that these are offsets from RTC_SLOW_MEM, not absolute
+ * addresses (E-073: dereferencing one directly panics with EXCVADDR = the offset).
+ * GUARDRAIL: no initialisers here. `(u32)&mem[0]` is a link-time constant for the ULP but GCC rejects it
+ * as a static initialiser in the host build, and the host build is the image generator — if that fails the
+ * vocabulary is never baked. They are set at first run in ulp_repl.c instead. */
+volatile u32 repl_mem_addr;
+volatile u32 repl_blk_off;
+/* GUARDRAIL: the transfer SIZE must be published, not assumed. The host server had its own `#define BLK_SZ
+ * 256` while the ULP was built with BLKSZ 128: every write was checksummed over 256 B against the ULP's
+ * 128, so SAVE nacked with a bogus +4, and the extra 128 B overwrote mem[] and the ULP's .bss (the
+ * symptom was a second boot banner appearing mid-session). One owner: the ULP's build says how big a
+ * block is, and the host asserts and uses that number. */
+volatile u32 repl_blk_sz;
+volatile u32 repl_blk_req;              /* 1 while a request is outstanding */
+volatile u32 repl_mb_addr;
 enum { BLK_READ = 0, BLK_WRITE = 1, BLK_ABORT = 2 };
-enum { BK_OK = 0, BK_BUSY = -2, BK_NOSERVER = -3, BK_CRC = -4, BK_BUFOVER = -6 };
+enum { BK_OK = 0, BK_BUSY = -2, BK_NOSERVER = -3, BK_CRC = -4, BK_BUFOVER = -6,
+       /* GUARDRAIL: two codes the transfer layer never returns but the WORD layer does — a negative block
+        * number and a refused dirty-buffer switch. They live in the same enum so the error spaces cannot
+        * drift apart, and -5/-7 are chosen to stay clear of the transfer codes. */
+       BK_RANGE = -5, BK_DIRTY = -7 };
 
 /* ---- P38 fix 4: the buffer must sit above the dictionary high-water mark ----
  * GUARDRAIL: P33 built the host with MEMSZ=2304, so BLKADR was 1792 while a test that loads the
@@ -246,6 +273,7 @@ static i32 blk_xfer(u32 blk, u32 op)
     /* GUARDRAIL: the poll must read the status through volatile, or GCC hoists the load out of
      * the loop and the driver only ever sees the value it wrote itself (always 0 = no server). */
     volatile u32 *st = &mailbox[2];
+    volatile u32 *mbsum = &mailbox[3];
     if (op == BLK_ABORT) { blk_out = 0; return BK_OK; }   /* the operator says the main core is dead */
     /* GUARDRAIL: one outstanding request is a hardware constraint, not a policy — P16 measured
      * two in flight corrupting silently, with a valid CRC on both. Refuse; do not queue. */
@@ -260,7 +288,12 @@ static i32 blk_xfer(u32 blk, u32 op)
      * so the next BLOCK is refused BUSY instead of racing the answer into a stale buffer. */
     if (!*st) return BK_NOSERVER;
     if (*st != 1u) { blk_out = 0; return (i32)(0u - *st); }  /* a nack: the server's own code, negative */
-    if (op == BLK_READ && mailbox[3] != blk_sum()) { blk_out = 0; return BK_CRC; }
+    /* GUARDRAIL: the checksum MUST be read through a volatile lvalue, for the same reason as the status
+     * one line above. For a READ we write mailbox[3] = 0 ourselves, so a plain load is CSE'd to the constant
+     * 0: every empty block "verified" (0 == 0) and every block with data failed ERR_CRC while the server's
+     * log showed both cores holding the same bytes. Measured on the board: file=65 buf=65 sum=65 and the
+     * ULP still complained. This is F-108 reappearing because this tree kept an older copy of blk_xfer. */
+    if (op == BLK_READ && *mbsum != blk_sum()) { blk_out = 0; return BK_CRC; }
     blk_out = 0;
     return BK_OK;
 }
@@ -629,6 +662,60 @@ static void vm_task_init(int k, u16 xt)
     tsk[k].vm.W = xt; tsk[k].vm.IP = 0;  /* ip 0 = the task's outermost word ends via EXIT */
     tsk[k].entry = xt; tsk[k].state = 1;
 }
+
+#if defined(BLKPRIM)
+/* ---- R5: BLOCK / UPDATE / SAVE as C primitives ---------------------------------
+ * The Forth layer measured 530 B of dictionary, 146 of it constants and CREATE'd cells that existed only
+ * so Forth could say `BLKERR @`. As primitives the contract is identical — a failed BLOCK leaves its named
+ * code on the stack and does NOT hand back the buffer — and the cost is three headers.
+ * GUARDRAIL: the failures are NAMED, not silent. GUARDRAIL: their text lives on the host (msg_codes.h):
+ * a string per message here would put back the .rodata the message-code change removed. */
+static u32 blkvars[3];                  /* 0 blkn, 1 blkerr, 2 blkdirty */
+#define BLK_VBLKN   0u
+#define BLK_VBLKERR 1u
+#define BLK_VBLKDRT 2u
+
+static void blk_errmsg(i32 st)
+{
+    if (st == BK_BUSY)         msg(MSG_ERR_BUSY);
+    else if (st == BK_NOSERVER) msg(MSG_ERR_NOSERVER);
+    else if (st == BK_CRC)      msg(MSG_ERR_CRC);
+    else if (st == BK_BUFOVER)  msg(MSG_ERR_BUFOVER);
+    else if (st == BK_DIRTY)    msg(MSG_ERR_DIRTY);
+    else                        msg(MSG_ERR_UNNAMED);
+}
+
+static void p_blk_block(void)               /* ( n -- addr | code ) */
+{
+    i32 n = (i32)POP(), st;
+    if (n < 0) { blkvars[BLK_VBLKERR] = (u32)BK_RANGE; msg(MSG_ERR_RANGE); PUSH((u32)BK_RANGE); return; }
+    /* GUARDRAIL: one buffer, many blocks. Fetching a DIFFERENT block while the current one is dirty used to
+     * discard the edits with no error at all (measured: write block 0, fetch block 1, SAVE, read block 0 ->
+     * 0). Silent data loss is the worst outcome because the program believes it wrote. Refuse by name. */
+    if (blkvars[BLK_VBLKDRT] && (u32)n != blkvars[BLK_VBLKN]) {
+        msg(MSG_ERR_DIRTY); PUSH((u32)BK_DIRTY); return;
+    }
+    blkvars[BLK_VBLKN] = (u32)n;
+    repl_blk_req = 1u;                      /* tell the main core something is waiting */
+    st = blk_xfer((u32)n, BLK_READ);
+    repl_blk_req = 0u;
+    blkvars[BLK_VBLKERR] = (u32)st;
+    if (st == BK_OK) { blkvars[BLK_VBLKDRT] = 0u; PUSH(BLKADR); return; }
+    blk_errmsg(st); PUSH((u32)st);
+}
+static void p_blk_update(void) { blkvars[BLK_VBLKDRT] = 0xffffffffu; }
+static void p_blk_save(void)                /* ( -- st ) */
+{
+    i32 st;
+    if (blkvars[BLK_VBLKDRT] == 0u) { PUSH(0u); return; }
+    repl_blk_req = 1u;
+    st = blk_xfer(blkvars[BLK_VBLKN], BLK_WRITE);
+    repl_blk_req = 0u;
+    blkvars[BLK_VBLKERR] = (u32)st;
+    if (st == BK_OK) blkvars[BLK_VBLKDRT] = 0u;
+    PUSH((u32)st);
+}
+#endif
 
 static void vm_enter(void);
 

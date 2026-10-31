@@ -1776,3 +1776,26 @@ costs bytes rather than saving them.
 What is still unproven is written down rather than implied: `ERR_DICT`, the `0x51` image assert, a
 deliberately constructed hash collision, and the block layer's dirty/CRC paths.
 
+**J-97 · Blocks and tasks in one image — four bugs, all of them "the other half" or "the other copy".**
+The countdown said the two capabilities would fit, and they do: pool **7 853 of 7 856**, `MEMSZ` 1 200,
+128 B blocks, `BLKADR` 1 072, and on the hardware a full round trip (`1072`, write, `SAVE 0`, read back 65,
+`ERR_DIRTY -7`) *and* `1324`/`ERR_TASKS` from the task layer in the same session.
+
+Getting there cost four defects and none of them was subtle in hindsight:
+
+* the primitives were only half present — X entries without case bodies, which dispatches to `default: err()`
+  and prints the word in PAD, indistinguishable from "unknown word";
+* `BLKSZ` had a second owner on the host (256 vs the ULP's 128), so SAVE nacked with a plausible code and
+  the overrun wrote into the ULP's `.bss` — the giveaway was a second boot banner mid-session;
+* publishing the block addresses only in the first-run block is wrong because **RTC RAM survives a reset**:
+  after a reflash the magic says "already ran", the size stays 0, and SAVE nacks over zero bytes;
+* F-108 came back — this tree still read `mailbox[3]` non-volatile, so a READ's checksum was CSE'd to the
+  zero we had written ourselves.
+
+Two smaller ones worth keeping: `BLKWAIT 4096` is shorter than the host's 10 ms poll (the first request times
+out and then everything is `ERR_BUSY`, by design), and a size initialisation inside `#if defined(BLK_DEBUG)`
+means zero in the shipping build.
+
+Limits, stated plainly: 128 B blocks, 154 B of app space, RAM-backed storage on the HP, **no flash and no
+PSRAM**. The countdown script now recognises a block-enabled build instead of adding the layer twice.
+

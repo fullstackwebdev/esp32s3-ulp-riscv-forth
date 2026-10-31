@@ -8,6 +8,17 @@
 X(BLKXFER,"BLKXFER",0)
 #endif
 
+#if defined(BLKPRIM)
+/* R5: the operator-facing block words as C primitives — same names, same stack effects, same named
+ * errors as the 530 B Forth layer they replace. GUARDRAIL: these three were MISSING here while the case
+ * bodies and the p_blk_* functions existed, so BLOCK was simply an unknown word on the chip while every
+ * unit test of the layer passed. A primitive needs BOTH an X entry (the header) and a case (the body);
+ * either one alone compiles, links and looks fine until the operator types the word. */
+X(BLOCK,"BLOCK",0)
+X(UPDATE,"UPDATE",0)
+X(SAVE,"SAVE",0)
+#endif
+
 #if defined(P43_TASKS)
 /* P43: the two entries that make R4 reachable. State was already paid for (tsk[] is in .bss); these
  * are the calls that were missing, which is why --gc-sections had deleted vm_task_init entirely. */
