@@ -48,9 +48,13 @@ endif()
 # and on this target they make it BIGGER (more live values across the big switch, more spill/restore traffic
 # in a machine with 16 registers). Expect modestly slower dispatch; the objective here is bytes, and the
 # correctness proof is the host suite run with this exact flag set plus the board checks, NOT this comment.
+# GUARDRAIL: -fno-ssa-phiopt and -fno-tree-pre were added LATER and must be measured as a PAIR: each
+# is -2 and +2 alone, but together they are -8 B (measured three times). A knob that loses alone can
+# win in company, so the sweep reports singles and the set separately - do not drop one of these two
+# because its single number looks bad.
 # GUARDRAIL: the HOST build does not use these flags, so a green host suite alone would NOT validate them —
 # tests/run.sh's binaries are built without them. Run the twin check when changing this line.
-set(_ulp_cflags "${CMAKE_MATCH_1} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants")
+set(_ulp_cflags "${CMAKE_MATCH_1} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants -fno-ssa-phiopt -fno-tree-pre")
 message(STATUS "ULP C flags: ${_ulp_cflags}")
 idf_build_set_property(EXTRA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${_ulp_cflags}" APPEND)
 
