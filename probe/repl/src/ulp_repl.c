@@ -32,7 +32,7 @@
  * mem[]: the link succeeds, the boot assert is the only thing between that and "every word is unknown"
  * (E-079). Re-bake with tools/bake.sh <MEMSZ>, which owns the flag set, whenever this number moves.
  * 1 200 -> 1 400 is paid for exactly by the mailbox shrink in uforth.c (216 B -> 16 B of .bss). */
-#define MEMSZ    2134          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+#define MEMSZ    2160          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
@@ -130,7 +130,14 @@ volatile u32 repl_wake_count;
  * (a load, an add, a store per event, plus 4 B of .bss each). `repl_status` deliberately STAYS: it is the
  * only record of why the ULP halted, and the right fix for a diagnostic nobody reads is to make the HP read
  * it, not to delete it. */
-volatile u32 repl_out_drop;
+/* GUARDRAIL: repl_out_drop is GONE, and the distinction matters: the comment above says the right fix for
+ * a diagnostic nobody reads is to make the HP read it — which is why repl_status stays — but a byte counter
+ * is not that kind of diagnostic. Nothing on the ULP or the main core ever read it (it was exported and
+ * declared in the generated ulp_main.h, which is what made it look used), so it counted drops for nobody
+ * while costing a load, an add, a store AND 4 B of .bss on a path that runs for every emitted byte.
+ * GUARDRAIL: the ring still DROPS rather than overwriting unread bytes — that behaviour is unchanged and
+ * must stay: overwriting would silently serve the host half a word, which is worse than losing it. If this
+ * ever needs to be visible again, the loud channel is pl_halt() (repl_status), not a counter. */
 volatile u32 repl_status;        /* 1 = booted, 0xE0+rc = error, see below */
 
 /* GUARDRAIL: .bss is not in the ULP .bin (load_binary writes .text/.rodata/.data only), so an
@@ -144,10 +151,7 @@ void pl_emit(int c)
 {
     u32 h = repl_out_head;
     u32 t = repl_out_tail;
-    if ((h - t) >= OUT_SIZE) {          /* full: drop and count, never overwrite unread bytes */
-        repl_out_drop = repl_out_drop + 1u;
-        return;
-    }
+    if ((h - t) >= OUT_SIZE) return;   /* full: drop, never overwrite unread bytes */
     repl_out[h & OUT_MASK] = (u8)(c & 0xff);
     repl_out_head = h + 1u;
 }
@@ -388,7 +392,7 @@ int main(void)
         repl_cmd_head = 0; repl_cmd_tail = 0;
         repl_out_head = 0; repl_out_tail = 0;
         repl_wake_count = 0;
-        repl_out_drop = 0; repl_status = 1;
+        repl_status = 1;
         tl = 0; ti = 0; sp = 0; rsp = 0;
         /* GUARDRAIL: these two globals exist for the MAIN CORE to compare against its own constants,
          * so nothing on the ULP reads them and --gc-sections deletes them — the host then fails to
