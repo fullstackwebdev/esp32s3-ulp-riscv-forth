@@ -646,3 +646,36 @@ does not touch. Their only other benefit is switch latency (no parsing), and tha
 (`MS` is a delay primitive; there is no clock). Implementing them is therefore deferred on evidence, not on
 effort: the change that would move the verdict is reducing the 846 B resident toll or widening the window, and
 binary overlays do neither.
+
+---
+
+## The finding, in one sentence (for whoever finds this branch later)
+
+**The toll is fixed and per-phase capacity is bounded by the window: overlays here win only for phases near window
+size (~690 B each) in programs well over 1.5 KB.** Measured: 846 B of manager + loop, six phases at 1 608 B vs a
+1 536 B control (+4 %), store at 26 % utilization. Do not retry paging on a small program, and do not expect a
+denser or binary transport to help — the transport is not the limit.
+
+Two corrections to earlier estimates, recorded because they cost this session time: binary overlays do **not**
+double effective capacity (they double code per *block*; the window is measured in compiled bytes at the prompt),
+and the loop costs **318 B**, not ~100 B, so break-even depends on phase size rather than phase count.
+
+### Housekeeping: what moved to `main`
+
+The data-side wins were merged to `main` on their own branch (`overlay-datafix`), without the manager:
+the 128-block store, the nack-magnitude fixes (range → `BK_RANGE`, CRC → `BK_CRC`), the `BK_RANGE` name, and
+`EXECUTE` of token 0 as a named error. `main` is green (14/14) and flashed: app space **1 536 B** at `MEMSZ` 2 288
+(the guard costs 8 B, paid out of app space because `mem[]` is the image), pool 7 853/7 856, `128 BLOCK` answers
+`ERR_RANGE` on the board.
+
+### The `.text` profile, and why option C's prize is ~0 on this chip
+
+`nm --size-sort` on the ULP ELF: `vm_enter` **2 300 B**, `main` 876, `word` 314, `mkhdr` 208, `blk_xfer` 136,
+`find` 114, `p54_binop` 98, `vm_switch` 62, `err` 54, then the save/restore helpers. Text total ≈ 5 504 B.
+
+Almost none of that is dev-only on the chip: the bake/dump paths are already `#ifdef HOST`, and `boot_init` is
+`#ifndef IMAGE`, so they are not in the image at all. What remains is the interpreter that *is* the product. The
+one large "dev-only" block is the **compiler** (`word`, `mkhdr`, the `:`/`;`/`clit` cases, the parse half of
+`main`) — call it ~1 000-1 400 B — and it is only removable if the product stops being a Forth REPL, i.e. for a
+deployed image that runs precompiled words. That is a product decision worth 1 000+ B of app space; it is not an
+optimisation of this branch.
