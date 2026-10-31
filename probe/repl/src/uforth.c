@@ -692,12 +692,24 @@ static void (*vm_trace)(int from, int to);   /* host hook: one call per switch *
 
 static int vm_next_ready(int from)
 {
+#if NTSK == 2
+    /* GUARDRAIL: unrolled on purpose. The general form below computes `(from + i) % NTSK` per slot; at
+     * NTSK 2 that is a loop plus a modulo for two candidates, and the whole scheduler runs on every wake.
+     * The unrolled order is identical to the loop's: (from+1)&1 is the OTHER slot, then `k ^ 1` is the
+     * caller's own slot, and for from == -1 that is 0 then 1 — measured, not derived from the modulo:
+     * tests/ntsk.fs and the on-device two-task run both exercise spawn-spawn-run. */
+    int k = (from + 1) & (NTSK - 1), o = k ^ (NTSK - 1);
+    if (tsk[k].state == 1) return k;
+    if (tsk[o].state == 1) return o;
+    return -1;
+#else
     int k, i;
     for (i = 1; i <= NTSK; i++) {
         k = (from + i) % NTSK;
         if (tsk[k].state == 1) return k;
     }
     return -1;
+#endif
 }
 
 #if defined(P30_HANDCOPY)
