@@ -875,3 +875,51 @@ Next probe (two things, both narrow): (a) rename this phase's own definitions to
 and see whether the per-block failures disappear — that is the direct test of hypothesis 3; (b) verify transport with
 a checksum written from `BEGIN/WHILE/REPEAT` and two `CREATE`d cells (the `DO`/`LOOP` version cannot run), printing
 one number per block so the echo cannot be misparsed.
+
+---
+
+## Hypothesis 3 (collision refusal) is DISPROVED. What the probes actually settled.
+
+Board hard-reset before each probe, one command per line.
+
+**Residency test (the decisive one).** On a freshly reset board, none of the failing names exist:
+
+```
+' DATABLK -> DATABLK?   ' tw -> TW?    ' idx -> IDX?   ' z1 -> Z1?
+' TAB -> TAB?           ' S1 -> S1?    ' SHOW -> SHOW?
+```
+
+The bake inputs are `p39_prelude.fs`, `p39b_overlay.fs`, `line.fs` — **no fixtures** — so `DATABLK` cannot be resident.
+A refusal therefore cannot explain `DATABLK?`, and five independent collisions are not credible. **Hypothesis 3 is
+out.** The review was right that the numbers argued against it.
+
+**`CREATE`/`CONSTANT` are healthy, at the prompt and from a block.**
+
+```
+prompt, before SEAL: CREATE QQ 0 ,  -> ok   LATEST 1481 -> ' QQ = 794
+prompt, before SEAL: : QR 1 ;       -> ok   LATEST 1478 -> ' QR = 800
+prompt, before SEAL: 7 CONSTANT QS  -> ok   LATEST 1475 -> ' QS = 808
+after SEAL, same three (QQ2/QR2/QS2) -> all ok, LATEST 1472/1469/1466, xts 814/820/828
+block 20 "4 CONSTANT DATABLK"       -> ok   LATEST 1478 -> ' DATABLK = 794
+block 21 "CREATE VV 0 ,"            -> ok   LATEST -> ' VV = 800
+block 22+23 "CREATE VU" / "0 ,"     -> colon/def split across TWO blocks works
+```
+
+So the CREATE-fails-silently hypothesis is out too, and so is "definitions cannot be made from a block". A refusal does
+print `NAME?` with `LATEST` frozen (reproduced accidentally by seeding `: CREATE WW 0 ,`, which tries to define a word
+named `CREATE`: answers `CREATE?`, `LATEST` unmoved) — that is the format to compare against.
+
+**Two instrument failures of mine, both now known:**
+
+- `DEPTH` does not exist (`DEPTH?`); `DO`/`LOOP` does not exist (`DO?`). A stack readout must be a Forth-side counter.
+- My `BEGIN/WHILE/REPEAT` checksum returned the loop counter (16) for every segment, so it was never measuring. **An
+  instrument must be verified against a block whose contents are known before its output means anything** — both
+  checksum attempts printed a plausible number that was not the checksum.
+
+**Where this leaves it, stated by evidence tier.** Device-measured: 16 KB store round trip (0 mismatches), 2-block
+phase assembly, 4 CONSTANT/CREATE/colon definitions from block sources, arm-from-inside-a-block, 40-load rotation,
+one-block phases. Not isolated: the 7-block phase fails in every block on a `NAME?`/`ERR_STACK` with `LATEST` frozen
+and `HERE` creeping, and the isolated ingredients are all green — so the fault is in the *combination* (a 128-byte
+block, several definitions per block, and a chunk boundary falling inside a `CREATE … ,` chain), not in any one
+feature. Next single probe: rename the phase's own definitions to names that cannot collide (hypothesis 5), then split
+one long block into two and watch which failure disappears.
