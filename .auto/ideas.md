@@ -47,3 +47,22 @@
 - `.auto/measure.sh` = metric; `.auto/checks.sh` = suite + bench (checksums AND DISP).
 - Bake with `-DP54_NAMES` and `tools/tokcensus.py` for per-word token counts — the parser wants
   `NAME <word>` lines and choked on the dump; fix the dump or the parser before relying on it.
+
+## 1-byte primitive tokens (the largest remaining lever, ~+80..120 B, multi-step)
+The old measurement ("ceiling 118 B; prototype -44 B for +352 B") was taken when a token pointed at a 2-byte
+code field. That design is GONE: tokens are now addresses (even) or primitive ids (`PRIM_TAG - 2*id`, ids 0..70
+fit in 7 bits). So a compiled token can be ONE byte:
+    byte < 0x80 -> primitive id (0..70)
+    byte >= 0x80 -> escape: the next 2 bytes are the 16-bit token (address / xt on the stack)
+Compiled code is mostly primitive tokens, so the image's 366 B of code should drop sharply, at +1 B per
+address token and ~30 B of escape-path text.
+Required work, in order (each is small; the risk is in missing one):
+1. split token emission from operand emission: `ctok(xt)` writes 1 or 3 bytes; `cw()` stays the 2-byte cell
+   writer. The prelude currently uses `W,` for BOTH (`IF`: token then operand), so the prelude needs two
+   words (`WT` token, `WO` operand) and `IF/ELSE/WHILE/REPEAT/UNTIL` must be updated — their `HERE 2 -`
+   arithmetic still works because the operand is the last thing written.
+2. dispatch loop: `b = rd8_paged(ip++); if (b & 0x80) { w = escape value; cf = tag-decode } else cf = b;`
+3. EXEC/TICK keep handing out the 16-bit tagged form (stack xts stay uniform), so `run(xt)` is unchanged.
+4. LIT2 becomes 1+2 = 3 B; LIT stays 1+4 = 5 B.
+Verification: suite goldens, bench (DISP *will* change - the token stream changes, so this is a deliberate
+re-freeze), then the full board list.

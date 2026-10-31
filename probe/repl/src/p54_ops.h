@@ -54,10 +54,14 @@ _Static_assert(P_ULT == P_ADD + 13, "P54 slot drift: ULT");
 #endif
 
 #if !defined(P54_OPSW)
-/* GUARDRAIL: one function, labels not pointers. The table is a 2-byte offset from L_bad on the ULP
+/* GUARDRAIL: one function, labels not pointers. The table is a ONE-BYTE offset from L_bad on the ULP
  * (a 4-byte pointer on the host, whose code can exceed a 16-bit span — measured: a truncated offset
  * there is a jump into nowhere). GUARDRAIL: every slot defaults to L_bad, never to 0, because 0 is a
  * valid offset (it means L_bad itself) — a zero hole would send a real operation to the halt path.
+ * GUARDRAIL: u8 SPANS AT MOST 255 BYTES, so every arm must stay within 255 B of L_bad. That is not a
+ * hope: the whole function was 102 B when the width was cut (nm -S p54_binop), so the arms had 2.5x
+ * headroom. If arms are ever added or a body grows, CHECK THE FUNCTION'S SIZE FIRST — a truncated
+ * offset does not fail, it jumps into the middle of another arm and computes the wrong operator.
  */
 static u32 p54_binop(u32 cf, u32 a, u32 b)
 {
@@ -65,8 +69,8 @@ static u32 p54_binop(u32 cf, u32 a, u32 b)
     typedef const void *p54_ent_t;
 #define P54_ENT(l) ((const void *)&&l)
 #else
-    typedef u16 p54_ent_t;
-#define P54_ENT(l) ((u16)(&&l - &&L_bad))
+    typedef u8 p54_ent_t;
+#define P54_ENT(l) ((u8)(&&l - &&L_bad))
 #endif
     static const p54_ent_t t[P54_NSLOT] = {
         [0 ... P54_NSLOT - 1] = P54_ENT(L_bad),
