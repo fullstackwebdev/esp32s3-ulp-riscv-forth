@@ -1037,6 +1037,12 @@ int main(int argc, char **argv)
             }
         }
     }
+    /* GUARDRAIL: bench-only, and gated so it cannot ship: the dispatch count is the ONE number that is
+     * identical across hosts (wall-clock is not), which is what makes an acceptance test portable. Printed
+     * on the host only — the ULP has no stdout, and this costs bytes there for nothing. */
+#if defined(P42_COUNT) && defined(HOST)
+    printf("\nDISP %u\n", (unsigned)p42_dispatches);
+#endif
     if (interactive) forth_quit();
 #if defined(P33_BLOCK)
     /* GUARDRAIL: print the *server's* copy after the run — the write-back claim has to be read off

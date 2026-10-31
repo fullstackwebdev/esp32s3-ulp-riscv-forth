@@ -334,3 +334,10 @@ address, no case variation, no deep recursion, and no error path. A suite that g
 certifies the features; coverage has to grow with the **failures**. Every one of those five now has a test that
 fails if the fix is reverted, and the error tests carry an `888 .` sentinel so an abort is visible in the diff.
 
+## F-119 · A CONSTANT called from inside a colon definition underflows the stack
+`0 BLOCK CONSTANT KONST` then `: T1 0 BEGIN KONST DROP 1+ DUP 20 < 0= UNTIL DROP . ;` answers
+**"stack underflow"**, while a colon word called in the same position is fine — so the defect is specific to
+**DOCON** execution from a compiled context. It was found by writing a memory-bandwidth benchmark, which is
+the argument for having benchmarks at all: six months of green tests never called a constant inside a loop.
+Filed as an open defect (E-081); the memory workload is marked pending rather than measured from a failing run.
+

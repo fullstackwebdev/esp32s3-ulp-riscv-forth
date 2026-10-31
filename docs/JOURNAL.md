@@ -1813,3 +1813,20 @@ record says which.
 This is R12 with teeth: a test that cannot fail is decoration, and the only way to know the difference is to
 reintroduce the bug and watch.
 
+**J-99 · The benchmark exists, and the first thing it did was find a bug.**
+Four workloads with exact, portable units: a checksum, the engine's own dispatch count, and the depth
+ladder. No wall-clock, because the host is a different machine — cycles belong to the board.
+
+Writing them in Forth taught me the dialect the hard way, and all of it is now written down: `BEGIN…UNTIL`
+and `IF…THEN` are **compile-only**, so a loop typed at the prompt runs its body once and prints a *plausible
+wrong number* (324901 instead of 832501 — the worst kind of failure, and one I only caught because I had
+computed the answer by hand); there is no `R@`, no `ALLOT`, no `DO…LOOP`; `CONSTANT` takes its value from
+the stack; and a buffer must be reserved by the word that pushes its base, because `HERE CONSTANT BUF`
+points at the bytes the next definition will occupy — I "reserved" 64 B and then overwrote the loop that was
+using it.
+
+Then the suite found a real defect on its first outing: **a `CONSTANT` called from inside a colon definition
+underflows the stack.** A colon word in the same position is fine. That is why the memory-bandwidth number
+is not in the baseline — I marked the workload pending with its reproduction rather than measure a number
+from a failing run. Six months of green tests never called a constant inside a loop.
+

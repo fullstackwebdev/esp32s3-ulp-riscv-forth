@@ -2008,3 +2008,38 @@ volatile lives in one place and the mistake cannot be made again by forgetting i
 **Board re-verified after the refactor** (pool 7 853 / 7 856): `0 BLOCK .` → 1072, write/`SAVE 0`, read back
 65, `SPAWN TA SPAWN TB` → 1324, `2 3 + .` → 5.
 
+## E-081 — The benchmark suite, and the engine defect it immediately found
+
+**Built**: `probe/repl/bench/` — four Forth workloads plus `run.sh` (freeze / compare). Units are
+**exact** and portable: each workload's checksum, the engine's own dispatch count (`-DP42_COUNT`), and the
+depth ladder. Wall-clock is deliberately not compared.
+
+```
+prelude_base 261
+arith      832501      15163 dispatches   (sum 1..1000 of i^2 mod 1000003)
+matrix      67000      25651 dispatches   (2x2 multiply x 500)
+recursion     144       5230 dispatches   (fib(12), 465 calls)
+depth     0ERR_STACK      -               (15 levels legal, 16 refused)
+```
+
+All four verified against values computed independently (`333833500 % 1000003`, `500 x 134`, `fib(12)`,
+and a hand-measured ladder: `15 RX` prints 0, `16 RX` prints `ERR_STACK`).
+
+**Dialect rules discovered by failing**, now in `bench/README.md`: the prelude's `BEGIN…UNTIL`/`IF…THEN` are
+**compile-only** (a top-level loop runs the body once and prints a plausible wrong number — measured:
+324901 instead of 832501); there is **no `R@`**, no `ALLOT`, no `FILL`, no `DO…LOOP`; `CONSTANT` takes its
+value **from the stack**; a buffer must be reserved by a word that pushes the base it used, because
+`HERE CONSTANT BUF` points into the code that follows it.
+
+**The defect it found (base test `pending/memory.fs`, unmeasured until fixed):**
+
+```forth
+0 BLOCK CONSTANT KONST
+: T1 0 BEGIN KONST DROP 1+ DUP 20 < 0= UNTIL DROP . ;
+T1          ->  "stack underflow"
+```
+
+Calling a **DOCON** word (a `CONSTANT`) from inside a colon definition underflows the stack; calling a
+colon word the same way is fine. This is why the memory-bandwidth number is not in the baseline: it is
+recorded as pending rather than measured from a failing run.
+

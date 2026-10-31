@@ -1,0 +1,8 @@
+# bench baseline — freeze with ./bench/run.sh --freeze ONLY when a change is understood.
+# result: the checksum the workload must produce (exact)
+# disp:   dispatches above the prelude baseline (exact; a change means the engine's work changed)
+prelude_base 261
+arith 832501 15163
+matrix 67000 25651
+recursion 144 5230
+depth 0ERR_STACK -
