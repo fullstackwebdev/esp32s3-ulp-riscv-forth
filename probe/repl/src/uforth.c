@@ -715,7 +715,11 @@ static int cur = -1;                  /* -1 = run() is the outer interpreter, no
  * counters (P56): an increment whose value nobody reads is pure cost. `vm_sw_pause`, `vm_sw_fault`,
  * `vm_faults` and `vm_faults_left` stay: they belong to the PAUSE/FAULT path, which is compiled out under
  * P33_NOPAGE but is functional when that build is used. */
-static u32 vm_sw_pause, vm_sw_fault, vm_faults;
+/* GUARDRAIL: vm_sw_pause is GONE. It was incremented on every cooperative PAUSE and read by NOTHING —
+ * neither the boot banner, the suite, the bench, nor any tool. `vm_sw_fault` and `vm_faults` stay: they are
+ * incremented in the FAULT body, which is compiled out under P33_NOPAGE but live in that build, and
+ * `vm_faults_left` there is functional state (how many injected faults remain), not a counter. */
+static u32 vm_sw_fault, vm_faults;
 /* Depth of the C calls into the interpreter. A switch must NOT change it: if PAUSE or a
  * fault returned through C, a task that yielded mid-word would unwind to its caller and the
  * resume would start a second vm_enter. Measured so the claim is not an assertion. */

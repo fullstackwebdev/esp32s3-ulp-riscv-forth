@@ -246,7 +246,6 @@
             VMDBG("pause", -1);
             nx = vm_next_ready(cur);
             if (nx < 0) goto top;                    /* single ready task: its own turn again */
-            vm_sw_pause++;
             VM_FLUSH();
             vm_switch(nx);
             VM_RELOAD();
