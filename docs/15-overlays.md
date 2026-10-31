@@ -173,3 +173,53 @@ at the prompt compiles. That is a regression introduced by this session's engine
 until it is. The next probe: log the token `word()` returns and `PAD`'s length from inside `p_load` on the
 host build with `MEMSZ`/dictionary shaped like the chip's (baked image), since the host currently passes only
 because it compiles the prelude from source.
+
+---
+
+## The chip-only failure: the C stack, measured (hypothesis confirmed structurally)
+
+The friend's guess — stack, not logic — turned out to fit the memory map exactly:
+
+- `build/esp-idf/main/ulp_main/ulp_main.ld`: `PROVIDE ( ulp___stack_top = 0x50001ff0 )`. The stack grows **down
+  from the top of RTC RAM**, i.e. straight into `.bss` — where `blk_out`, `tib`, `srv` and `mailbox` live. So an
+  overflow corrupts engine state instead of faulting, which is why the symptom is an ambiguous `?` and a
+  `blk_out` that stays latched.
+- Reserve = 0x1ff0 (8176) − pool (7849) ≈ **327 B**.
+- `-fstack-usage` on the real ULP compile (frames, not code size):
+
+| function | frame |
+|---|---|
+| `vm_enter` | **80 B** (the 2 270 B is code; the frame is small — but it is re-entered) |
+| `interpret` | 48 B |
+| `mkhdr`, `word`, `blk_xfer`, `cw` | 32 B each |
+| `hash_pad`, `find`, `err`, `errf_msg` | 16 B each |
+
+Chain sums:
+- prompt path `main 32 → interpret 48 → vm_enter 80 → mkentry → hash_pad 16` ≈ **208 B** — fits.
+- `LOAD` path `main 32 → interpret 48 → vm_enter 80 → p_load → interpret 48 → vm_enter 80 → mkhdr 32 → hash_pad 16`
+  ≈ **336 B** — exceeds 327 B. Execution-only text (`42 .`) never re-enters `vm_enter`, which is exactly why
+  `0 LOAD` of `42 .` works on the chip and `: HI 42 . ;` does not.
+
+### What the cheap fix costs, measured
+
+Making `interpret`'s per-iteration locals `static` (safe: none is live across a re-entrant call) takes 16 B out
+of the chain (48 → 32) and adds **43 B of `.text`** — i.e. it would buy 16 B of stack with 43 B of app space.
+Rejected and reverted; recorded here so nobody repeats it.
+
+### The two fixes worth doing, both decisions rather than cleanups
+
+1. **Remove the nesting instead of shrinking it.** `LOAD` should hand the block to the OUTER interpreter
+   (a pending-block sys-var consumed by `interpret`'s loop) rather than calling `interpret` recursively. That
+   removes an entire `interpret 48 + vm_enter 80` from the chain (−128 B) at the cost of a sys-var and ~30-40 B
+   of text, and it changes `LOAD` to deferred semantics (the block runs when the current line's tokens are
+   exhausted), which must be documented loudly.
+2. **Buy stack with `MEMSZ`.** The stack is the gap above `.bss`, so `MEMSZ −64` gives +64 B of stack at 64 B of
+   app space. At the current `MEMSZ` 1968 / 1052 B free, that is a 6 % app-space cost for ~20 % more headroom.
+
+### `blk_out` latching
+
+Deliberate (`a request nobody answered is still out there`), and **recoverable without a reset** —
+`0 2 BLKXFER` sends `BLK_ABORT`, which clears it. That escape hatch is not discoverable from the `ERR_BUSY` the
+operator sees, so every later request looks like a dead server. Either name the recovery in the message or
+clear the latch when the status has been observed as stale; that is a design call, not a bug I should silently
+"fix" by dropping the latch.
