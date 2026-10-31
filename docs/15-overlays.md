@@ -805,3 +805,35 @@ Consequence: **host high score 18 phases / 9 288 B / 604 %** with the store boun
 escalation remains unmeasured, though the device independently proves the store (16 KB round trip), one-block phase
 loading, arm-from-inside-a-block, and 40-load rotation. The script, the seeder and all three fixes are checked in at
 the failing `Z6?`.
+
+---
+
+## `Z6?` SOLVED: the seeder left stale bytes, and a failed LOAD rewinds the phase
+
+Minimal repro that pinned it (on the chip):
+
+```
+#b 8 <": ZZ 42 . ;">     ->  seed: block 8 <- 11 bytes
+#b 9 <"ZZ 7 .">          ->  seed: block 9 <- 6 bytes
+SEAL ; 2 OVL
+8 LOAD                    ->  ok
+' ZZ .                    ->  800      (ZZ exists)
+9 LOAD                    ->  42 7     (the second block used it)
+```
+
+Before the fix the same sequence answered `;DATABLK?` then `ZZ?`: the seeder wrote only the bytes it was given, so a
+block that had been seeded earlier kept its **old tail**. `LOAD` compiled the new text, tripped over the stale tail,
+errored the line — and an error **rewinds the dictionary to the save point**, which discarded the definitions the
+phase had just made. That is why a phase's own words vanished mid-phase, and why the symptom looked like a code bug
+in the phase.
+
+Fix: `seed_poll()` now **fills the block with spaces before writing the payload**. Multi-block phase assembly works
+on the chip as a result (proof above).
+
+Still open: the full 7-block phase does not assemble — blocks 8..11 load, then block 12 fails with `IDX?`, i.e. a
+dictionary rewind happened between blocks 11 and 12 for a reason not yet isolated. The minimal 2-block case is
+green, so the remaining fault is specific to the longer phase, not to the transport in general.
+
+Device evidence now: store 16 KB round trip (0 mismatches), one-block and two-block phase assembly, arm-from-inside-
+a-block, 40-load rotation. Device *store-bound escalation* still not measured; host stands at 18 phases / 9 288 B /
+604 % with the bound computed.

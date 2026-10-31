@@ -177,6 +177,15 @@ static void seed_poll(void)
                 int hi = 0, bad = 0;
                 while (ln[k] >= '0' && ln[k] <= '9') blk = blk * 10u + (unsigned)(ln[k++] - '0');
                 while (ln[k] == ' ') k++;
+                /* GUARDRAIL: blank the block BEFORE writing the payload. Writing only the payload leaves the rest
+                 * of the block holding whatever a previous seed put there; LOAD then compiles the new text and
+                 * trips over the stale tail, which errors the line and REWINDS the phase - measured as a phase
+                 * whose own definitions vanished (Z6?, and a minimal `: ZZ 42 . ;` in one block + `ZZ` in the
+                 * next answering ZZ?). */
+                if (blk < BLK_N) {
+                    unsigned i2;
+                    for (i2 = 0; i2 < sizeof(blkfile[0]); i2++) blkfile[blk][i2] = (uint8_t)' ';
+                }
                 while (ln[k] && w < (unsigned)sizeof(blkfile[0]) * 2u) {
                     int v;
                     char d = ln[k];
