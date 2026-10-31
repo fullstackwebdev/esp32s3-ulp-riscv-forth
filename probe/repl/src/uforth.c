@@ -668,6 +668,11 @@ static u8 word(void)
         if (!rd32(V_LOADB)) break;                /* no block pending: end of source */
         blk_refill();                             /* the pass ended on padding: pull the remainder */
     }
+#else
+    /* GUARDRAIL: the blank-skip must exist on BOTH paths. Restructuring the block above deleted this branch, and
+     * every token in a build without OVL_LOAD then began with a leading space - measured as 13 of 22 tests failing
+     * at once. A refactor of the refill loop must keep this line, or say why it is no longer needed. */
+    while (ti < tl && tib[ti] <= ' ') ti++;
 #endif
     while (ti < tl && tib[ti] > ' ') {
         c = tib[ti++];

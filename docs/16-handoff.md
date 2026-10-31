@@ -50,7 +50,7 @@ one step away.
 | **nine window-sized phases** (tier: host) | **4 644 B = 302 %** |
 | **escalating probe high score** (tier: host) | **18 phases, 9 288 B, 604 % of the control** |
 | block store (tier: device) | 128 blocks × 128 B = **16 KB round trip, 0 mismatches** |
-| multi-block phase assembly (tier: device) | **2 blocks proven**; 7 blocks open (§8) |
+| multi-block phase assembly (tier: device) | **8-block phase assembles; ceiling measured at 15 phases, 7 740 B, 504 %** |
 
 `super-optimization` and `main` share the same engine; `overlay-datafix` was the vehicle that carried the safe
 data-side wins into `main`.
@@ -182,7 +182,14 @@ a *symptom*.
 4. multiple `LOAD`s on one line: the rest of the current line is interpreted *before* the armed block, so the second
    `LOAD` overwrites the cursor and **silently skips** a block.
 
-**The four hypotheses to separate next** (run the per-block `LATEST`/`HERE` probe first, one arm per line, and wait
+**RESOLVED since this letter was written** (see docs/15-overlays.md, section "FIXED"):
+`word()` refilled only before the blank-skip, so a pass ending on the padding `blk_refill` writes made it return 0 with
+the block's remainder pending; the leftover then arrived during the next line. Fixed with a refill loop
+(pool 7 845 / 7 856, 11 B *better* than the code it replaced), two permanent tests in `tests/block_boundary.sh`, and the
+device ceiling measured at **15 phases / 7 740 B / 504 %**, stopped by the store. The "≤ 90 B per definition" rule is
+retired. Persistence (flash-backed blocks) is the remaining step before anything may be called unbounded.
+
+**The four hypotheses it superseded** (run the per-block `LATEST`/`HERE` probe first, one arm per line, and wait
 for the prompt rather than a fixed sleep):
 
 1. an earlier error is masked — the chain may share one save point, so check `HERE`/`LATEST` **after each block**;
