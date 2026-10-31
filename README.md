@@ -202,6 +202,7 @@ Builds are long-running; run them in `tmux` with `nice`, not in the foreground.
 | `probe/research/P54-*` | the five lever probes: `FINDINGS.md` (measured), `TASK.md` (the brief), diffs and tools |
 | `docs/` | `JOURNAL.md` (J-01…J-102), `11-findings.md` (F-001…F-121), `14-probe-rules.md` (R1–R12), probe briefs |
 | `CONSTRAINTS.md` | every constant the design rests on, with a confidence label and how to re-measure it |
+| `docs/15-super-optimization.md` | the full idea inventory for application space: ~40 levers, ranked, with falsifiers and a verification protocol |
 | `archive/` | superseded trees and old build logs, kept rather than deleted — see `archive/README.md` |
 | `cache/` | the write-once fetch cache; it grows and is never pruned |
 
