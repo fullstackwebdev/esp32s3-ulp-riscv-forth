@@ -70,6 +70,17 @@ callee's test is shared across ~100 sites), and `-msmall-data-limit=2048` (0 B: 
 `gp`-relative reference on this target). **Do not edit C locally for bytes; only removing redundant work
 has paid** (scheduler unroll +8, single status read + error-exit merge +6).
 
+A fourth shape pays — **hoisting per-token memory traffic into registers** — but only where the flush
+surface is small: `w`/`ip` are `u16` fields of `VM` and hoisting them into the dispatch loop's locals (3 flush
+points) gave **+16 B and two fewer round-trips per token**. `sp`/`rsp` cannot follow the same route because
+`PUSH`/`POP` are out-of-line functions that write `V->SP` directly, so hoisting them would force ~100 inlined
+call sites.
+
+Also measured and rejected: folding the name hash into the `PAD` copy (deleting the 44 B `hash_pad` cost +36 B
+of text, because the hash chain then has to exist in two places — typed path and boot path — and each inline
+djb2 is ~40 B). That variant was **correct** (12/12 suite, bench identical) and one walk faster; it fails only
+on size.
+
 Open, ranked in `docs/15-super-optimization.md`: fold the 170 B of code fields into header bits,
 register-resident VM, 2-byte dispatch table, asm dispatcher, extend the table kernel, audit `main`,
 share the tokeniser, flatten the scheduler, reserved base register, cold-bucket primitives.
