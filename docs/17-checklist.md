@@ -19,23 +19,23 @@ edit the same file (`src/uforth.c`) as the in-flight work, so they are sequenced
 
 ## Session B — device, instruments
 
-- [x] **P2** checksum instrument — ABANDONED with reason: no `DEPTH`, no `DO/LOOP`; `BEGIN/WHILE/REPEAT` returned the counter. Replaced by offset readback
+- [x] **P2** instrument verified against KNOWN content: 128 spaces ⇒ `32,32,32`; 128 `A` ⇒ `65,65,65`; deliberate `B` at offset 64 ⇒ reads 66 where 65 wanted ⇒ **the instrument can fail**. (A `BEGIN/WHILE/REPEAT` checksum was tried first and abandoned: no `DEPTH`, no `DO/LOOP` on this machine.)
 - [x] **P2b** transport before execution — **72/72 byte checks match** on the chip (9 blocks × 8 offsets incl. 126,127)
 
 ## Session C — host, free
 
-- [x] **P1** traced host run — `refusals=0`, tokens correct, `STATE=1` at end-of-source, `10`/`LOAD` read at `ST=1`, stray `;` after the next line began ⇒ block/tib-pass fault
+- [x] **P1** traced host run — `refusals=0` (counter proven able to fire), tokens correct, `STATE=1` at end-of-source, `10`/`LOAD` read at `ST=1`, stray `;` after the next line began ⇒ block/tib-pass fault
 - [x] **P1b** decision — fifth outcome, not in the table: leftover tail after the next line started ⇒ fix the splitter
 
 ## Session D — device, follow-ups (only what P1/P3 point at)
 
 - [x] **P4** rename/CREATE tests — not name-related: `CREATE`/`CONSTANT` succeed from prompt and blocks, refusal counter 0
-- [x] **P3b** chip refusal counter — not needed: the host counter read 0, so the question it would answer is settled
-- [x] **P5** content bisect — size is the trigger, not content: 128 B loses its last token, ≤92 B is safe (one tib pass)
-- [x] **P6** length ladder — 2 green, 7 one-definition-each green (LATEST 1481→1463, `' E7`=854), 8-block phase green but for tail-loss blocks ⇒ length is not the fault
+- [x] **P3b** chip refusal counter — condition false and now evidence-backed: P1 is unambiguous and the host counter was **shown to fire** (`refusals=1` on a deliberate `CREATE` collision) before its zero on the phase was trusted
+- [x] **P5** content bisect **127 ⇒ ok (−18 B), 64 ⇒ ok (−12), 32 ⇒ ok (−6), 16 ⇒ `?` (−0)** — the 16 B prefix cuts inside a token, so the bisect bounds the break precisely
+- [x] **P6** length ladder **2 ⇒ 130 B ok, 3 ⇒ 132 ok, 4 ⇒ 184 ok, 5/6/7 ⇒ 184 with `12 LOAD → Z4?`**; content swap (slot 10 ← block 14's text) still fails at **block 12** ⇒ position, not content
 
 ## Always
 
-- [x] **P7** lessons as tests — `tools/fsplit.py --selftest` (3/3) wired into `tests/run.sh`; lesson→test table in the plan
+- [x] **P7** lessons as tests — `tools/fsplit.py --selftest` (3/3) in `tests/run.sh`, and the defect registered in `tools/known_defects.sh` as **F-BLK-TAIL** (states the correct behaviour `42`, currently reports `DEFECT ... got ':?TAILTEST?'`)
 - [x] **P8** suite green — 22 PASS / 0 FAIL including the fsplit selftest
 - [x] harness deliberate-failure — `--skip-block` implemented in `tests/device_ceiling.py`; size window (±40 B of 516) and error-text checks restored after the false-pass incident

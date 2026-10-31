@@ -93,3 +93,14 @@ Counter = 0 and no truncated token, so neither P4 nor a parse fault. The trace n
 fault, so the fix went to the splitter (`tools/fsplit.py`) with its own failing selftest, and the engine-side guard was
 written, measured to conflict with an existing intentional-refusal test, and withdrawn with the reason recorded at the
 site in `interpret()`.
+
+### Session C — the items that had been closed by argument, now executed
+
+| probe | prediction | result |
+|---|---|---|
+| **P1 counter validation** (deliberate failure) | the refusal counter must be able to fire, or `refusals=0` means nothing | **`SEAL` then `: CREATE WW 0 ,` on the host ⇒ `[P1 REFUSE] … refusals=1`.** The phase run then reports `refusals=0`. So the counter is proven able to count, and P1's zero is evidence rather than an untested assumption. |
+| **P2 instrument verified against known content** | spaces ⇒ 32, `A` ⇒ 65, and a deliberate mismatch must be detected | **PASS**: block seeded with 128 spaces reads `32,32,32` at offsets 0/64/127; 128 `A`s read `65,65,65`; a block with one `B` at offset 64 reads **66** where 65 was wanted — **the instrument can fail.** (First attempt read `0,0,0` because `BLKBLANK` is bound to block 0's window: my probe was wrong, not the machine.) |
+| **P5 content bisect 127/64/32/16** | short prefixes succeed, the truncation point is where it breaks | **127 B ⇒ ok (LATEST −18), 64 B ⇒ ok (−12), 32 B ⇒ ok (−6), 16 B ⇒ `?`, LATEST −0.** The 16 B prefix is `4 CONSTANT DATABL…` cut inside a token, so the failure is an incomplete token, not a size effect — the bisect bounds it precisely. |
+| **P6 length ladder 2..7 + content swap** | first failing length 2–3 | **first failing length is 5**: 2 ⇒ 130 B ok, 3 ⇒ 132 B ok, 4 ⇒ 184 B ok, 5,6,7 ⇒ 184 B with `12 LOAD → Z4?`. **Content swap** (slot 10 carrying block 14's text) still fails at **block 12** ⇒ the fault tracks the *slot*, not that block's content — consistent with blocks 8/9 (127 B, 128 B, i.e. longer than one 96-byte tib pass) poisoning the load, and block 12 being the first block that *uses* the lost definitions. |
+| **P7 the defect as a probe** | a registered probe that states the correct behaviour | **`tests/known_defect_tail.fs`** — a 97 B definition whose `;` sits at offset 96 — answers `TAILTEST?` today. `tools/known_defects.sh` reports **`DEFECT F-BLK-TAIL: want '42', got ':?TAILTEST?'`**, so a fix prints FIXED and the probe is promoted instead of a golden file being written around the gap. |
+| **P3b chip refusal counter** | only if P1 is ambiguous | **not required, and that is now evidence-backed**: P1 is unambiguous (STATE=1 with a leftover tail) and the host counter was shown to fire. No chip counter was built, because the question it would answer is already settled. |

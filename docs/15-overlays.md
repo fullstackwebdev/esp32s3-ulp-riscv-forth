@@ -963,3 +963,14 @@ chip: **72/72 match**, including the last two bytes. The seeder and the store ar
 **Consequence for phase authors:** a phase's *individual definitions* must fit ~90 B. `tests/ph1.fsx` has definitions
 above that, which is why the 8-block phase now refuses to split rather than loading corruptly — the phase source is
 what needs rewriting, not the loader.
+
+**The defect is registered, not just described.** `tests/known_defect_tail.fs` pokes a 97-byte definition whose
+closing `;` sits at offset 96 — past the chip's 96-byte tib pass — into block 0 and then loads it. Correct behaviour is
+`42`; today it answers `TAILTEST?`. `tools/known_defects.sh` reports
+`DEFECT F-BLK-TAIL: want '42', got ':?TAILTEST?'`, so when the loader is fixed the probe prints `FIXED` and gets
+promoted to a real test instead of a golden file being written around the gap.
+
+**Ladder and swap on the chip** (literal, per the checklist): 2 blocks ⇒ 130 B compiled, 3 ⇒ 132 B, 4 ⇒ 184 B, all
+clean; **5, 6 and 7 ⇒ 184 B with `12 LOAD → Z4?`**. Swapping slot 10 to carry block 14's text changes nothing — the
+failure stays at **block 12**, the first block that *uses* definitions created in the two over-long blocks (8 at 127 B,
+9 at 128 B) whose tails are lost. Position, not content.
