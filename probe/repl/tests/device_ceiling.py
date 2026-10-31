@@ -14,6 +14,9 @@ GUARDRAIL: every seed line is verified and retried; fire-and-forget silently dro
 """
 import os, re, select, sys, termios, time, pathlib
 
+EXPECTED = 516      # a full phase compiles to this on both host and chip (tests/ceiling.sh)
+TOL = 40            # accept +-40 B for a different dictionary shape on the device
+
 PORT = "/dev/ttyACM1"
 FIRST = 8
 
@@ -85,6 +88,9 @@ def main():
             print(f"  stop: phase {p+1} needs blocks {base}..{base+per-1}, past the 128-block store")
             break
         for k, ch in enumerate(chunks):
+            if skip_block == base + k:       # deliberate-failure mode: leave this block unseeded
+                print(f"  (skipping block {base+k} on purpose)")
+                continue
             ok = False
             for _ in range(3):
                 out = line(fd, f"#b {base+k} {ch.encode().hex()}", 0.25, 3.0)
@@ -93,15 +99,21 @@ def main():
                 print(f"  stop: seed of block {base+k} not acknowledged"); break
             seeded += 1
         line(fd, "2 OVL", 0.8)
+        # GUARDRAIL: ONE LOAD PER LINE. With the deferred source switch, the rest of the CURRENT line is consumed
+        # before the armed block runs, so `8 LOAD 9 LOAD` arms 9 before 8's text has been read - block 8 is skipped
+        # and the phase assembles from fragments. Measured on the chip: loading the seven blocks one per line
+        # compiles the whole phase; loading them six-per-line fails with IDX? at block 12.
         out = ""
-        parts = [f"{base+k} LOAD" for k in range(per)]
-        for i in range(0, len(parts), 6):
-            out += line(fd, " ".join(parts[i:i+6]), 0.9)
-        if "?" in out.replace("ok",""):
-            print(f"  stop: phase {p+1} failed to load: {out.strip()[-40:]!r}"); break
+        for k in range(per):
+            out += line(fd, f"{base+k} LOAD", 1.1)
+        # GUARDRAIL: three checks, all of which must pass; a size>0 test alone counts PARTIAL phases as successes.
+        # An earlier version accepted any phase that compiled anything, and reported 17 "phases" of 70 B each where
+        # a full one is ~516 B - i.e. it turned a failing run into a passing one. Never relax a check to get green.
         size = nums(line(fd, "HERE .", 0.5))[-1] - sealed
-        if size <= 0:
-            print(f"  stop: phase {p+1} compiled nothing"); break
+        if "?" in out.replace("ok", "") or "ERR_" in out:
+            print(f"  stop: phase {p+1} transcript has an error: {out.strip()[-50:]!r}"); break
+        if abs(size - EXPECTED) > TOL:
+            print(f"  stop: phase {p+1} compiled {size} B, expected {EXPECTED}+-{TOL} (partial assembly)"); break
         total += size; high = p + 1
         print(f"  phase {p+1:2d}: {size:4d} B   (blocks {base}..{base+per-1})")
     print(f"  HIGH SCORE (device, measured): {high} phases, {total} B compiled, {seeded} blocks seeded")

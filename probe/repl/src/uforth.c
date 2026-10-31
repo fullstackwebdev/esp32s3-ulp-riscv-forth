@@ -1111,6 +1111,12 @@ static void p_load(void)                    /* ( blk -- ) arm a block as the int
 {
     u32 n = POP();
     i32 st;
+    /* GUARDRAIL (NOT ENFORCED YET - see docs/15-overlays.md): re-arming while V_LOADB is set SILENTLY SKIPS a block.
+     * `8 LOAD 9 LOAD` on one line looks fine and drops block 8, because the rest of the current line runs before the
+     * armed block; the same is true of `8 OVL 2 OVL` inside a colon word. The fix is a named error on re-arm, but
+     * it invalidates every test whose loop arms twice - those loops were themselves silently skipping blocks - so it
+     * lands together with those rewrites, one arm per line, not before them.
+     */
     repl_blk_req = 1u;
     st = blk_xfer(n, BLK_READ);
     repl_blk_req = 0u;
