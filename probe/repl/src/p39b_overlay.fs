@@ -63,3 +63,13 @@ CREATE qh 0 , CREATE qt 0 , CREATE qovf 0 , CREATE brt 0 ,
     q qh @ + C@  DUP curblk @ = IF  DROP EV@ ovlrun @ EXECUTE
     ELSE  DUP curblk ! PHASE EXIT THEN
   REPEAT ;
+
+\ GUARDRAIL: ONE base block for the suite's own storage, not one constant per block. Measured cost of a named constant
+\ on this machine: 9 B (3 B header + 2 B code field + 4 B cell). A per-block constant would grow with every tool and
+\ each one is another chance for a menu and a tool to disagree silently; a single base lets phases write `SB 1 +`,
+\ `SB 2 +` and keeps the reserved range a single documented number.
+\ GUARDRAIL: SB must stay clear of the test fixtures' reserved blocks (5 is the silent block, 7 answers with a bad
+\ checksum) AND of the phase ranges the tests use (8..127, the escalation fills them all). That leaves 0..4 and 6;
+\ 6 is the only one that answers every block request on both the fake server and the chip. SB=32 was tried first and
+\ rejected by tests/sb_range_check.py, which is exactly what that check exists for.
+6 CONSTANT SB

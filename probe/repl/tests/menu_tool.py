@@ -24,9 +24,11 @@ from fsplit import split_defs
 # GUARDRAIL: DATA_BLK must be a block that ANSWERS. Block 5 is the host fake server's deliberately silent block (the
 # no-answer path that tests/blocks_noserver.fs depends on) and block 7 answers with a bad checksum. Using 5 measured as
 # ERR_NO_SERVER, then a LATCHED ERR_BUSY that made every later block call fail - the phase looked broken, the block was.
-MENU_BLK, TOOL_BLK, DATA_BLK = 8, 12, 6
-MENU_SRC = ": MENU 7 6 BLOCK C! UPDATE SAVE DROP 77 EMIT ;"
-TOOL_SRC = ": TOOL 6 BLOCK C@ 3 * 84 EMIT . ;"
+# DATA_BLK must equal the resident SB constant (checked by tests/sb_range_check.py); the phases name it `SB`.
+MENU_BLK, TOOL_BLK = 8, 12
+DATA_BLK = 6
+MENU_SRC = ": MENU 7 SB BLOCK C! UPDATE SAVE DROP 77 EMIT ;"
+TOOL_SRC = ": TOOL SB BLOCK C@ 3 * 84 EMIT . ;"
 
 
 def blocks_of(text):

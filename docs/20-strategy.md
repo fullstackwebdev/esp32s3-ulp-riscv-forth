@@ -183,3 +183,49 @@ switch: 2 OVL  (drop the menu phase)  then  12 LOAD  (bring the tool in)
 3. **Block numbers are a shared namespace with reserved members.** Block 5 is the host test server's deliberately silent
    block and block 7 answers with a bad checksum; writing shared state to 5 measured `ERR_NO_SERVER` and then a latched
    `ERR_BUSY` that made every later block call fail. A real suite needs a reserved-range table, not conventions.
+
+## Step 1 COMPLETE: the image is 5 packed blocks, verified byte-for-byte on the chip
+
+Built by the **main core**, not by Forth. A Forth dumper cannot do it: given the same ~690 B window it needs ~370 B for
+the copy loop plus the 516 B phase — measured as `ERR_DICT`, twice. The main core already reads the ULP's `mem[]`
+(`ULP_RAM_BASE + ulp_repl_mem_addr`) and owns the block store, so `#d <blk> <code_start> <code_end> <hdr_start> <hdr_end>`
+does the whole job at **zero ULP bytes**.
+
+```
+code [786,1302) = 516 B     headers [1421,1481) = 60 B
+dump: code 516 + hdr 60 = 576 B, descriptor packed -> 5 blocks from block 40, sum 38914
+offset   0: memory   2  image   2  MATCH
+offset 127: memory  15  image  15  MATCH
+offset 300: memory 208  image 208  MATCH
+offset 500: memory 106  image 106  MATCH
+```
+
+| | |
+|---|---|
+| payload | 576 B (516 code + 60 headers, 20 definitions) |
+| blocks | **5** with the descriptor packed into the first block's spare bytes = **62 % of 8 source blocks** |
+| gate (≤ 65 %) | **PASS** |
+| verification | 4 probes straddling block boundaries, all byte-exact |
+
+### The `SB` trade, as decided
+
+One resident base constant, `6 CONSTANT SB`. **Measured cost: 9 B** (3 B header + 2 B code field + 4 B cell), confirmed
+both at the prompt and against the baked image. Phases now write `SB 1 +`, `SB 2 +` instead of repeating absolute block
+numbers. `tests/sb_range_check.py` fails the suite if `SB` collides with the fixture blocks (5 silent, 7 bad checksum)
+or with the 8‥127 phase range — `SB = 32` was rejected by exactly that check. The same check cross-checks
+`tests/menu_tool.py`'s `DATA_BLK` against `SB`, so a menu and a tool cannot drift apart silently.
+
+### Two defects found while building it
+
+1. **`BLK_SZ` is not the transfer size.** `BLK_SZ` (256) is only the store array's row *width*; the transfer size is
+   `blk_sz` (128), published by the ULP. Flushing on 256 packed two blocks into one row, so the ULP read the first 128
+   bytes and everything after was invisible — image byte 0 matched while bytes 127, 300 and 500 did not.
+2. **A silent block wedges the layer.** Writing shared state to fixture block 5 measured `ERR_NO_SERVER` followed by a
+   **latched** `ERR_BUSY` on every later block call. `tools/devio.py` now sends `0 2 BLKXFER` (op 2 = BLK_ABORT) on any
+   wedged reply, and exposes `abort_block()`.
+
+### Scope note (the review's caveat, accepted)
+
+This proves the image is **5 blocks and byte-exact**; it does not yet prove a loader can adopt it. Step 3 remains:
+checksum over resident code + headers, the six refusal tests each shown failing first, and the switch-time comparison
+against the ~250 ms prediction.

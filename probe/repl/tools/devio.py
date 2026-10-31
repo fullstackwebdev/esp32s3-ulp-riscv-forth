@@ -85,7 +85,7 @@ class Dev:
 
     # GUARDRAIL: a refusal from the console (`line too long: ... NOT sent`) carries neither `ok` nor `?`, so it
     # timed out instead of being reported. Every console-side message must be a completion marker.
-    def cmd(self, line, timeout=5.0, allow_error=False, markers=(OK, "?", "NOT sent")):
+    def cmd(self, line, timeout=5.0, allow_error=False, markers=(OK, "?", "NOT sent", "blocks from block")):
         """Send one line, read until the prompt marker (ok) or an error (?), return the transcript."""
         os.write(self.fd, line.encode() + b"\r")
         buf = ""
@@ -97,6 +97,13 @@ class Dev:
                 if not c:
                     continue
                 buf += c.decode("ascii", "replace")
+                if ("ERR_BUSY" in buf or "NO_SERVER" in buf):
+                    # GUARDRAIL: a wedged block layer makes every later command fail for the wrong reason; clear it
+                    # here so the next call measures the machine rather than the latch.
+                    try:
+                        os.write(self.fd, b"0 2 BLKXFER\r"); time.sleep(0.05); self.drain(0.02, 0.5)
+                    except Exception:
+                        pass
                 if any(m in buf for m in markers):
                     # one short settle read so a second line of output is not lost
                     buf += self.drain(0.02, 0.5)
@@ -105,6 +112,15 @@ class Dev:
                         return buf
                     return buf
         raise Timeout(f"no reply to {line!r} within {timeout}s; got {buf[-60:]!r}")
+
+    def abort_block(self):
+        """Clear a latched block failure. GUARDRAIL: one write to a silent block wedges every later block call with
+        ERR_BUSY until reset (measured: a write to fixture block 5 answered ERR_NO_SERVER and every following block op
+        failed). The escape hatch is `0 2 BLKXFER` (op 2 = BLK_ABORT); the harness sends it instead of rebooting."""
+        try:
+            self.cmd("0 2 BLKXFER", markers=("ok", "?", "NOT sent"))
+        except Exception:
+            pass
 
     # ---- convenience -----------------------------------------------------------------------------------------
     @staticmethod

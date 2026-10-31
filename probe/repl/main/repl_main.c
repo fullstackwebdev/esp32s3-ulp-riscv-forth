@@ -203,6 +203,62 @@ static void seed_poll(void)
                 n = 0;
                 continue;                       /* a seed line is consumed here, never forwarded */
             }
+            /* GUARDRAIL: `#d` builds an IMAGE of the loaded phase on the MAIN CORE, at zero ULP bytes. A Forth dumper
+             * cannot do it: given the same 690 B window it needs ~370 B for the copy loop plus the 516 B phase, measured
+             * as ERR_DICT. The main core already reads the ULP's mem[] (ULP_RAM_BASE + ulp_repl_mem_addr) and owns the
+             * block store, so it is the right place for this - no parsing, no window, no resident cost.
+             * Format:  #d <desc_blk> <code_start> <code_end> <hdr_start> <hdr_end>
+             * The four addresses come from the machine: `bh @ . bl @ . HERE . LATEST .` after SEAL.
+             * Descriptor (128 B, spaces): "FI" ver code_len:2 hdr_len:2 code_start:2 hdr_start:2 sum:2 */
+            if (n > 4 && ln[0] == '#' && ln[1] == 'd' && ln[2] == ' ') {
+                unsigned v[5] = {0}; int k = 3, vi = 0, bad2 = 0;
+                while (vi < 5) {
+                    while (ln[k] == ' ') k++;
+                    if (!ln[k] || ln[k] < '0' || ln[k] > '9') { bad2 = 1; break; }
+                    while (ln[k] >= '0' && ln[k] <= '9') v[vi] = v[vi] * 10u + (unsigned)(ln[k++] - '0');
+                    vi++;
+                }
+                if (bad2 || vi < 5) {
+                    printf("dump: REJECTED (want: #d <blk> <code_start> <code_end> <hdr_start> <hdr_end>)\n");
+                } else if (v[0] + 1u >= BLK_N || v[2] < v[1] || v[4] <= v[3]
+                           || 12u + (v[2] - v[1]) + (v[4] - v[3]) > (BLK_N - v[0]) * 128u) {
+                    printf("dump: REJECTED (range or block overflow)\n");
+                } else {
+                    const uint8_t *memimg = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    /* GUARDRAIL: the descriptor SHARES the first payload block (12 B of its 128), it does not get a
+                     * block of its own. Measured: 576 B of payload is 5 blocks, and reserving a block for the
+                     * descriptor made it 6 - which is the difference between passing the <=65% gate and failing it. */
+                    unsigned i2, payload = 0, sum = 0, blk = v[0], off = 12;
+                    for (i2 = 0; i2 < BLK_SZ; i2++) blkfile[v[0]][i2] = (uint8_t)' ';
+                    /* GUARDRAIL: flush on the TRANSFER size (blk_sz, published by the ULP = 128), never on BLK_SZ.
+                     * BLK_SZ is only the array's row WIDTH (256). Flushing at 256 packed two blocks into one row, so the
+                     * ULP read the first 128 bytes and everything after was invisible - measured as image byte 0
+                     * matching while bytes at 127, 300 and 500 did not.
+                     * GUARDRAIL: this macro must stay on ONE line. Splitting it to add the comment above broke the
+                     * backslash continuation, the body became real code, and the build failed with 'by_' undeclared. */
+#define DUMP_EMIT(byte) do { uint8_t by_ = (uint8_t)(byte); sum = (sum + by_) & 0xffffu; blkfile[blk][off++] = by_; if (off == (blk_sz ? blk_sz : 128u)) { off = 0; blk++; } payload++; } while (0)
+                    for (i2 = v[1]; i2 < v[2]; i2++) DUMP_EMIT(memimg[i2]);   /* code */
+                    for (i2 = v[3]; i2 < v[4]; i2++) DUMP_EMIT(memimg[i2]);   /* headers */
+#undef DUMP_EMIT
+                    {
+                        uint8_t *d2 = blkfile[v[0]];
+                        unsigned cl = v[2] - v[1], hl = v[4] - v[3];
+                        d2[0] = 'F'; d2[1] = 'I'; d2[2] = 1;
+                        d2[3] = (uint8_t)cl;  d2[4] = (uint8_t)(cl >> 8);
+                        d2[5] = (uint8_t)hl;  d2[6] = (uint8_t)(hl >> 8);
+                        d2[7] = (uint8_t)v[1]; d2[8] = (uint8_t)(v[1] >> 8);
+                        d2[9] = (uint8_t)v[3]; d2[10] = (uint8_t)(v[3] >> 8);
+                        /* exactly 12 bytes: FI(2) ver(1) code_len(2) hdr_len(2) code_start(2) hdr_start(2) sum(2) */
+                        d2[11] = (uint8_t)sum;
+                    }
+                    printf("dump: code %u + hdr %u = %u B, descriptor packed -> %u blocks from block %u, sum %u\n",
+                           (unsigned)(v[2] - v[1]), (unsigned)(v[4] - v[3]), payload,
+                           (12u + payload + 127u) / 128u, v[0], sum);
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             /* GUARDRAIL: everything that is NOT a seed line is forwarded into the ULP's command ring from HERE.
              * The pump used to read the UART as well, and two readers on one port steal each other's bytes:
              * measured as a mangled command (`LOAD?` where a LOAD was intended) and blocks that never arrived. */
