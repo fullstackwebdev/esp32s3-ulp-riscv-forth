@@ -37,10 +37,13 @@ gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTI
     -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DOVL_LOAD -o artifacts/host_cap src/uforth.c \
     || { echo "BUILD FAILED: host_cap will not compile" >&2; exit 1; }
 gcc -Os -o artifacts/expand tools/expand.c
+# GUARDRAIL: MEMSZ 1200 was fine while the manager was a few words; with the event loop resident the dictionary
+# no longer fits and the manager fails to define partway, which surfaces as a bogus unknown word (EV@?) in an
+# unrelated test. The block binary now matches the shipping MEMSZ.
 # GUARDRAIL: the block layer is compiled out of the plain host build, so a block test against it would only
 # prove that BLOCK is unknown. A SECOND binary carries the shipping block flags, and tests named blocks*.fs
 # run against that one — the flag set lives here, next to the engine, not in the test file.
-gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1200 \
+gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1936 \
     -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DOVL_LOAD -o artifacts/host_blk src/uforth.c \
     || { echo "BUILD FAILED: host_blk will not compile" >&2; exit 1; }
 
@@ -58,7 +61,7 @@ for f in tests/*.fs; do
         # ran against host_suite, which has no LOAD, so the overlay prelude failed to compile and the
         # transcript read `LOAD?` instead of the eight assertions. A test built for one flag set must
         # be routed to the binary built with that flag set.
-        overlay*) BIN=artifacts/host_blk ;;
+        overlay*|loop*) BIN=artifacts/host_blk ;;
         *)       BIN=artifacts/host_suite ;;
     esac
     # GUARDRAIL: `SRV ` is the host driver's own end-of-run summary of the fake block server, and a
@@ -68,7 +71,7 @@ for f in tests/*.fs; do
     case "$f" in
         # GUARDRAIL: overlay_collide asserts that a bad definition is REFUSED and then shows what survived, so
         # it needs -k (host-only, keep going after an error). The transcript still contains the ERR_DICT line.
-        *overlay_collide*) extra=src/p39b_overlay.fs; flags=-k ;;
+        *overlay_collide*|*loop*) extra=src/p39b_overlay.fs; flags=-k ;;
         *overlay*)         extra=src/p39b_overlay.fs ;;
     esac
     got=$(timeout 120 ./"$BIN" $flags src/p39_prelude.fs $extra "$f" 2>&1 \

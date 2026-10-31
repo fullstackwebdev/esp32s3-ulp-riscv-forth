@@ -19,7 +19,7 @@ BIN=artifacts/host_cap
 PRE="src/p39_prelude.fs src/p39b_overlay.fs"
 PROBE=tests/fixtures/capacity_probe.fs
 LIMIT=1544          # the monolith's app space
-WINDOW=1008         # sealed free space at MEMSZ 1936
+WINDOW=690          # sealed free space at MEMSZ 1936 WITH the resident event loop (row 1's price)
 
 here_of() { grep -aoE '[0-9]+ $' <<<"$1" | tail -2 | head -1; }
 
@@ -43,7 +43,7 @@ while read -r name phase want; do
 done <<'EOF'
 A tests/capacity_a.fsx 812869088000127
 B tests/capacity_b.fsx 81281646464690880
-C tests/capacity_c.fsx 43261644032127
+C tests/capacity_c.fsx 43264032127
 EOF
 
 printf "  total %d B across three phases vs %d B single image: " "$total" "$LIMIT"

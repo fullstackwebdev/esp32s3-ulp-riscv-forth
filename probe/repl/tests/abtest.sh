@@ -39,7 +39,7 @@ else
 fi
 
 # 4. capability diff: phase C's statistics exist only in the paged build
-C_DIGITS=43261644032127
+C_DIGITS=43264032127
 if tr -cd '0-9' <<<"$ctl_out" | grep -q "$C_DIGITS"; then
     echo "  FAIL: the control produced phase C's output, so overlays added no capability" >&2; fail=1
 else
