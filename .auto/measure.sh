@@ -15,7 +15,10 @@ cd "$(dirname "$0")/.."
 
 POOL=7856          # the flash guard's limit (flash_safe.sh)
 SPARE=3            # keep the same 3 B of headroom the shipping image has
-MEMSZ_NOW=1688     # must equal ulp_repl.c's MEMSZ; the metric adds the headroom to this
+# GUARDRAIL: MEMSZ is derived from the built artifact (`data = MEMSZ + 16`), not from a constant and not by
+# parsing ulp_repl.c (R6). It used to be hardcoded 1688, so the first keep — which moved MEMSZ to 1696 —
+# made the metric measure at the OLD value and report 727 for a tree that had 735. A metric that lags the
+# tree is worse than a slow one.
 TMP=.auto/tmp; mkdir -p "$TMP"
 RVV_BIN=/home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin
 BAKEFLAGS="-O2 -DHOST -DP43_TASKS -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DP33_NOPAGE -DP30_HANDCOPY -DP54_BINOPS=10"
@@ -30,6 +33,7 @@ read -r TEXT RODATA SRODATA DATA BSS TOTAL <<<"$("$RVV_BIN/riscv32-esp-elf-size"
   /^\.text/{t+=$2} /^\.rodata/{r+=$2} /^\.srodata/{sr+=$2} /^\.data/{d+=$2} /^\.bss/{b+=$2}
   END{print t+0, r+0, sr+0, d+0, b+0, t+r+sr+d+b}')"
 
+MEMSZ_NOW=$(( DATA - 16 ))
 HEADROOM=$(( POOL - TOTAL - SPARE ))
 M=$(( MEMSZ_NOW + HEADROOM ))
 

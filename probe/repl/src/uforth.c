@@ -293,7 +293,7 @@ static u32 blk_sum(void)
 /* One request, one bounded wait, one status. Never returns before the buffer state is known. */
 static i32 blk_xfer(u32 blk, u32 op)
 {
-    u32 i;
+    u32 i, st;
     /* GUARDRAIL: the placement check is the first statement: a fetch into an overlapping buffer
      * overwrites the dictionary *before* any status could report it (P33/P37), so the refusal has to
      * precede the doorbell and the copy. BK_BUFOVER is the status the Forth layer names. */
@@ -311,11 +311,16 @@ static i32 blk_xfer(u32 blk, u32 op)
     mb_set(3u, (op == BLK_WRITE) ? blk_sum() : 0u);        /* the checksum travels in the mailbox */
     mb_set(2u, 0u);                                      /* 0 = pending */
     pl_hw(6, 0, 0);                                      /* doorbell: P23, 176 us */
-    for (i = 0; i < BLKWAIT; i++) if (mb_get(2u)) break;
+    /* GUARDRAIL: read the status ONCE. It used to be read up to four times after the poll (`!mb_get`,
+     * `mb_get != 1`, then again for the nack value), and the main core can rewrite that word between any
+     * two reads — so the loop could exit on 1 and the next read could see a nack, or a nack value could
+     * be reported from a different request. One load, one decision. */
+    st = 0u;
+    for (i = 0; i < BLKWAIT; i++) if ((st = mb_get(2u)) != 0u) break;
     /* GUARDRAIL: leave blk_out set on a timeout — a request nobody answered is still out there,
      * so the next BLOCK is refused BUSY instead of racing the answer into a stale buffer. */
-    if (!mb_get(2u)) return BK_NOSERVER;
-    if (mb_get(2u) != 1u) { u32 stv = mb_get(2u); blk_out = 0; return (i32)(0u - stv); }  /* a nack, negative */
+    if (st == 0u) return BK_NOSERVER;
+    if (st != 1u) { blk_out = 0; return (i32)(0u - st); }  /* a nack, negative */
     /* GUARDRAIL: the checksum MUST be read through a volatile lvalue, for the same reason as the status
      * one line above. For a READ we write mailbox[3] = 0 ourselves, so a plain load is CSE'd to the constant
      * 0: every empty block "verified" (0 == 0) and every block with data failed ERR_CRC while the server's
@@ -632,7 +637,10 @@ static u16 mkhdr_pad(u8 cf, u8 imm)
     u32 hs = hash_pad(rd8(PAD)), x = rd32(V_HERE), h = rd32(V_LATEST) - HDRSZ, v;
     /* GUARDRAIL: the room check precedes BOTH writes. Once the code area has been written over the header
      * area the damage is a wrong-word dispatch at some later line, not a failure here. */
-    if (x + 2u > h || x >= 2048u) { errf_msg(MSG_ERR_DICT); return 0; }
+    /* GUARDRAIL: one exit for both dictionary-state failures. They carried the same message code and the
+     * same recovery, so two errf_msg call sites only cost bytes; the distinct reasons stay in the comments
+     * below rather than in the code. */
+    if (x + 2u > h || x >= 2048u || (x & 1u)) { errf_msg(MSG_ERR_DICT); return 0; }
     /* GUARDRAIL: xt is stored as xt/2, so an odd x would be halved into a wrong-word dispatch with no
      * trace anywhere. Nothing but cw()'s +2 and a4()'s round-up-to-4 writes V_HERE, so odd is an engine
      * bug, not user input — but this is the only place an offset becomes a header field, so this is
@@ -642,7 +650,6 @@ static u16 mkhdr_pad(u8 cf, u8 imm)
      * clobber h+3, which is the already-written entry ABOVE (entries grow DOWN), and a wr32 at h - 1
      * pays one byte of the free gap to keep the write word-shaped — measured at +72 B of .text, which
      * is a bad trade for one byte of app space. */
-    if (x & 1u) { errf_msg(MSG_ERR_DICT); return 0; }
     v = ((hs << 11) | ((x >> 1) & 0x3ffu) << 1) | (u32)(imm & 1u);
     wr16(x, cf);                                    /* the code field lives at the xt, in the code area */
     /* GUARDRAIL: printed BEFORE the header write so a bake that runs out of room still names the word that
