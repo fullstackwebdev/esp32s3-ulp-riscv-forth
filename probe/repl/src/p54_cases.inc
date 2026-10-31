@@ -49,42 +49,42 @@
             a = *px;
             switch (cf - P_ADD) {
 #if P54_BINOPS >= 1
-            case 0: a = (a + b); goto tail;
+            case 0: a = (a + b); break;
 #endif
 #if P54_BINOPS >= 2
-            case 1: a = (a - b); goto tail;
+            case 1: a = (a - b); break;
 #endif
 #if P54_BINOPS >= 3
-            case 2: a = (a * b); goto tail;
+            case 2: a = (a * b); break;
 #endif
 #if P54_BINOPS >= 4
-            case 5: a = (a & b); goto tail;
+            case 5: a = (a & b); break;
 #endif
 #if P54_BINOPS >= 5
-            case 6: a = (a | b); goto tail;
+            case 6: a = (a | b); break;
 #endif
 #if P54_BINOPS >= 6
-            case 7: a = (a ^ b); goto tail;
+            case 7: a = (a ^ b); break;
 #endif
 #if P54_BINOPS >= 7
-            case 9: a = (a << (b & 31u)); goto tail;
+            case 9: a = (a << (b & 31u)); break;
 #endif
 #if P54_BINOPS >= 8
-            case 10: a = (a >> (b & 31u)); goto tail;
+            case 10: a = (a >> (b & 31u)); break;
 #endif
 #if P54_BINOPS >= 9
-            case 12: a = (((i32)a < (i32)b) ? ~0u : 0u); goto tail;
+            case 12: a = (((i32)a < (i32)b) ? ~0u : 0u); break;
 #endif
 #if P54_BINOPS >= 10
-            case 13: a = ((a < b) ? ~0u : 0u); goto tail;
+            case 13: a = ((a < b) ? ~0u : 0u); break;
 #endif
             /* a slot with no label cannot be reached; if one ever is, stop instead of computing */
-            default: p54_op_unreachable(0u, 0u); a = 0u; goto tail;
+            default: pl_halt(0x54u); a = 0u; break;
             }
             *px = a;
 #else
             b = POP();
-            TOS = p54_binops[cf - P_ADD](TOS, b);
+            TOS = p54_binop(cf, TOS, b);
 #endif
             goto tail;
         }

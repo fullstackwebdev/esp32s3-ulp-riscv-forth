@@ -13,40 +13,9 @@
 
 typedef u32 (*p54_binop_t)(u32 a, u32 b);
 
-/* forged by the generator: expression is shared with the inline (-DP54_OPSW) mechanism */
-#if P54_BINOPS >= 1
-static u32 p54_op_ADD(u32 a, u32 b) { return (a + b); }
-#endif
-#if P54_BINOPS >= 2
-static u32 p54_op_SUB(u32 a, u32 b) { return (a - b); }
-#endif
-#if P54_BINOPS >= 3
-static u32 p54_op_MUL(u32 a, u32 b) { return (a * b); }
-#endif
-#if P54_BINOPS >= 4
-static u32 p54_op_AND(u32 a, u32 b) { return (a & b); }
-#endif
-#if P54_BINOPS >= 5
-static u32 p54_op_OR(u32 a, u32 b) { return (a | b); }
-#endif
-#if P54_BINOPS >= 6
-static u32 p54_op_XOR(u32 a, u32 b) { return (a ^ b); }
-#endif
-#if P54_BINOPS >= 7
-static u32 p54_op_LSHIFT(u32 a, u32 b) { return (a << (b & 31u)); }
-#endif
-#if P54_BINOPS >= 8
-static u32 p54_op_RSHIFT(u32 a, u32 b) { return (a >> (b & 31u)); }
-#endif
-#if P54_BINOPS >= 9
-static u32 p54_op_LT(u32 a, u32 b) { return (((i32)a < (i32)b) ? ~0u : 0u); }
-#endif
-#if P54_BINOPS >= 10
-static u32 p54_op_ULT(u32 a, u32 b) { return ((a < b) ? ~0u : 0u); }
-#endif
-
-/* reached only if a table slot and a case label ever disagree: stop BY NAME, do not jump to 0 */
-static u32 p54_op_unreachable(u32 a, u32 b) { (void)a; (void)b; pl_halt(0x54u); return 0u; }
+/* no per-op leaf FUNCTIONS: every expression is a label inside p54_binop below. 14 leaves each paid
+ * their own call framing and 4-byte table slot; as labels the table is 2 bytes per slot and the
+ * expressions keep the same code. */
 
 _Static_assert(P_ADD == P_ADD + 0, "P54 slot drift: ADD");
 _Static_assert(P_SUB == P_ADD + 1, "P54 slot drift: SUB");
@@ -85,50 +54,91 @@ _Static_assert(P_ULT == P_ADD + 13, "P54 slot drift: ULT");
 #endif
 
 #if !defined(P54_OPSW)
-static const p54_binop_t p54_binops[P54_NSLOT] = {
+/* GUARDRAIL: one function, labels not pointers. The table is a 2-byte offset from L_bad on the ULP
+ * (a 4-byte pointer on the host, whose code can exceed a 16-bit span — measured: a truncated offset
+ * there is a jump into nowhere). GUARDRAIL: every slot defaults to L_bad, never to 0, because 0 is a
+ * valid offset (it means L_bad itself) — a zero hole would send a real operation to the halt path.
+ */
+static u32 p54_binop(u32 cf, u32 a, u32 b)
+{
+#ifdef HOST
+    typedef const void *p54_ent_t;
+#define P54_ENT(l) ((const void *)&&l)
+#else
+    typedef u16 p54_ent_t;
+#define P54_ENT(l) ((u16)(&&l - &&L_bad))
+#endif
+    static const p54_ent_t t[P54_NSLOT] = {
+        [0 ... P54_NSLOT - 1] = P54_ENT(L_bad),
 #if P54_BINOPS >= 1
-    [0] = p54_op_ADD,
+        [0] = P54_ENT(L_ADD),
 #endif
 #if P54_BINOPS >= 2
-    [1] = p54_op_SUB,
+        [1] = P54_ENT(L_SUB),
 #endif
 #if P54_BINOPS >= 3
-    [2] = p54_op_MUL,
+        [2] = P54_ENT(L_MUL),
 #endif
 #if P54_BINOPS >= 4
-    [5] = p54_op_AND,
+        [5] = P54_ENT(L_AND),
 #endif
 #if P54_BINOPS >= 5
-    [6] = p54_op_OR,
+        [6] = P54_ENT(L_OR),
 #endif
 #if P54_BINOPS >= 6
-    [7] = p54_op_XOR,
+        [7] = P54_ENT(L_XOR),
 #endif
 #if P54_BINOPS >= 7
-    [9] = p54_op_LSHIFT,
+        [9] = P54_ENT(L_LSHIFT),
 #endif
 #if P54_BINOPS >= 8
-    [10] = p54_op_RSHIFT,
+        [10] = P54_ENT(L_RSHIFT),
 #endif
 #if P54_BINOPS >= 9
-    [12] = p54_op_LT,
+        [12] = P54_ENT(L_LT),
 #endif
 #if P54_BINOPS >= 10
-    [13] = p54_op_ULT,
+        [13] = P54_ENT(L_ULT),
 #endif
-#if P54_NSLOT > 3
-    [3] = p54_op_unreachable,   /* P_ADD + 3 is not a same-shape op */
+    };
+#undef P54_ENT
+#ifdef HOST
+    goto *t[cf - P_ADD];
+#else
+    goto *(&&L_bad + t[cf - P_ADD]);
 #endif
-#if P54_NSLOT > 4
-    [4] = p54_op_unreachable,   /* P_ADD + 4 is not a same-shape op */
+L_bad: pl_halt(0x54u); return 0u;
+#if P54_BINOPS >= 1
+L_ADD: return (a + b);   /* slot 0 */
 #endif
-#if P54_NSLOT > 8
-    [8] = p54_op_unreachable,   /* P_ADD + 8 is not a same-shape op */
+#if P54_BINOPS >= 2
+L_SUB: return (a - b);   /* slot 1 */
 #endif
-#if P54_NSLOT > 11
-    [11] = p54_op_unreachable,   /* P_ADD + 11 is not a same-shape op */
+#if P54_BINOPS >= 3
+L_MUL: return (a * b);   /* slot 2 */
 #endif
-};
+#if P54_BINOPS >= 4
+L_AND: return (a & b);   /* slot 5 */
+#endif
+#if P54_BINOPS >= 5
+L_OR: return (a | b);   /* slot 6 */
+#endif
+#if P54_BINOPS >= 6
+L_XOR: return (a ^ b);   /* slot 7 */
+#endif
+#if P54_BINOPS >= 7
+L_LSHIFT: return (a << (b & 31u));   /* slot 9 */
+#endif
+#if P54_BINOPS >= 8
+L_RSHIFT: return (a >> (b & 31u));   /* slot 10 */
+#endif
+#if P54_BINOPS >= 9
+L_LT: return (((i32)a < (i32)b) ? ~0u : 0u);   /* slot 12 */
+#endif
+#if P54_BINOPS >= 10
+L_ULT: return ((a < b) ? ~0u : 0u);   /* slot 13 */
+#endif
+}
 #endif /* !P54_OPSW */
 
 #endif /* P54_OPS_H */

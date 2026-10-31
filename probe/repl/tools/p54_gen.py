@@ -121,14 +121,9 @@ def emit_ops(got):
     w("")
     w("typedef u32 (*p54_binop_t)(u32 a, u32 b);")
     w("")
-    w("/* forged by the generator: expression is shared with the inline (-DP54_OPSW) mechanism */")
-    for rank, pid, expr, slot in got:
-        w(f"#if P54_BINOPS >= {rank}")
-        w(f"static u32 p54_op_{pid}(u32 a, u32 b) {{ return ({expr}); }}")
-        w("#endif")
-    w("")
-    w("/* reached only if a table slot and a case label ever disagree: stop BY NAME, do not jump to 0 */")
-    w("static u32 p54_op_unreachable(u32 a, u32 b) { (void)a; (void)b; pl_halt(0x54u); return 0u; }")
+    w("/* no per-op leaf FUNCTIONS: every expression is a label inside p54_binop below. 14 leaves each paid")
+    w(" * their own call framing and 4-byte table slot; as labels the table is 2 bytes per slot and the")
+    w(" * expressions keep the same code. */")
     w("")
     last = max(s for _, _, _, s in got)
     for rank, pid, expr, slot in got:
@@ -149,23 +144,41 @@ def emit_ops(got):
     w("#endif")
     w("")
     w("#if !defined(P54_OPSW)")
-    w("static const p54_binop_t p54_binops[P54_NSLOT] = {")
+    w("/* GUARDRAIL: one function, labels not pointers. The table is a 2-byte offset from L_bad on the ULP")
+    w(" * (a 4-byte pointer on the host, whose code can exceed a 16-bit span — measured: a truncated offset")
+    w(" * there is a jump into nowhere). GUARDRAIL: every slot defaults to L_bad, never to 0, because 0 is a")
+    w(" * valid offset (it means L_bad itself) — a zero hole would send a real operation to the halt path.")
+    w(" */")
+    w("static u32 p54_binop(u32 cf, u32 a, u32 b)")
+    w("{")
+    w("#ifdef HOST")
+    w("    typedef const void *p54_ent_t;")
+    w("#define P54_ENT(l) ((const void *)&&l)")
+    w("#else")
+    w("    typedef u16 p54_ent_t;")
+    w("#define P54_ENT(l) ((u16)(&&l - &&L_bad))")
+    w("#endif")
+    w("    static const p54_ent_t t[P54_NSLOT] = {")
+    w("        [0 ... P54_NSLOT - 1] = P54_ENT(L_bad),")
     converted = {}
     for rank, pid, expr, slot in got:
         w(f"#if P54_BINOPS >= {rank}")
-        w(f"    [{slot}] = p54_op_{pid},")
+        w(f"        [{slot}] = P54_ENT(L_{pid}),")
         w("#endif")
         converted[slot] = rank
-    for s in range(last + 1):
-        if s not in converted:
-            # GUARDRAIL: a hole beyond the current rung's NSLOT is an `array index in initializer exceeds
-            # array bounds` ERROR, not a silently ignored filler — the -DP54_BINOPS=1 and =5 rungs failed to
-            # compile until the fillers were gated. Keying the gate off P54_NSLOT (the one macro that sizes
-            # the array) is what makes a filler impossible to write for a slot the array does not have.
-            w(f"#if P54_NSLOT > {s}")
-            w(f"    [{s}] = p54_op_unreachable,   /* P_{OPS[0][1]} + {s} is not a same-shape op */")
-            w("#endif")
-    w("};")
+    w("    };")
+    w("#undef P54_ENT")
+    w("#ifdef HOST")
+    w("    goto *t[cf - P_ADD];")
+    w("#else")
+    w("    goto *(&&L_bad + t[cf - P_ADD]);")
+    w("#endif")
+    w("L_bad: pl_halt(0x54u); return 0u;")
+    for rank, pid, expr, slot in got:
+        w(f"#if P54_BINOPS >= {rank}")
+        w(f"L_{pid}: return ({expr});   /* slot {slot} */")
+        w("#endif")
+    w("}")
     w("#endif /* !P54_OPSW */")
     w("")
     w("#endif /* P54_OPS_H */")
@@ -189,7 +202,11 @@ def emit_cases(got):
     w(" */")
     for rank, pid, expr, slot in got:
         w(f"#if P54_BINOPS >= {rank}")
-        w(f"        case P_{pid}:" + (f"   /* P54 op {rank}, slot {slot} */" if rank == 1 else ""))
+        # GUARDRAIL: emit a LABEL, not `case`. P57 replaced the switch with a 2-byte label-offset table, so
+        # every case body in this tree is a label now; regenerating with `case` produced a file whose labels
+        # did not exist and the dispatch table referenced them (compile error, loud — which is why this is a
+        # generated-source change and not a hand edit).
+        w(f"        L_P_{pid}:" + (f"   /* P54 op {rank}, slot {slot} */" if rank == 1 else ""))
         w("#endif")
     w("")
     w("#if P54_BINOPS >= 1")
@@ -205,14 +222,18 @@ def emit_cases(got):
         w(f"            case {slot}: a = ({expr}); break;")
         w("#endif")
     w("            /* a slot with no label cannot be reached; if one ever is, stop instead of computing */")
-    w("            default: p54_op_unreachable(0u, 0u); a = 0u; break;")
+    w("            default: pl_halt(0x54u); a = 0u; break;")
     w("            }")
     w("            *px = a;")
     w("#else")
     w("            b = POP();")
-    w("            TOS = p54_binops[cf - P_ADD](TOS, b);")
+    w("            TOS = p54_binop(cf, TOS, b);")
     w("#endif")
-    w("            break;")
+    # GUARDRAIL: `goto tail`, not `break`. Since P57 the dispatch has no switch — every body ends by jumping
+    # to the loop tail. A `break` here compiles (the enclosing `for(;;)` is in scope) but exits vm_enter's
+    # loop entirely, so a single P54 operation ended the word: measured as the whole prelude failing to load
+    # with a garbage token. This is why the generated file must be regenerated after any dispatch change.
+    w("            goto tail;")
     w("        }")
     w("#endif")
     (SRC / "p54_cases.inc").write_text("\n".join(lines) + "\n")
