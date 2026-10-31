@@ -693,7 +693,22 @@ static u32 vm_sw_first;               /* the first dispatch into a task: nothing
 /* Depth of the C calls into the interpreter. A switch must NOT change it: if PAUSE or a
  * fault returned through C, a task that yielded mid-word would unwind to its caller and the
  * resume would start a second vm_enter. Measured so the claim is not an assertion. */
+/* GUARDRAIL: vm_depth counts ENTRIES to vm_enter, not Forth nesting — DOCOL and EXEC continue the same
+ * dispatch loop instead of recursing, so this is 1 during any word and the max it records is 1. The real
+ * nesting limit is SD 16 on the data/return stacks, enforced by PUSH/RPUSH and reported as ERR_STACK.
+ * Nothing live reads these two: the host harness, the suite, the bench and every tool ignore them (only
+ * archived copies of the engine mention them). They cost a load, an add, a compare and a conditional store
+ * on every word call plus two stores per exit, which is why they are gated rather than shipped.
+ * GUARDRAIL: keep the flag, not just the deletion — P13's depth evidence is reproducible only with
+ * -DVM_DEPTH_STATS, so the measurement stays available instead of being quietly lost. */
+#if defined(VM_DEPTH_STATS)
 static int vm_depth, vm_max_depth;
+#define VMD_ENTER()  (vm_depth++, (vm_depth > vm_max_depth ? (void)(vm_max_depth = vm_depth) : (void)0))
+#define VMD_LEAVE()  (vm_depth--)
+#else
+#define VMD_ENTER()  ((void)0)
+#define VMD_LEAVE()  ((void)0)
+#endif
 static u32 vm_faults_left;            /* injected faults remaining (0 = page resident) */
 static void (*vm_trace)(int from, int to);   /* host hook: one call per switch */
 
@@ -939,7 +954,7 @@ static void vm_enter(void)
 #define ip lip
 #define VM_FLUSH()   (V->W = lw, V->IP = lip)
 #define VM_RELOAD()  (lw = V->W, lip = V->IP)
-    vm_depth++; if (vm_depth > vm_max_depth) vm_max_depth = vm_depth;
+    VMD_ENTER();
     for (;;) {
 #ifdef P42_COUNT
         p42_dispatches = p42_dispatches + 1u;
@@ -963,9 +978,9 @@ static void vm_enter(void)
         if (stack_ovf) {
             /* GUARDRAIL: variant (f) — (d) applied. */
             stack_ovf = 0; sp = 0; rsp = 0; errf_msg(MSG_ERR_STACK);
-            VM_FLUSH(); vm_depth--; return;
+            VM_FLUSH(); VMD_LEAVE(); return;
         }
-        if (!ip) { VM_FLUSH(); if (!vm_task_leave()) { vm_depth--; return; } VM_RELOAD(); continue; }
+        if (!ip) { VM_FLUSH(); if (!vm_task_leave()) { VMD_LEAVE(); return; } VM_RELOAD(); continue; }
         w = rd16_paged(ip); ip += 2;
     }
 #undef w
