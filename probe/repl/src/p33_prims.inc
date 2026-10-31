@@ -29,3 +29,11 @@ X(SPAWN,"SPAWN",0)
  * the code area's mirror image. Appended HERE, after every other entry, so all existing ids are unchanged:
  * tokens are PRIM_TAG - 2*id, so inserting one in the middle would renumber the whole vocabulary. */
 X(LIT2,"LIT2",0)
+
+#if defined(OVL_LOAD)
+/* GUARDRAIL: the entry goes LAST, after LIT2, for the same reason LIT2 did: tokens are PRIM_TAG - 2*id, so
+ * inserting a primitive in the middle renumbers the whole vocabulary and every baked xt shifts silently.
+ * A primitive needs BOTH this X entry (the header) and a case in p33_cases.inc (the body); either one alone
+ * compiles, links and looks fine until the operator types the word. */
+X(LOAD,"LOAD",0)
+#endif

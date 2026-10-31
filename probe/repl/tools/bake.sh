@@ -17,7 +17,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 MEMSZ=${1:-1400}
-FLAGS="-O2 -fno-strict-aliasing -DHOST -DP43_TASKS -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DP33_NOPAGE -DP30_HANDCOPY -DMEMSZ=$MEMSZ"
+FLAGS="-O2 -fno-strict-aliasing -DHOST -DP43_TASKS -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DOVL_LOAD -DP33_NOPAGE -DP30_HANDCOPY -DMEMSZ=$MEMSZ"
 
 # GUARDRAIL: -DP33_BLOCK without -DBLKPRIM (or the reverse) compiles and links and produces a dictionary
 # with no BLOCK words — the failure is a "WORD?" on the chip, not a build error (E-079).
@@ -25,7 +25,7 @@ gcc $FLAGS -o artifacts/bake_bin src/uforth.c
 
 # GUARDRAIL: the prelude AND line.fs. Baking without line.fs bakes a dictionary that cannot load a file,
 # i.e. no way to add words at the prompt.
-./artifacts/bake_bin -d src/image.h src/p39_prelude.fs src/line.fs
+./artifacts/bake_bin -d src/image.h src/p39_prelude.fs src/p39b_overlay.fs src/line.fs
 
 echo "baked src/image.h at MEMSZ=$MEMSZ"
 head -1 src/image.h

@@ -503,6 +503,23 @@ _Static_assert(P_ZEQ   == ID_ZEQ,   "pids.h drift: 0=");
 _Static_assert(P_EXIT  == ID_EXIT,  "pids.h drift: EXIT");
 _Static_assert(P_DOCOL == ID_DOCOL, "pids.h drift: DOCOL");
 _Static_assert(P_LIT   == ID_LIT,   "pids.h drift: LIT");
+/* GUARDRAIL: the config-dependent ids can only be asserted in the ONE configuration pids.h was derived from
+ * (blocks + tasks enabled, as in the shipping chip build). They are NOT stable across configurations: a plain
+ * host build has no block primitives, so every id after BLKXFER shifts, and asserting the shipping numbers
+ * there fails a build that is perfectly correct - measured, the first version of this block broke
+ * tests/run.sh's host_suite over SPAWN and LIT2. The rule from pids.h's own header still stands: when you add
+ * or remove a primitive, re-derive the file from the enum, for the configuration you are shipping. */
+#if defined(P33_BLOCK) && defined(BLKPRIM) && defined(P43_TASKS)
+_Static_assert(P_BLKXFER == ID_BLKXFER, "pids.h drift: BLKXFER");
+_Static_assert(P_BLOCK   == ID_BLOCK,   "pids.h drift: BLOCK");
+_Static_assert(P_UPDATE  == ID_UPDATE,  "pids.h drift: UPDATE");
+_Static_assert(P_SAVE    == ID_SAVE,    "pids.h drift: SAVE");
+_Static_assert(P_SPAWN   == ID_SPAWN,   "pids.h drift: SPAWN");
+_Static_assert(P_LIT2    == ID_LIT2,    "pids.h drift: LIT2");
+#if defined(OVL_LOAD)
+_Static_assert(P_LOAD    == ID_LOAD,    "pids.h drift: LOAD");
+#endif
+#endif
 /* GUARDRAIL: pids.h is the ASSEMBLER's view of the SHIPPING image, and it HAD drifted: it said
  * `ID_BLKXFER 66 / ID_SPAWN 67` while the enum says 65 and 69 — the ids between BLKXFER and SPAWN were
  * missing from the file entirely. Nothing caught it, because the assembler that consumes pids.h is not built
@@ -997,6 +1014,52 @@ static void p_blk_block(void)               /* ( n -- addr | code ) */
     blk_errmsg(st); PUSH((u32)st);
 }
 static void p_blk_update(void) { blkvars[BLK_VBLKDRT] = 0xffffffffu; }
+/* GUARDRAIL: LOAD copies each chunk of the window into tib instead of pointing the interpreter at the
+ * window. Two reasons, both from this tree: (1) tib is a fixed array (TIBSZ), so there is no pointer to
+ * redirect — only a buffer to fill; (2) a COPY makes an overlay safe against most self-clobbering: source
+ * text that calls BLOCK for data fetches another block into the window, and only the UNREAD TAIL of the
+ * current block can be lost, never the chunk being compiled. Any control byte (a newline in a text block)
+ * becomes a space so word() sees token boundaries.
+ * GUARDRAIL: the chip has TIBSZ 96 while a block is BLKSZ 128 (tools/bake.sh compiles the host bake at 128,
+ * ulp_repl.c pins the chip at 96), so a block NEVER fits one pass. The first version of this function was a
+ * single bounded copy and would have silently dropped a block's last 32 bytes — source that compiles in the
+ * bake and vanishes on the chip. It chunks, and each chunk is cut back to the last SPACE so no token is
+ * ever split across passes. */
+#if defined(OVL_LOAD)
+static void interpret(void);
+
+static void p_load(void)                    /* ( blk -- ) interpret the block's text as source */
+{
+    u32 n = POP(), off = 0;
+    i32 st;
+    /* GUARDRAIL: repl_blk_req must bracket the xfer, exactly as p_blk_block and p_blk_save do it. Without
+     * it the read is never serviced: measured on the chip, `0 OVL` returned with the buffer untouched and
+     * the FIRST word of the overlay answered ERR_NO_SERVER, while the SAVE that preceded it (which sets the
+     * flag) worked fine. A mailbox request nobody is told about is a timeout, not a fetch. */
+    repl_blk_req = 1u;
+    st = blk_xfer(n, BLK_READ);
+    repl_blk_req = 0u;
+    if (st != BK_OK) { blk_errmsg(st); errf = 1; return; }
+    while (off < BLKSZ && !errf) {
+        u32 i, end = off + TIBSZ - 1;
+        if (end > BLKSZ) end = BLKSZ;
+        if (end < BLKSZ) {                  /* not the last chunk: cut back to a token boundary */
+            u32 k = end;
+            while (k > off && rd8(BLKADR + k) > ' ') k--;
+            if (k > off) end = k;
+        }
+        for (i = off; i < end; i++) {
+            u8 c = rd8(BLKADR + i);
+            tib[i - off] = (c >= ' ') ? c : ' ';
+        }
+        tib[end - off] = ' ';               /* close the final token */
+        ti = 0; tl = (u8)(end - off + 1);
+        interpret();
+        off = end;
+    }
+}
+#endif
+
 static void p_blk_save(void)                /* ( -- st ) */
 {
     i32 st;
@@ -1227,6 +1290,13 @@ static void vm_enter(void)
          * subset gate must not be able to drop its slot while cw() keeps emitting its token: that would
          * dispatch L_BAD and every literal in the image would report a corrupt token. */
         [P_LIT2] = DISP_ENT(L_P_LIT2),
+#if defined(OVL_LOAD)
+        /* GUARDRAIL: a primitive needs THREE things, not two: the X entry (header), the case body (label),
+         * and THIS table slot. With only the first two the word is findable, dispatches to cf=P_LOAD, finds
+         * no entry, and the default path reports the word as unknown - measured: `0 LOAD` printed `LOAD?`
+         * with LOAD's xt correctly in the dictionary and its label compiled 20 lines away. */
+        [P_LOAD] = DISP_ENT(L_P_LOAD),
+#endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_LITERAL)
         [P_LITERAL] = DISP_ENT(L_P_LITERAL),
 #endif

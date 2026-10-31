@@ -32,7 +32,12 @@
  * mem[]: the link succeeds, the boot assert is the only thing between that and "every word is unknown"
  * (E-079). Re-bake with tools/bake.sh <MEMSZ>, which owns the flag set, whenever this number moves.
  * 1 200 -> 1 400 is paid for exactly by the mailbox shrink in uforth.c (216 B -> 16 B of .bss). */
-#define MEMSZ    2296          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+/* GUARDRAIL: 2296 -> 2040 on the overlay-manager branch, and the reason is measured, not tuned: the LOAD
+ * primitive's text (the chunked copy + the outer-interpreter call) puts the pool at 8 111 / 7 856, i.e.
+ * 255 B over, and MEMSZ is 1:1 with the pool because mem[] IS the image. So overlays cost ~105 B of
+ * dictionary AND ~255 B of app space on this build - the capability is bought with the very space it
+ * makes optional. flash_safe refused the oversized image (exit 1), which is why this number exists. */
+#define MEMSZ    2040          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
@@ -66,6 +71,10 @@
  * baked against (F-79: an image baked at a different MEMSZ points outside mem[]). */
 #define P33_BLOCK 1
 #define BLKPRIM   1
+/* GUARDRAIL: the overlay experiment's LOAD primitive is its own switch, not an edit, for P30's reason:
+ * every earlier variant must keep compiling to its own byte-for-byte .text or the deltas stop meaning
+ * anything. bake.sh must define the SAME switch or the baked dictionary and the chip disagree (F-79). */
+#define OVL_LOAD  1
 #define BLKSZ     128
 #define BLK_MB    4
 /* P52: DEVICE BENCH BUILD ONLY — OFF for shipping. P52_LINECYC adds a per-line rdcycle pair and a

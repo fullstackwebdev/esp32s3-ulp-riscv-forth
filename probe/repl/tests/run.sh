@@ -35,7 +35,7 @@ gcc -Os -o artifacts/expand tools/expand.c
 # prove that BLOCK is unknown. A SECOND binary carries the shipping block flags, and tests named blocks*.fs
 # run against that one — the flag set lives here, next to the engine, not in the test file.
 gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=1200 \
-    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -o artifacts/host_blk src/uforth.c \
+    -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DOVL_LOAD -o artifacts/host_blk src/uforth.c \
     || { echo "BUILD FAILED: host_blk will not compile" >&2; exit 1; }
 
 fail=0
@@ -48,12 +48,18 @@ for f in tests/*.fs; do
     # so the test says what it means without this script knowing how an abort is implemented.
     case "$name" in
         blocks*) BIN=artifacts/host_blk ;;
+        # GUARDRAIL: overlay.fs needs the BLOCK-flag binary too - it was matched by the default arm and
+        # ran against host_suite, which has no LOAD, so the overlay prelude failed to compile and the
+        # transcript read `LOAD?` instead of the eight assertions. A test built for one flag set must
+        # be routed to the binary built with that flag set.
+        overlay*) BIN=artifacts/host_blk ;;
         *)       BIN=artifacts/host_suite ;;
     esac
     # GUARDRAIL: `SRV ` is the host driver's own end-of-run summary of the fake block server, and a
     # driver diagnostic must not be part of a golden transcript — it made the expected file depend on the
     # fake server's final state rather than on the program's behaviour.
-    got=$(timeout 120 ./"$BIN" src/p39_prelude.fs "$f" 2>&1 \
+    extra=""; case "$f" in *overlay*) extra=src/p39b_overlay.fs;; esac
+    got=$(timeout 120 ./"$BIN" src/p39_prelude.fs $extra "$f" 2>&1 \
           | grep -a -v ': error$' | grep -a -v '^SRV ' | ./artifacts/expand || true)
     if [ "$got" = "$(cat "$want")" ]; then
         echo "PASS  $name.fs (${#got} bytes)"
