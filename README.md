@@ -1,4 +1,4 @@
-# A Forth computer in 8 KB
+# An interpreted, multi-tasking, block-storage Forth in eight kilobytes, with 3 bytes to spare.
 
 **What it is.** A Forth machine that lives entirely inside the ESP32-S3's 8 KB coprocessor. You type
 Forth at a serial console; the ULP interprets and compiles it on-chip, runs it, multi-tasks it, and reads
