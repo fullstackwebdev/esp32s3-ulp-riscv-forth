@@ -209,8 +209,20 @@ static void seed_poll(void)
             {
                 uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, space = CMD_SIZE - (h - tl);
                 uint32_t i;
+                /* GUARDRAIL: a line longer than the ring was forwarded PARTIALLY - `for (... && i < space ...)` cut it
+                 * and the ULP then executed a truncated command. Measured: a 71-char definition echoed as
+                 * `... 1 + REPEAT DRO` and compiled a definition that never closed, with NO error anywhere; the next
+                 * lines were then compiled into it instead of being interpreted. The interactive limit is CMD_SIZE-1
+                 * = 63 bytes (the seeder's `#b` path has its own 320-byte buffer and is unaffected). Refuse the whole
+                 * line by name: a partial command must never reach the machine. */
+                if ((uint32_t)n + 1u > space || (uint32_t)n + 1u > CMD_SIZE) {
+                    printf("line too long: %d bytes, the ring holds %u - NOT sent\r\n", n, (unsigned)(CMD_SIZE - 1u));
+                    fflush(stdout);
+                    n = 0;
+                    continue;
+                }
                 ln[n] = '\r';
-                for (i = 0; i <= (uint32_t)n && i < space; i++) CMD_BYTES[(h + i) & CMD_MASK] = (uint8_t)ln[i];
+                for (i = 0; i <= (uint32_t)n; i++) CMD_BYTES[(h + i) & CMD_MASK] = (uint8_t)ln[i];
                 ulp_repl_cmd_head = h + i;
             }
             n = 0;
