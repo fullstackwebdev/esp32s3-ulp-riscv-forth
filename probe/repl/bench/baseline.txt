@@ -4,6 +4,10 @@
 prelude_base 261
 arith 832501 15163
 matrix 67000 25651
-recursion 144 5230
+# recursion: 5230 -> 5232 (P66). Deliberate and bounded: IF and WHILE now share one body through the normal
+# word (0BR), so compiling a word that uses IF or WHILE executes ONE extra DOCOL per use. That is a
+# COMPILE-time dispatch, not a runtime one — the compiled token stream and every result are identical
+# (the four checksums still match), and the recursion workload is the only one that uses both words.
+recursion 144 5232
 memory 120 862
 depth 0ERR_STACK -

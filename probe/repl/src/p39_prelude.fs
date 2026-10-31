@@ -31,7 +31,8 @@
 \ next token and executed DOCOL at address 0, rsp climbing), and its operand read fetched the filler
 \ (false path jumped to 0 = return to C). The token goes out with W, (2 bytes); only the *operand*
 \ placeholder/backpatch uses W, too, because ZBRANCH reads it with rd16_paged and skips 2.
-: IF     ['] 0BRANCH W,  0 W,  HERE 2 - ;   IMMEDIATE
+: (0BR)   ['] 0BRANCH W,  0 W,  HERE 2 - ;
+: IF     (0BR) ;                          IMMEDIATE
 : THEN   HERE SWAP W! ;                     IMMEDIATE
 : ELSE   ['] BRANCH W,   0 W,  HERE SWAP W!  HERE 2 - ;  IMMEDIATE
 
@@ -57,7 +58,12 @@
 \ P38 fix 1's W, width — nothing is invented here.
 \ GUARDRAIL: WHILE/REPEAT carry W, for both the token and the operand placeholder, like IF/THEN.
 \ `,` is a4()+wr32: it would write [token][00 00][operand] and every ZBRANCH would read 2 bytes late.
-: WHILE  ['] 0BRANCH W,  0 W,  HERE 2 - ;   IMMEDIATE
+: WHILE  (0BR) ;                          IMMEDIATE
+\ GUARDRAIL: IF and WHILE have byte-identical bodies, but `: WHILE IF ; IMMEDIATE` is WRONG and the bake
+\ proved it with a stack underflow in `.`: IF's body mixes emitting (W,) with computing (HERE 2 -), so
+\ invoking IF while DEFINING WHILE emitted the branch once and threw the computed address away — WHILE
+\ then emitted a branch without leaving the address REPEAT needs. The shared part must be a NORMAL word
+\ that does both when it is CALLED, with the two immediate words as one-line callers.
 : REPEAT SWAP ['] BRANCH W,  W,  HERE SWAP W! ;  IMMEDIATE
 
 : . ( n -- )                      \ print signed decimal, no recursion (no name visible to itself)
