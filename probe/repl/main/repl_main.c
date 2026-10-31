@@ -32,6 +32,8 @@
 #include "ulp_riscv.h"
 #include "ulp_main.h"
 
+static void seed_poll(void);   /* defined after blkfile[]; called from the UART pump */
+
 #define CONSOLE_UART  UART_NUM_0
 #define CONSOLE_BAUD  115200
 
@@ -76,17 +78,8 @@ static void console_task(void *arg)
          * space. Measured on the device: an 88-character definition arrived mangled (`ARITH?`, then `DUP?`)
          * and the benchmark lines — the longest being 88 chars — could not be typed at all.
          * Sizing the read to the free space makes the ring the only limit, which is what the ring is for. */
-        {
-            uint32_t h = ulp_repl_cmd_head;
-            uint32_t t = ulp_repl_cmd_tail;
-            uint32_t space = CMD_SIZE - (h - t);
-            if (space > sizeof buf) space = sizeof buf;
-            if (space > 0u) {
-                int n = uart_read_bytes(CONSOLE_UART, buf, space, 0);
-                for (int i = 0; i < n; i++) CMD_BYTES[(h + (uint32_t)i) & CMD_MASK] = buf[i];
-                if (n > 0) ulp_repl_cmd_head = h + (uint32_t)n;
-            }
-        }
+        /* the UART is read by seed_poll(), which forwards non-seed lines into the ring */
+        seed_poll();   /* fast block seeding, host-side (see seed_poll) */
 
         /* out ring -> UART */
         uint32_t oh = ulp_repl_out_head;
@@ -163,6 +156,59 @@ static uint32_t canary_used(void)
     for (i = 0; i < STACK_TOP - CANARY_BASE; i++) if (p[i] != CANARY_VAL) low = i;
     /* the stack grows DOWN from STACK_TOP, so the deepest touch is the LOWEST painted byte that changed */
     return (low < STACK_TOP - CANARY_BASE) ? (STACK_TOP - CANARY_BASE - low) : 0u;
+}
+
+/* GUARDRAIL: this lives AFTER blkfile[] and BLK_N because it writes them; the first placement sat above the
+ * store's declaration and failed with "'BLK_N' undeclared", which reads like a missing include.
+ * Line format:  #b <block> <hex bytes>   - intercepted here, never forwarded to the ULP. */
+static void seed_poll(void)
+{
+    /* GUARDRAIL: 320 bytes, not 180. A full 128-byte block arrives as ~264 hex characters plus the "#b N " prefix,
+     * so a 180-byte line buffer silently seeded 87 of 128 bytes per block and the phase source could not assemble
+     * (measured as IDX? / Z1? during the load, and as a readback of 87 bytes). Size for the worst case. */
+    static char ln[320];
+    static int n;
+    unsigned char c;
+    while (uart_read_bytes(CONSOLE_UART, &c, 1, 0) == 1) {
+        if (c == '\n' || c == '\r') {
+            ln[n] = 0;
+            if (n > 4 && ln[0] == '#' && ln[1] == 'b' && ln[2] == ' ') {
+                unsigned blk = 0, k = 3, w = 0;
+                int hi = 0, bad = 0;
+                while (ln[k] >= '0' && ln[k] <= '9') blk = blk * 10u + (unsigned)(ln[k++] - '0');
+                while (ln[k] == ' ') k++;
+                while (ln[k] && w < (unsigned)sizeof(blkfile[0]) * 2u) {
+                    int v;
+                    char d = ln[k];
+                    if (d >= '0' && d <= '9') v = d - '0';
+                    else if (d >= 'a' && d <= 'f') v = d - 'a' + 10;
+                    else if (d >= 'A' && d <= 'F') v = d - 'A' + 10;
+                    else { bad = 1; break; }
+                    if ((w & 1u) == 0u) hi = v;
+                    else if (blk < BLK_N) blkfile[blk][w >> 1] = (uint8_t)((hi << 4) | v);
+                    w++; k++;
+                }
+                if (!bad && blk < BLK_N) printf("seed: block %u <- %u bytes\n", blk, w / 2u);
+                else                     printf("seed: REJECTED (bad hex, or block >= %d)\n", BLK_N);
+                fflush(stdout);
+                n = 0;
+                continue;                       /* a seed line is consumed here, never forwarded */
+            }
+            /* GUARDRAIL: everything that is NOT a seed line is forwarded into the ULP's command ring from HERE.
+             * The pump used to read the UART as well, and two readers on one port steal each other's bytes:
+             * measured as a mangled command (`LOAD?` where a LOAD was intended) and blocks that never arrived. */
+            {
+                uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, space = CMD_SIZE - (h - tl);
+                uint32_t i;
+                ln[n] = '\r';
+                for (i = 0; i <= (uint32_t)n && i < space; i++) CMD_BYTES[(h + i) & CMD_MASK] = (uint8_t)ln[i];
+                ulp_repl_cmd_head = h + i;
+            }
+            n = 0;
+        } else if (n < (int)sizeof(ln) - 1) {
+            ln[n++] = (char)c;
+        }
+    }
 }
 
 static void block_task(void *arg)

@@ -749,3 +749,28 @@ The three numbers now agree with each other and with the theory:
 
 The multiple tracks total phases, because the 846 B toll is fixed and the per-phase ceiling is the window. That is
 the argmax of this design at the current store size.
+
+---
+
+## Device escalation: NOT finished — the seeder works, the multi-block source does not assemble
+
+Asked whether the ceiling probe ran on the chip: it had not. It now partly does.
+
+**Working on hardware:**
+- A fast seeder (`seed_poll()` in the main core, **0 ULP bytes**): one UART line `#b <block> <hex>` writes a whole
+  block into `blkfile[]`, and it is the *only* UART reader (it forwards every non-seed line into the ULP's command
+  ring). 120 blocks seeded in seconds where the poke path needed ~2 400 lines and an hour.
+- Seeded bytes are **verified correct** on the ULP: block 8 read back `92 32 112 104` = `\ ph` — byte-exact.
+
+**Not working:** assembling a *multi-block phase source* on the chip. `tests/device_ceiling.py` seeds 15 phases ×
+8 blocks and escalates, but phase 1 fails during the load with `>?` then `ERR_STACK`. Two real bugs were found and
+fixed on the way (the seed line buffer was 180 B and silently truncated 128-byte blocks to 87 bytes; and the phase
+text carried `\` comments, which swallow the rest of a *block* because a block has no line structure). What remains
+is a chunk-boundary problem in how the seeded text assembles — the same class as the host generator's `ETER?`
+(128-byte cuts splicing tokens), but not yet isolated for this path.
+
+So: **host high score 18 phases / 9 288 B / 604 % of the control**, with the store bound computed; **device evidence
+is still partial** — 16 KB store round trip (0 mismatches), phase loading from one block, the arm-from-inside-a-block
+semantics, and 40-load rotation all pass on the chip, but the *store-bound escalation* is not measured there.
+The script, the seeder and the two fixes are checked in so the next session starts from the failing `>?` rather than
+from a blank page.
