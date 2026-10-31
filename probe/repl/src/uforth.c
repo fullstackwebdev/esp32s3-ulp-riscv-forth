@@ -223,6 +223,13 @@ static u8  ptab_lru_reserve[234];          /* 250 - 16 of ptab[] above, .bss (4.
  * ERR_BUSY. The host polls every FreeRTOS tick (10 ms), so the wait must be comfortably longer than that:
  * 2 000 000 iterations ~= 0.2-0.4 s, which is the value the experimental tree validated on hardware. */
 #define BLKWAIT 2000000         /* iterations, not cycles: must exceed the host's 10 ms poll interval */
+/* GUARDRAIL (OPEN, needs a decision - see docs/20-strategy.md): a raw `n op BLKXFER` does NOT raise repl_blk_req;
+ * only the Forth verbs (BLOCK/SAVE/PHASE) bracket their transfer with it. So mailbox op 3 (image load) reaches the
+ * mailbox but the host task never looks, and the ULP reports BK_NOSERVER (-3) after BLKWAIT. Raising the flag inside
+ * blk_xfer works and was measured at +16 B of pool (7845 -> 7861, i.e. 5 B over the 7856 budget), which is over the
+ * 10 B gate for this step - so it was reverted rather than paid silently. Options: pay 16 B (application space
+ * 695 -> 679), publish blk_out (volatile, host polls it: near-zero bytes but a protocol change), or wrap op 3 in a
+ * Forth verb (same 10-16 B class). */
 #endif
 #define BLKADR (MEMSZ - BLKSZ)  /* the buffer's Forth address: the top of mem[] */
 /* ---- published for the MAIN CORE (R5) ----

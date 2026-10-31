@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""loader_tests.py — STEP 3: the binary loader's six tests, every refusal shown firing.
+"""loader_tests.py — the binary image loader, exercised the only safe way: mailbox op 3.
 
-Builds an image with `#d`, adopts it with `#l`, and then breaks it four different ways. Each refusal prints by name; a
-refusal that has never fired is not evidence.
+Design (from review):
+  * the ULP asks for the image and blocks inside blk_xfer, so the main core writes mem[] while the ULP is provably
+    quiescent. `#l` (a console command that wrote mem[] while the REPL ran) is RETIRED and refuses.
+  * the descriptor carries an ENTRY XT, because a binary load cannot run what a phase's top-level text ran. The entry
+    rides back in the block window and the caller EXECUTEs it.
+  * a phase must DEFINE things and nothing else at top level; the dump is taken before it runs, so captured data holds
+    initial values rather than the leftovers of a run.
 
-GUARDRAIL: every case runs in ONE chip session. Rebuilding an image per case would cost a reset + 8 loads each, and the
-chip-run budget for a probe is three.
-GUARDRAIL: the expected outputs come from the SOURCE-loaded phase in the same session, not from a constant - the point is
-that the binary path reproduces the source path, not that it reproduces my arithmetic.
+GUARDRAIL: proving "it executes" needs the cells cleared after adoption and the entry called - comparing cells right
+after a load only proves the bytes came back, because the dump captured them after the source phase ran (that mistake
+made an earlier version of T1 look green for the wrong reason).
 """
 import sys, re, pathlib
 sys.path.insert(0, "tools")
@@ -15,113 +19,120 @@ from devio import Dev
 from fsplit import split_defs
 
 DESC = 40
-EXPECT6 = None
 
 
-def phase():
+def phase_blocks_defines_only():
+    """The phase source with the trailing top-level `RUNPH1` removed: phases define, callers execute."""
     src = " ".join(re.sub(r"\([^)]*\)", "", re.sub(r"\\.*", "", pathlib.Path("tests/ph1.fsx").read_text())).split())
-    return split_defs(src, 128)
-
-
-def cells(d):
-    return [d.num(f"z{i} @ .") for i in range(1, 7)]
+    blocks = split_defs(src, 128)
+    last = blocks[-1]
+    assert last.rstrip().endswith("RUNPH1"), last[-40:]
+    blocks[-1] = last.rstrip()[: -len("RUNPH1")].rstrip()
+    return blocks
 
 
 def main():
-    blocks = phase()
+    blocks = phase_blocks_defines_only()
     pat = ("0123456789" * 13)[:128]
-    out = []
     with Dev() as d:
         miss = d.seed_many([(2, " " * 128), (4, pat)] + [(8 + k, b) for k, b in enumerate(blocks)])
         if miss:
             print("seed failed", miss); return 1
+        d.cmd("0 BLOCK CONSTANT W")                 # window address, before any image disturbs the window
         d.cmd("SEAL"); d.cmd("2 OVL")
         for k in range(len(blocks)):
             d.cmd(f"{8+k} LOAD", timeout=10.0)
-        expect = cells(d)
         cs, ce = d.num("bh @ ."), d.num("HERE .")
         hs, he = d.num("LATEST ."), d.num("bl @ .")
-        dump = d.cmd(f"#d {DESC} {cs} {ce} {hs} {he}", timeout=20.0).strip().splitlines()[-1]
-        print(f"  dump: {dump}")
-        nblocks = int(re.search(r"-> (\d+) blocks", dump).group(1))
+        entry = d.num("' RUNPH1 .")
+        cells0 = [d.num(f"z{i} @ .") for i in range(1, 7)]          # must still be initial values
+        dump = d.cmd(f"#d {DESC} {cs} {ce} {hs} {he} {entry}", timeout=20.0).strip().splitlines()[-1]
+        print(f"  dump (before running): {dump}")
+        print(f"  cells at dump time   : {cells0}   entry xt {entry}")
 
-        # --- T1 adopt and EXECUTE
-        d.cmd("2 OVL")
-        load = d.cmd(f"#l {DESC}", timeout=20.0).strip().splitlines()[-1]
-        got = cells(d)
-        # GUARDRAIL: comparing cells right after adoption proves only that the BYTES came back - the dump was taken
-        # after the source phase ran, so the cells already hold their computed values. Proving the CODE executes needs
-        # the cells cleared and the image's own entry word called: measured, that recomputes [6712, 353000, 0, 57, 128, 38].
+        def load():
+            d.cmd("2 OVL")                                        # rewind, so V_HERE == sealed HERE
+            return d.cmd(f"{DESC} 3 BLKXFER .", timeout=20.0).strip()
+
+        # --- T1 adopt + EXECUTE the returned entry
+        st = load()
+        adopted = [d.num(f"z{i} @ .") for i in range(1, 7)]
+        got_entry = d.num("W @ .")
         for i in range(1, 7):
             d.cmd(f"0 z{i} !")
-        zeroed = cells(d)
-        d.cmd("RUNPH1", timeout=15.0)
-        ran = cells(d)
-        ok1 = ("adopted" in load) and got == expect and zeroed == [0] * 6 and ran == expect
-        print(f"  T1 adopt+execute      : {'PASS' if ok1 else 'FAIL'}  {load}")
-        print(f"     adopted {got} | zeroed {zeroed} | after RUNPH1 {ran} | source {expect}")
+        d.cmd("W @ EXECUTE", timeout=15.0)
+        ran = [d.num(f"z{i} @ .") for i in range(1, 7)]
+        ok1 = "0" in st.split()[-1:] and got_entry == entry and adopted == cells0 and ran == [6712, 353000, 0, 57, 128, 38]
+        print(f"  T1 adopt+execute      : {'PASS' if ok1 else 'FAIL'}  status {st.split()[-1]}, entry {got_entry}, "
+              f"after EXECUTE {ran}")
 
         # --- T2 block count
-        ok2 = nblocks < len(blocks)
-        print(f"  T2 block count        : {'PASS' if ok2 else 'FAIL'}  image {nblocks} < source {len(blocks)}")
+        nblocks = int(re.search(r"-> (\d+) blocks", dump).group(1))
+        print(f"  T2 block count        : {'PASS' if nblocks < len(blocks) else 'FAIL'}  image {nblocks} < source {len(blocks)}")
 
-        # --- T3 fifty load/drop cycles, pointers return to the sealed values every time
+        # --- T3 fifty load cycles: sealed pointers restored every time
         ok3 = True
-        for cyc in range(50):
-            d.cmd("2 OVL")
+        for _ in range(50):
+            load()
             if d.num("HERE bh @ - .") != 0 or d.num("LATEST bl @ - .") != 0:
                 ok3 = False; break
-            d.cmd(f"#l {DESC}", timeout=20.0)
-        print(f"  T3 50 load/drop cycles: {'PASS' if ok3 else 'FAIL'}")
+            if d.num("W @ .") != entry:
+                ok3 = False; break
+        print(f"  T3 50 load cycles     : {'PASS' if ok3 else 'FAIL'}")
 
-        # --- T4 image payload corrupted -> named refusal, nothing executes
-        d.cmd("2 OVL")
-        d.cmd(f"#p {DESC} 20 255")
-        r4 = d.cmd(f"#l {DESC}", timeout=20.0).strip().splitlines()[-1]
-        ok4 = "REFUSED" in r4 and "corrupt" in r4
-        print(f"  T4 corrupt payload    : {'PASS' if ok4 else 'FAIL'}  {r4}")
+        # --- T4 corrupt one image byte -> BK_CRC (-4)
+        d.cmd(f"#p {DESC} 24 255")
+        st4 = load()
+        print(f"  T4 corrupt payload    : {'PASS' if st4.split()[-1] == '-4' else 'FAIL'}  status {st4.split()[-1]}")
 
-        # --- T5 descriptor's resident sum does not match this dictionary
+        # --- T5 stale resident checksum -> BK_CRC (-4). Forge the descriptor's resident sum.
+        d.cmd(f"#d {DESC} {cs} {ce} {hs} {he} {entry}", timeout=20.0)
         d.cmd(f"#p {DESC} 13 0"); d.cmd(f"#p {DESC} 14 0")
-        r5 = d.cmd(f"#l {DESC}", timeout=20.0).strip().splitlines()[-1]
-        ok5 = "REFUSED" in r5 and "resident" in r5
-        print(f"  T5 resident changed   : {'PASS' if ok5 else 'FAIL'}  {r5}")
+        st5 = load()
+        print(f"  T5 resident changed   : {'PASS' if st5.split()[-1] == '-4' else 'FAIL'}  status {st5.split()[-1]}")
 
-        # --- T6 an image header whose hash matches a resident one
-        # GUARDRAIL: forging a header byte also changes the payload sum, so a naive test measures refusal 3 (corrupt)
-        # and never reaches the collision check - measured as T6 answering "image corrupt". A hostile/different builder
-        # would fix the sum too, so the test must do the same: recompute psum over the 3 swapped bytes and rewrite it.
-        d.cmd("2 OVL")
-        for k in range(len(blocks)):
-            d.cmd(f"{8+k} LOAD", timeout=10.0)
-        dump2 = d.cmd(f"#d {DESC} {cs} {ce} {hs} {he}", timeout=20.0).strip().splitlines()[-1]
-        psum = [d.num(f"{DESC} BLOCK {11+j} + C@ .") for j in range(2)]
-        psum = psum[0] | (psum[1] << 8)
-        # GUARDRAIL: the resident header AREA is [sealed LATEST, HDRTOP) - `he` is its lowest address, i.e. the newest
-        # resident header sits AT `he`, not at he-3. Using he-3 pointed into the IMAGE's own headers, so the forgery
-        # created no collision at all and the loader correctly adopted it (measured as T6 answering "adopted").
-        res_hdr = he                                        # newest RESIDENT header
-        img_hdr = 16 + (ce - cs)                            # first IMAGE header inside the payload
+        # --- T6 header collision -> BK_BUFOVER (-6). Copy a resident header over an image header and fix the image sum.
+        d.cmd(f"#d {DESC} {cs} {ce} {hs} {he} {entry}", timeout=20.0)
+        psum = d.num(f"{DESC} BLOCK 11 + C@ .") | (d.num(f"{DESC} BLOCK 12 + C@ .") << 8)
+        res_hdr = he                                             # newest resident header sits AT sealed LATEST
+        img_hdr = 20 + (ce - cs)                                 # first image header in the payload
         delta = 0
         for j in range(3):
-            # GUARDRAIL: the resident header lives in MEMORY at the address the descriptor reports, so read it as
-            # `addr C@` - reading `N BLOCK` instead addresses a STORE block, and block 11 holds phase source text.
-            # Measured: the forgery copied source text into an image header, no collision existed, and T6 "adopted".
             v = d.num(f"{res_hdr + j} C@ .")
             g, o = DESC + (img_hdr + j) // 128, (img_hdr + j) % 128
             old = d.num(f"{g} BLOCK {o} + C@ .")
             d.cmd(f"#p {g} {o} {v}")
             delta += v - old
-        psum2 = (psum + delta) & 0xffff
-        d.cmd(f"#p {DESC} 11 {psum2 & 0xff}"); d.cmd(f"#p {DESC} 12 {(psum2 >> 8) & 0xff}")
-        d.cmd("2 OVL")
-        r6 = d.cmd(f"#l {DESC}", timeout=20.0).strip().splitlines()[-1]
-        ok6 = "REFUSED" in r6 and "collision" in r6
-        print(f"  T6 header collision   : {'PASS' if ok6 else 'FAIL'}  {r6}")
+        psum2 = (psum + delta) & 0xFFFF
+        d.cmd(f"#p {DESC} 11 {psum2 & 0xFF}"); d.cmd(f"#p {DESC} 12 {(psum2 >> 8) & 0xFF}")
+        st6 = load()
+        print(f"  T6 header collision   : {'PASS' if st6.split()[-1] == '-6' else 'FAIL'}  status {st6.split()[-1]}")
 
-    fails = [n for n, ok in (("T1", ok1), ("T2", ok2), ("T3", ok3), ("T4", ok4), ("T5", ok5), ("T6", ok6)) if not ok]
-    print(f"  result: {6 - len(fails)}/6 pass" + (f", failed {fails}" if fails else ""))
-    return 1 if fails else 0
+        # --- T7 wrong sealed pointers -> BK_RANGE (-5): build an image, then move the seal by defining a word
+        d.cmd(f"#d {DESC} {cs} {ce} {hs} {he} {entry}", timeout=20.0)
+        d.cmd(": MOVESEAL 1 ;")                                   # this moves HERE (and LATEST) past the seal
+        st7 = load()                                              # the rewind undoes the overlay, so move the seal instead:
+        # 2 OVL rewinds, so re-create the drift the way a different resident build would: lie in the descriptor
+        d.cmd(f"#d {DESC} {cs} {ce} {hs} {he} {entry}", timeout=20.0)
+        d.cmd(f"#p {DESC} 7 {(cs + 2) & 0xFF}"); d.cmd(f"#p {DESC} 8 {((cs + 2) >> 8) & 0xFF}")
+        st7b = load()
+        print(f"  T7 sealed pointers    : {'PASS' if st7b.split()[-1] == '-5' else 'FAIL'}  status {st7b.split()[-1]}")
+
+        # --- T8 the BLK_SZ(256) vs blk_sz(128) regression: bytes past offset 128 must survive
+        d.cmd(f"#d {DESC} {cs} {ce} {hs} {he} {entry}", timeout=20.0)
+        bad = 0
+        for off in (0, 127, 128, 300, 500):
+            mem = d.num(f"bh @ {off} + C@ .")
+            g = 20 + off
+            img = d.num(f"{DESC + g // 128} BLOCK {g % 128} + C@ .")
+            if mem != img:
+                bad += 1
+        print(f"  T8 payload past 128   : {'PASS' if bad == 0 else 'FAIL'}  {5 - bad}/5 offsets byte-exact")
+
+        fails = [] if all([ok1, nblocks < len(blocks), ok3, st4.split()[-1] == "-4", st5.split()[-1] == "-4",
+                           st6.split()[-1] == "-6", st7b.split()[-1] == "-5", bad == 0]) else ["see above"]
+        print(f"  result: {'8/8 pass' if not fails else 'FAILED ' + str(fails)}")
+        return 0 if not fails else 1
 
 
 sys.exit(main())

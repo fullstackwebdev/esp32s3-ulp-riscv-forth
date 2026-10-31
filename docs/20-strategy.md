@@ -326,3 +326,40 @@ for data. **The code/data split must be decided before any capacity number is pr
   cannot return silently;
 - the user-guide corrections in §8 (63-byte line limit, no `DO/LOOP`, no `DEPTH`, volatile store, retired 90 B rule,
   collision refusal printing the same shape as not-found).
+
+## Step 3b: the review's three items — two done, one blocked by the byte gate
+
+### Done and on the device
+
+**Entry xt in the descriptor (v2, 20 B, payload at offset 20).** `#d <blk> <cs> <ce> <hs> <he> <entry>` records it;
+the load hands it back in the block window (4 bytes) so the caller does `W @ EXECUTE`. A phase must define and nothing
+else at top level, and `tests/loader_tests.py` now seeds the phase **without** its trailing `RUNPH1` and dumps **before**
+it ever runs: `cells at dump time [0,0,0,0,0,0]`, entry `1282`.
+
+**Sealed-pointer refusal.** Op 3 checks the descriptor's code base against `mem[V_HERE]` and its header base against
+`mem[V_SEAL]` before copying, and refuses with `REFUSED sealed pointers moved(...)` on a mismatch — so an image built
+against a different seal can no longer be pasted at the wrong base. The resident checksum stays as the second line of
+defence (a same-length body edit).
+
+**`#l` is retired** and refuses by name: a console command writing `mem[]` while the REPL runs is passing by timing.
+
+**Housekeeping regression (T8):** payload bytes are compared at offsets 0, 127, **128**, 300 and 500, so the
+`BLK_SZ`(256) vs `blk_sz`(128) defect cannot return silently.
+
+### Blocked: op 3 needs the request flag, and that costs 16 B
+
+`repl_blk_req` is raised by the Forth **verbs** (`BLOCK`/`SAVE`/`PHASE`), not by `blk_xfer`, so a raw `n 3 BLKXFER`
+pokes the mailbox and the host task never looks: measured on the chip as **status -3 (BK_NOSERVER)** with nothing
+adopted. Raising the flag inside `blk_xfer` fixes it and was measured at **+16 B of pool** (7845 → 7861), i.e. **6 B
+over the 7856 budget and 6 B over the ≤10 B gate**, so it was reverted rather than paid silently.
+
+Three ways forward, for a decision:
+
+| option | cost | note |
+|---|---|---|
+| raise the flag in `blk_xfer` | **16 B** of `.text` ⇒ application space 695 → 679 | simplest, works for every op; needs 5 B freed or `MEMSZ` lowered by 16 |
+| publish `blk_out` (volatile) and have the host poll it | **~0 B, unmeasured** | the flag already exists and is already set/cleared correctly; making it volatile+exported is near-free, but it is a *protocol* change (the host would also service a late-timeout request) and needs its own measurement |
+| wrap op 3 in a Forth verb that brackets the flag | 10–16 B | same cost class as option 1, plus a word |
+
+Recommendation: measure option 2 first — it is the only one in the zero-byte class, and the case for a main-core loader
+was that it costs nothing on the scarce side.
