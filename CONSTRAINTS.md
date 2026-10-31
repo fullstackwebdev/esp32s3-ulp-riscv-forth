@@ -38,6 +38,9 @@ Rules this file obeys, learned the hard way:
 
 | constant | value | |
 | --- | --- | --- |
+| **configuration at HEAD** | main now carries the **overlay build**: `MEMSZ` 1 936, per-phase capacity **690 B**, resident toll 846 B (manager 528 + loop 318), store 128 × 128 B (volatile, host `.bss`) | M |
+| **device ceiling (measured)** | **15 phases × 516 B = 7 740 B = 504 %** of the control, stopped by the 128-block store — not by RAM or the window | M |
+| **no-overlay control** | `MEMSZ` 2 288, **1 536 B** of application space; still buildable (`tests/abtest.sh`) and preserved at tag `pre-overlay-merge` | M |
 | **pool used** | **7 853 / 7 856** (3 B free) — unchanged by P53, which moved 200 B from `.bss` to `.data`; the overlay branch sits at **7 845 / 7 856** after the loader fix (word() refill loop), which is 11 B better than the code it replaced | M |
 | `.text` | **4 926 B** (was 5 252) | M |
 | `.rodata` | **340 B** — the dispatch jump table plus the P54 binary-op table (+6 B of `.srodata`) | M |
