@@ -674,7 +674,13 @@ static void clit(u32 v)
     if (v <= 0xffffu) { cw(XT_PRIM(P_LIT2)); cw((u16)v); }
     else { cw(XT_PRIM(P_LIT)); cw(v); cw(v >> 16); }
 }
-static void a4(void) { wr32(V_HERE, (rd32(V_HERE) + 3) & ~3u); }
+/* GUARDRAIL: a4() is GONE. It rounded V_HERE up to 4 before a cell was written, and every reader of that
+ * cell is either byte-wise (wr32/rd32 are two rd16 halves) or an `rd16`, which needs only that the address
+ * be EVEN. V_HERE is always even — every writer adds 2 (cw, mkhdr_pad's x+2) or 4 (COMMA) — and mkhdr_pad
+ * refuses an odd x outright, so the round-up could only ever fire on V_HERE == 2 mod 4 and waste 2 bytes.
+ * GUARDRAIL: this is NOT permission to store a cell at an ODD address: rd16 on this target is a real 16-bit
+ * load and the ALIGN_TRAP build halts on an odd one. Even is the requirement; 4 was an assumption.
+ */
 
 /* build a header from the name currently in PAD; returns the xt */
 /* ---- P54: name dump for the hash search (host bake only) ----

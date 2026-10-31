@@ -6,10 +6,10 @@
         L_P_DOCOL: RPUSH(ip); ip = w + 2; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DOVAR)
-        L_P_DOVAR: PUSH((w + 2 + 3) & ~3u); goto tail;
+        L_P_DOVAR: PUSH(w + 2u); goto tail;     /* the cell follows the 2-byte code field: V_HERE is even */
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DOCON)
-        L_P_DOCON: PUSH(rd32((w + 2 + 3) & ~3u)); goto tail;
+        L_P_DOCON: PUSH(rd32(w + 2u)); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_EXIT)
         L_P_EXIT:
@@ -161,7 +161,7 @@
 
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_COMMA)
-        L_P_COMMA:  a4(); a = rd32(V_HERE); wr32(a, POP()); wr32(V_HERE, a + 4); goto tail;
+        L_P_COMMA:  a = rd32(V_HERE); wr32(a, POP()); wr32(V_HERE, a + 4); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_WCOMMA)
         L_P_WCOMMA: cw(POP()); goto tail;
@@ -179,11 +179,11 @@
         L_P_SEMI:   cw(XT_PRIM(P_EXIT)); wr32(V_STATE, 0); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_CREATE)
-        L_P_CREATE: if (mkhdr(P_DOVAR)) a4(); goto tail;
+        L_P_CREATE: mkhdr(P_DOVAR); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_CONSTANT)
         L_P_CONSTANT:
-            if (mkhdr(P_DOCON)) { a4(); a = rd32(V_HERE); wr32(a, POP()); wr32(V_HERE, a + 4); }
+            if (mkhdr(P_DOCON)) { a = rd32(V_HERE); wr32(a, POP()); wr32(V_HERE, a + 4); }
             goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_TICK)
