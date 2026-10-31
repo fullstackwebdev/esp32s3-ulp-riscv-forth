@@ -85,13 +85,6 @@ if [ "${BLK_256:-0}" = 1 ]; then BLKSZ=256; fi
 FREED=$(( ${ASM:-0} + ${RINGS:-0} + ${STACK:-0} ))
 
 OVERHEAD=$((TEXT + RODATA + BSS - FREED))
-# GUARDRAIL: once the block layer is IN the image, adding its cost again reports a deficit that does not
-# exist (it printed "737 B to go" on a build where blocks were working on the hardware). The metric has to
-# know which question it is answering.
-if grep -q '^#define P33_BLOCK' src/ulp_repl.c; then
-    printf 'blocks are IN this build: pool %d/%d, app space %d B\n' "$POOL_USED" "$POOL" "$APP"
-    exit 0
-fi
 TARGET_MEMSZ=$((VHERE + BLK_DICT + BLKSZ))
 TARGET_POOL=$((OVERHEAD + BLK_CODE + TARGET_MEMSZ + DATA_PAD))
 GAP=$((TARGET_POOL - POOL))
@@ -106,6 +99,14 @@ fi
 
 NEED=$((BLK_DICT + BLKSZ + BLK_CODE))
 HAVE=$((APP + POOL - POOL_USED))
+# GUARDRAIL: once the block layer is IN the image, adding its cost again reports a deficit that does not
+# exist (it printed "737 B to go" on a build where blocks were working on the hardware). Checked AFTER the
+# numbers exist — the first version sat before POOL_USED was computed and died on `unbound variable`.
+if grep -q '^#define P33_BLOCK' src/ulp_repl.c; then
+    printf 'blocks are IN this build: pool %d/%d, app space %d B, %d B free pool\n' \
+        "$POOL_USED" "$POOL" "$APP" "$((POOL - POOL_USED))"
+    exit 0
+fi
 
 printf 'blocks countdown: %-12s [pool %d/%d]\n' "$verdict" "$POOL_USED" "$POOL"
 printf '  need: dict %d + buffer %d + block code %d = %d B\n' "$BLK_DICT" "$BLKSZ" "$BLK_CODE" "$NEED"
