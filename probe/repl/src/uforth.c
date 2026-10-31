@@ -380,11 +380,20 @@ static i32 blk_xfer(u32 blk, u32 op)
 #else
 #define HDRTOP MEMSZ
 #endif
-#define HDRSZ 3u                 /* bytes per entry: 24 bits = imm1 | xt10 | hash13 */
+#define HDRSZ 3u                 /* bytes per entry: 24 bits = imm1 | xt11 | hash12 */
+/* GUARDRAIL: a primitive has NO code field in mem[], so its token cannot be an address: it is encoded at
+ * the TOP of the 11-bit xt field, descending from PRIM_TAG, with the imm bit in bit 0 exactly as an address
+ * token has it. find() already returns `field & ~1`, so an address token and a primitive token arrive at the
+ * dispatcher looking the same — the range is what tells them apart.
+ * GUARDRAIL: that costs the old 4094 ceiling. A real address must stay BELOW the tag space, so MEMSZ is now
+ * capped at PRIM_ADDR_MAX and the _Static_assert below says so — the previous assert allowed an address whose
+ * token would decode as a primitive id, i.e. a silently wrong-word dispatch at the top of the code area. */
+#define PRIM_TAG   4094u         /* token of primitive id 0; id n is PRIM_TAG - 2n (+imm) */
 /* GUARDRAIL: 10 bits of xt/2 is 2 KiB of code area, and the host suite already builds at MEMSZ 2048 —
  * at 2048 the last even offset is 2046 and xt/2 == 1023 still fits. Anything above this assert must
  * either widen the xt field (a 4th byte, i.e. no saving) or move to a token-indexed xt. */
-_Static_assert(MEMSZ <= 4094, "xt is stored as xt/2 in 11 bits: the code area must stay under 4 KiB");
+/* GUARDRAIL: the assert that matters lives where P_COUNT exists (below the dispatch table); the tag itself
+ * must not depend on the vocabulary size, because mkhdr_prim runs while that vocabulary is being built. */
 /* Prove, rather than assume, that find()'s direct `mem[h]` reads are in range: the loop keeps h below
  * HDRTOP and this says the header area is inside mem[]. */
 _Static_assert((HDRTOP) <= MEMSZ, "the header area lives inside mem[]: find() indexes it without rd8()");
@@ -657,29 +666,22 @@ static void a4(void) { wr32(V_HERE, (rd32(V_HERE) + 3) & ~3u); }
 #include <stdio.h>
 #endif
 
-static u16 mkhdr_pad(u8 cf, u8 imm)
+/* GUARDRAIL: the xt field of a header is 11 bits and a real address is ALWAYS EVEN (mkhdr_pad asserts it
+ * below), so bit 0 of that field was dead. It now MEANS something: an odd field holds 2*id+1, i.e. "this
+ * token is a primitive id, not an address". That is what lets a primitive live in the dictionary with NO
+ * code field in mem[] — the 70 boot primitives used to consume 2 B each of the code area before the
+ * prelude, and removing those 140 B moves every colon word down into application space.
+ * GUARDRAIL: the token is decoded in exactly ONE place (vm_enter's loop top), and EXEC re-enters that same
+ * top, so `' + EXEC` works with an odd token. Any new code that fetches a code field by hand would read an
+ * address that holds no cell and dispatch whatever followed it. */
+static u16 mkentry(u16 tok, u8 imm)
 {
-    u32 hs = hash_pad(rd8(PAD)), x = rd32(V_HERE), h = rd32(V_LATEST) - HDRSZ, v;
-    /* GUARDRAIL: the room check precedes BOTH writes. Once the code area has been written over the header
-     * area the damage is a wrong-word dispatch at some later line, not a failure here. */
-    /* GUARDRAIL: one exit for both dictionary-state failures. They carried the same message code and the
-     * same recovery, so two errf_msg call sites only cost bytes; the distinct reasons stay in the comments
-     * below rather than in the code. */
-    /* GUARDRAIL: no `x >= 2048u` test here. The line above proves x < h <= HDRTOP <= MEMSZ, and
-     * _Static_assert(MEMSZ <= 2048) pins the other end, so the bound was dead code — the assert is what
-     * keeps it honest, and it fires at compile time instead of costing a compare per definition. */
-    if (x + 2u > h || (x & 1u)) { errf_msg(MSG_ERR_DICT); return 0; }
-    /* GUARDRAIL: xt is stored as xt/2, so an odd x would be halved into a wrong-word dispatch with no
-     * trace anywhere. Nothing but cw()'s +2 and a4()'s round-up-to-4 writes V_HERE, so odd is an engine
-     * bug, not user input — but this is the only place an offset becomes a header field, so this is
-     * where it has to fail. Measured: 6 B of .text (5 244 -> 5 238 with it compiled out of the ULP
-     * build), kept unconditionally: the alternative is a silent half-offset dispatch.
-     * GUARDRAIL: `v` is a 24-bit little-endian value, written as wr16 + wr8. A single wr32 at h would
-     * clobber h+3, which is the already-written entry ABOVE (entries grow DOWN), and a wr32 at h - 1
-     * pays one byte of the free gap to keep the write word-shaped — measured at +72 B of .text, which
-     * is a bad trade for one byte of app space. */
-    v = ((hs << 12) | (((x >> 1) & 0x7ffu) << 1)) | (u32)(imm & 1u);
-    wr16(x, cf);                                    /* the code field lives at the xt, in the code area */
+    u32 hs = hash_pad(rd8(PAD)), h = rd32(V_LATEST) - HDRSZ, v;
+    /* GUARDRAIL: mask with 0xFFE, not 0x7FF. The xt field is bits 1..11 of the entry and bit 0 is the imm
+     * flag, so a token keeps its full 12 bits here; masking to 11 bits folded bit 11 and turned the PRIM_TAG
+     * encoding back into a small ADDRESS (measured: `2 3 + .` answered an error on line 1, because every
+     * primitive's token decoded to xt 1992, a code field that does not exist). */
+    v = ((hs << 12) | ((u32)tok & 0xffeu)) | (u32)(imm & 1u);
     /* GUARDRAIL: printed BEFORE the header write so a bake that runs out of room still names the word that
      * broke it; a dump taken after the write would silently miss the last entry. */
 #ifdef P54_NAMES
@@ -687,8 +689,44 @@ static u16 mkhdr_pad(u8 cf, u8 imm)
       fprintf(stderr, "\n"); }
 #endif
     wr16(h, (u16)v); wr8(h + 2u, (u8)(v >> 16));
-    wr32(V_LATEST, h); wr32(V_HERE, x + 2);
-    return (u16)x;
+    wr32(V_LATEST, h);
+    return tok;
+}
+
+/* build a header from the name currently in PAD, with a 2-byte code field at the xt; returns the token */
+static u16 mkhdr_pad(u8 cf, u8 imm)
+{
+    u32 x = rd32(V_HERE), h = rd32(V_LATEST) - HDRSZ;
+    /* GUARDRAIL: the room check precedes BOTH writes. Once the code area has been written over the header
+     * area the damage is a wrong-word dispatch at some later line, not a failure here. */
+    /* GUARDRAIL: one exit for both dictionary-state failures. They carried the same message code and the
+     * same recovery, so two errf_msg call sites only cost bytes; the distinct reasons stay in the comments
+     * below rather than in the code. */
+    /* GUARDRAIL: no `x >= 2048u` test here. The line above proves x < h <= HDRTOP <= MEMSZ, and
+     * _Static_assert(MEMSZ <= 4094) pins the other end, so the bound was dead code — the assert is what
+     * keeps it honest, and it fires at compile time instead of costing a compare per definition. */
+    if (x + 2u > h || (x & 1u)) { errf_msg(MSG_ERR_DICT); return 0; }
+    /* GUARDRAIL: an odd x would make the header field collide with the primitive encoding above (odd means
+     * "id"), i.e. a colon word would dispatch as some primitive with no trace anywhere. Nothing but cw()'s
+     * +2 and a4()'s round-up-to-4 writes V_HERE, so odd is an engine bug, not user input — but this is the
+     * only place an offset becomes a header field, so this is where it has to fail.
+     * GUARDRAIL: `v` is a 24-bit little-endian value, written as wr16 + wr8. A single wr32 at h would
+     * clobber h+3, which is the already-written entry ABOVE (entries grow DOWN), and a wr32 at h - 1
+     * pays one byte of the free gap to keep the write word-shaped — measured at +72 B of .text, which
+     * is a bad trade for one byte of app space. */
+    wr16(x, cf);                                    /* the code field lives at the xt, in the code area */
+    wr32(V_HERE, x + 2);
+    return mkentry((u16)x, imm);
+}
+
+/* a BOOT PRIMITIVE: no code field at all, the token is 2*id+1 (see the guardrail above) */
+static u16 mkhdr_prim(u8 cf, u8 imm)
+{
+    /* GUARDRAIL: only the header area can be collided with here — a primitive allocates nothing in the code
+     * area — but the test must still exist: it is what turns a full dictionary into a named error instead
+     * of headers written over live code. */
+    if (rd32(V_HERE) > rd32(V_LATEST) - HDRSZ) { errf_msg(MSG_ERR_DICT); return 0; }
+    return mkentry((u16)((PRIM_TAG - 2u * (u32)cf) | (u32)(imm & 1u)), imm);
 }
 static u16 mkhdr(u8 cf)
 {
@@ -1290,12 +1328,23 @@ static void vm_enter(void)
 #endif
     };
 #undef DISP_ENT
+    /* GUARDRAIL: the 11-bit token field carries BOTH forms — an address (even, code field at it) and a
+     * primitive id (descending from PRIM_TAG). An address that reached the tag space would decode as some
+     * primitive, i.e. dispatch the wrong word with no trace, so the ceiling is asserted HERE, where the id
+     * count is known, instead of being left to a comment. */
+    _Static_assert((u32)MEMSZ < PRIM_TAG - 2u * (u32)P_COUNT,
+                   "a real xt would collide with the primitive tag space");
     for (;;) {
 top:
 #ifdef P42_COUNT
         p42_dispatches = p42_dispatches + 1u;
 #endif
-        u16 cf = rd16_paged(w);                /* checkpoint = (w, ip): a pure read, so it retries */
+        /* GUARDRAIL: a token is either an ADDRESS (even, its first 2 B are the code field) or a PRIMITIVE ID
+         * (odd, 2*id+1). This is the only decode site; EXEC re-enters it through `top`. The bound check
+         * below still has to run on the decoded id, because mem[] can hold any halfword. */
+        u16 cf = (w >= (u16)(PRIM_TAG - 2u * (u32)(P_COUNT - 1)))
+                     ? (u16)((PRIM_TAG - (w & 0xfffeu)) >> 1)
+                     : rd16_paged(w);
         /* P57 GUARDRAIL: dispatch through a 2-byte offset table instead of GCC's switch table. The switch
          * table is 4-byte absolute addresses; label DIFFERENCES are constant enough for a static
          * initializer on this target (measured: .srodata 2 B per entry, `lhu` + `add` + `jalr`).
@@ -1422,7 +1471,7 @@ static void boot_init(void)
 #endif
 #define X(id, name, imm) \
     { const char *s = name; u8 n = 0; while (s[n]) { wr8(PAD + 1 + n, s[n]); n++; } wr8(PAD, n); \
-      x = mkhdr_pad(P_##id, imm); \
+      x = mkhdr_prim(P_##id, imm); \
       if (P_##id == P_LIT) wr16(V_XLIT, x); \
       if (P_##id == P_EXIT) wr16(V_XEXIT, x); \
       if (P_##id == P_PDOTQ) wr16(V_XSTR, x); }
