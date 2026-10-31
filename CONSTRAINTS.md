@@ -207,3 +207,18 @@ task slots.
 
 The immutable part — 8 176 B, ~19 MHz, and no path from the coprocessor to flash, PSRAM or the main core's
 512 KB — is the project's premise, not its obstacle.
+
+## Overlay finding (measured, 2026): the toll is fixed and the window is the limit
+
+Paging a program through the block store buys capacity only when every phase is near the window size (~690 B with
+the event loop resident) and the program is well over 1.5 KB in total. Measured A/B: a control (same program, one
+image, no overlays) has 1,536 B free and dies with `ERR_DICT`; the same program as six phases compiles to 1,608 B —
+**+4 %** — while the manager and loop cost 846 B of resident space. The store is *not* the limit (six phases use 33
+of 128 blocks, 26 %), and per-phase capacity is set by `LATEST HERE -` at the prompt, not by transport density. So
+binary overlays, more blocks, or a denser encoding cannot move this: **overlays here are bounded by the window, the
+window is bounded by RAM.** Do not retry paging on a small program; the overhead only pays for phases close to
+window size.
+
+Also: a block request that times out leaves `blk_out` latched, so every later block call answers `ERR_BUSY`. The
+escape hatch is `0 2 BLKXFER` (op 2 = BLK_ABORT), which clears it without a reset. Naming that in the message costs
+`.rodata` the pool cannot spare yet (3 B headroom); it is documented here instead.
