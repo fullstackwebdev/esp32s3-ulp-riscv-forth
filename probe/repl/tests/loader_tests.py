@@ -49,9 +49,17 @@ def main():
         d.cmd("2 OVL")
         load = d.cmd(f"#l {DESC}", timeout=20.0).strip().splitlines()[-1]
         got = cells(d)
-        ok1 = ("adopted" in load) and got == expect
+        # GUARDRAIL: comparing cells right after adoption proves only that the BYTES came back - the dump was taken
+        # after the source phase ran, so the cells already hold their computed values. Proving the CODE executes needs
+        # the cells cleared and the image's own entry word called: measured, that recomputes [6712, 353000, 0, 57, 128, 38].
+        for i in range(1, 7):
+            d.cmd(f"0 z{i} !")
+        zeroed = cells(d)
+        d.cmd("RUNPH1", timeout=15.0)
+        ran = cells(d)
+        ok1 = ("adopted" in load) and got == expect and zeroed == [0] * 6 and ran == expect
         print(f"  T1 adopt+execute      : {'PASS' if ok1 else 'FAIL'}  {load}")
-        print(f"     cells {got} vs source {expect}")
+        print(f"     adopted {got} | zeroed {zeroed} | after RUNPH1 {ran} | source {expect}")
 
         # --- T2 block count
         ok2 = nblocks < len(blocks)

@@ -273,3 +273,56 @@ Six tests, all green, on the device. The loader is main-core code: **0 ULP bytes
 unproven is everything the strategy lists after this: flash-backed persistence, the light real suite beyond one menu +
 one tool, and behaviour when the image was built against a *different* baked prelude (T5 proves the check fires when the
 resident sum changes; it does not prove a rebuild-and-rebuild-every-image workflow).
+
+## Review feedback that arrived one turn late: what still applies to what shipped
+
+The design it proposes (loader on the main core) is what step 3 built. But three of its points are **live defects in
+what shipped**, not history, and one of them invalidated a test I had already called green.
+
+### 1. The console `#l` races the REPL — and that is exactly what the review forbade
+
+`#l` writes `mem[]` from a console command while the ULP is running its REPL loop. It passes only because the ULP has
+nothing to execute at that moment: no token is being fetched from the region being written. That is **passing by
+timing**, which this project does not accept. The proposed fix is the right one: the ULP issues a "load image n"
+request through the existing mailbox, blocks waiting for the status (it already spins inside `blk_xfer`), and the main
+core writes `mem[]` while the ULP is provably quiescent. `#l` should then disappear or be refused.
+
+**Cost answer (asked for before coding):** ops are plain mailbox words — `BLK_READ 0`, `BLK_WRITE 1`, `BLK_ABORT 2` —
+and `BLKXFER` is `( n op -- status )`, so **a new op value costs 0 ULP bytes**; the ULP's existing path already carries
+it and only skips the READ checksum. **But the host's `block_task` treats every op that is not READ as WRITE**
+(`} else { /* WRITE */`), so an unknown op today nacks as `BK_CRC`/`+4` — a misleading name, in exactly the class the
+engine's own GUARDRAILs complain about. Adding op 3 needs an explicit host branch *and* an explicit unknown-op refusal.
+
+### 2. An image does not contain what a phase's *top-level text* did
+
+Proven, not argued: after adopting the image, the six result cells already held
+`[6712, 353000, 0, 57, 128, 38]` — because the dump was taken **after** the source phase ran, so those values were
+baked into the captured bytes. My original T1 therefore proved only that the bytes came back. Clearing the cells and
+calling the image's own entry word `RUNPH1` recomputed them, which *is* proof of execution — now folded into
+`tests/loader_tests.py` (adopted / zeroed / after-RUNPH1 all printed).
+
+So the review's gap is real:
+- the descriptor needs an **entry xt**, returned by the load so the caller can `EXECUTE` it;
+- a phase must **define things and nothing else** at top level — initial values belong in `CREATE … ,` data (captured
+  in the image), not in `!` statements that a binary load skips;
+- the dump must be taken **before the phase runs** (build order), so captured data holds initial values, not leftovers.
+
+### 3. No explicit "wrong sealed pointers" refusal
+
+`#l` copies to the destination recorded in the descriptor (`code_start`) rather than verifying it equals the machine's
+**current** sealed `HERE`. Today a moved seal is caught only incidentally, by the resident checksum. The review asks for
+a named status instead; that needs the current `bh`/`bl` in the request, which the mailbox flow provides for free.
+
+### Capacity this implies (the review's arithmetic, checked against the measurement)
+
+5 blocks per phase against a 128-block store ⇒ **about 25 phases**, roughly **12.9 KB** of code, ≈ 8× the 1 536 B
+control, versus 15 phases for source phases. Packing image headers back to back approaches 28, leaving almost nothing
+for data. **The code/data split must be decided before any capacity number is promised** — at 5 blocks/phase with, say,
+16 blocks reserved for data, the honest figure is 22 phases (~11.3 KB).
+
+### Housekeeping still open
+
+- regression test for the `BLK_SZ` (256) vs `blk_sz` (128) defect: a known pattern **past offset 128**, so the bug
+  cannot return silently;
+- the user-guide corrections in §8 (63-byte line limit, no `DO/LOOP`, no `DEPTH`, volatile store, retired 90 B rule,
+  collision refusal printing the same shape as not-found).
