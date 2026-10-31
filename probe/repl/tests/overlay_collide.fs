@@ -27,3 +27,18 @@ RES                        \ must still print 7 - the resident definition, untou
 HERE bh @ = .              \ must print -1: the refused definition moved no pointer
 LATEST bl @ = .            \ must print -1
 NOPE                       \ control: a name that was never defined still errors (prints NOPE?)
+
+\ (h) a collision INSIDE one overlay must be refused too. The scan used to start at V_SEAL, i.e. at the
+\ resident headers only, so two names colliding within the same phase were invisible - and at ~2.4 % per name
+\ that case is likely enough to hide among the loud ones.
+3 BLOCK DROP
+BLKBLANK
+58 W 0 + C! 32 W 1 + C! 68 W 2 + C! 85 W 3 + C! 80 W 4 + C! 69 W 5 + C!
+32 W 6 + C! 49 W 7 + C! 32 W 8 + C! 46 W 9 + C! 32 W 10 + C! 59 W 11 + C!
+32 W 12 + C! 58 W 13 + C! 32 W 14 + C! 68 W 15 + C! 85 W 16 + C! 80 W 17 + C!
+69 W 18 + C! 32 W 19 + C! 50 W 20 + C! 32 W 21 + C! 46 W 22 + C! 32 W 23 + C!
+59 W 24 + C! 32 W 25 + C!
+UPDATE SAVE DROP
+2 OVL                        \ rewind to the sealed state
+3 OVL                        \ the second DUPE must be refused: prints DUPE?
+DUPE                         \ must print 1 - the FIRST definition survived

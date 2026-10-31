@@ -776,13 +776,22 @@ static u16 mkentry(u16 tok, u8 imm)
      * GUARDRAIL: this lives HERE, not in a helper called from mkhdr_pad. The helper recomputed hash_pad(PAD)
      * at a point where PAD no longer held the name, so `hs` was the hash of an EMPTY name - 1285, which is
      * LOAD's hash - and every definition after SEAL was refused with ERR_DICT. The hash that matters is the
-     * one about to be stored, i.e. this local. */
+     * one about to be stored, i.e. this local.
+     * GUARDRAIL: the scan starts at V_LATEST, not at V_SEAL. V_SEAL is only the on/off gate; starting there
+     * compared the new name against RESIDENT headers alone, so two names colliding inside the SAME overlay were
+     * invisible - and at ~2.4 % per name a 40-name phase has a ~62 % chance of at least one collision, so an
+     * intra-overlay one would routinely hide among the loud ones. V_LATEST is the newest existing header, so
+     * scanning up from it covers the overlay's own entries AND every resident one.
+     * GUARDRAIL: the refusal goes through err(), which prints the offending name from PAD and a '?'. It used to
+     * be errf_msg(MSG_ERR_DICT) and printed only "ERR_DICT" - a message that names the failure but not the word,
+     * in a situation where renaming the word is the whole fix. Do not "improve" this back into a fixed string:
+     * the token is free here, a new message is .rodata. */
     if (rd32(V_SEAL)) {
         u32 s;
-        for (s = rd32(V_SEAL); s + HDRSZ <= (u32)HDRTOP; s += HDRSZ) {
+        for (s = rd32(V_LATEST); s + HDRSZ <= (u32)HDRTOP; s += HDRSZ) {
             if (mem[s + 2u] != (u8)(hs >> 4)) continue;
             if ((mem[s + 1u] >> 4) != (u8)(hs & 0x0fu)) continue;
-            errf_msg(MSG_ERR_DICT);
+            err();                          /* names the token, then '?' */
             return 0;
         }
     }

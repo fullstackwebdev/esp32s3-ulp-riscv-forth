@@ -295,3 +295,46 @@ prints 7.
   different path, so the magnitude-of-the-negative-status fix is correct by rule, not by evidence.
 - A **stack canary** painted from the main core (which can write RTC RAM) would turn the arithmetic into a
   measurement; the arithmetic plus a working chip says it is no longer urgent, but it belongs in the probe rules.
+
+---
+
+## Step 0 done: collision coverage, naming, and a seeder (the run-up to test 2)
+
+- **The scan now starts at `V_LATEST`, not `V_SEAL`.** `V_SEAL` remains only the on/off gate, so the check
+  compares a new name against the overlay's own entries *and* every resident one. It previously covered
+  resident headers alone, which made two names colliding inside one phase invisible — and with p ≈ 2.4 % per
+  name, a 40-name phase has a **62 %** chance of at least one collision, so an intra-overlay one would routinely
+  hide among the loud ones. `tests/overlay_collide.fs` now proves the intra-overlay case (`DUPE` defined twice
+  → second refused, first survives and prints 1).
+- **The refusal names the offending token** (`RES?`) instead of printing `ERR_DICT`: `PAD` still holds the name
+  when the check runs, so `err()` costs nothing where a new message would cost `.rodata`. The doc rule is now
+  "a name followed by `?` during an overlay load = collision".
+- **`tools/blkseed.py`** writes a source file into the store over the REPL (blank → pokes → `UPDATE` → `SAVE`,
+  plus `--verify` to read every byte back). It refuses to build a line longer than 88 characters, because
+  TIBSZ is 96 on the chip and an over-long line is dropped **after** being partly poked — that would seed a
+  block with holes.
+
+### The verdict arithmetic, and what a phase actually costs
+
+Total with overlays = `R + N × (1008 − R)`, where `R` is the *resident program* part. Beating the 1 544 B
+monolith therefore needs:
+
+| phases | resident part R | per-phase room |
+|---|---|---|
+| 2 | < 472 B | > 536 B |
+| 3 | < 740 B | > 268 B |
+
+Measured density on this engine: **~142 B of compiled code per 6 lines of source (~24 B/line)**. So a ~700 B
+phase is ~28 lines, and three of them plus a small resident core is ~85 lines → predicted total ≈ 2 100 B,
+**+36 %** over the monolith. That is the number test 2 has to confirm or refute, and if it does not beat 1 544 B
+the 536 B gets banked.
+
+### Two facts test 2 depends on, recorded before it runs
+
+- **The store is volatile.** `blkfile[BLK_N][BLK_SZ]` is host `.bss`: a paged program survives only within one
+  power cycle unless the main core is taught to persist it (NVS or a flash partition). That is cheap in ULP
+  bytes and not yet done; test 2 is scoped to a single power cycle deliberately.
+- **Phase size is capped by the resident part**, not by free space: each phase gets `1008 − R` bytes. A BASIC
+  whose resident state (token store, variables, helpers) is 600-900 B would leave phases of 100-400 B, i.e. too
+  small for a tokenizer — which is why test 2 starts with a numeric program whose resident core is ~40 B and
+  writes its data through the block window instead of a resident array.
