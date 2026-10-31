@@ -17,13 +17,17 @@ CC=${CC:-gcc}
 gcc -O2 -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
     -o artifacts/host_suite src/uforth.c
 
-got=$(timeout 30 ./artifacts/host_suite src/p39_prelude.fs tests/suite.fs 2>&1 || true)
+# GUARDRAIL: the engine now emits ONE BYTE per message (src/msg_codes.h), so the raw stream is not the
+# operator's transcript. Both sides are piped through tools/expand.c, which includes the SAME
+# src/msg_expand.h the bridge uses — a filter with its own mapping would test the copy, not the machine (R9).
+gcc -Os -o artifacts/expand tools/expand.c || exit 1
+got=$(timeout 30 ./artifacts/host_suite src/p39_prelude.fs tests/suite.fs 2>&1 | ./artifacts/expand)
 want=$(cat tests/expected.txt)
 # Every green suite prints the standing metric, so progress is measured in the same units every time.
 ./countdown.sh || true
 
 # The task-table bound is its own check: it deliberately errors, and an error aborts a load.
-raw_ntsk=$(timeout 30 ./artifacts/host_suite src/p39_prelude.fs tests/ntsk.fs 2>&1 || true)
+raw_ntsk=$(timeout 30 ./artifacts/host_suite src/p39_prelude.fs tests/ntsk.fs 2>&1 | ./artifacts/expand || true)
 # The host loader's own "<file>:<line>: error" line is a driver diagnostic, not machine output, so it is
 # stripped for the comparison — but its PRESENCE is asserted separately, because "the load aborted on the
 # third SPAWN" is half of what this test proves.

@@ -114,7 +114,11 @@ u32 pl_hw(int op, u32 a, u32 b)
 void pl_halt(int code) { repl_status = 0x100u + (u32)code; }
 
 /* ---------------------------------------------------------------- REPL */
-static void echo(const char *s) { while (*s) pl_emit(*s++); }
+/* GUARDRAIL: no string emitter here any more. Each message is ONE byte (msg(), uforth.c) that
+ * main/repl_main.c expands, so the ULP carries no message text and no string loop. The byte occupies
+ * exactly the ring position the text used to, which keeps the operator's transcript and its ordering
+ * against the echoed input byte-identical. */
+
 
 /* One typed line: interpret it, then print the outcome.
  * GUARDRAIL: interpret() consumes tib[0..tl) and stops at tl — it does not wait for a newline, which
@@ -130,11 +134,11 @@ static void run_line(void)
          * another message here produced "BOGUS?\n ?\n" — two reports for one error, which teaches
          * a user to distrust both. The engine's report is the one that names the word, so it wins. */
     } else if (sp >= SD) {
-        echo("stack?\n");
+        msg(MSG_UNDERFLOW);
         sp = 0;
         rsp = 0;
     } else {
-        echo(" ok\n");
+        msg(MSG_OK);
     }
     repl_line_count = repl_line_count + 1u;
     tl = 0;
@@ -152,6 +156,9 @@ static void run_line(void)
  * measures costs a flash cycle per iteration and invalidates every number it produces, so the
  * default build must not contain it. P42's measurement is therefore still OPEN (RESULT.md). */
 #ifdef P42_BENCH_ATTEMPT1_DEAD   /* kept as a record only: see probe-results/P42-RESULT.md */
+/* GUARDRAIL: nothing inside this #ifdef has compiled since P42 was abandoned, and its echo(...) calls now
+ * name a function that no longer exists (messages are one-byte codes, msg_codes.h). It is prose with line
+ * noise, kept for the numbers it records — do not build it and do not copy its echo() calls into live code. */
  * One fixed line, run BENCH_REPS times, minimum cycle count reported. The workload is deliberately
  * dumb: a counted BEGIN..UNTIL over prelude words, so nothing but the token fetch differs between
  * the two images being compared (same prelude, same primitives, same text, same count).
@@ -249,10 +256,10 @@ static void drain_cmd(void)
             pl_emit('\n');
             run_line();
         } else if (c == 8 || c == 127) {
-            if (ti > 0) { ti--; echo("\b \b"); }
+            if (ti > 0) { ti--; msg(MSG_ERASE); }
         } else if (c >= 32 && c < 127) {
             if (ti < TIBSZ - 1) { tib[ti++] = c; pl_emit(c); }
-            else { echo("\nline too long\n"); tl = 0; ti = 0; }
+            else { msg(MSG_LINE_TOO_LONG); tl = 0; ti = 0; }
         }
         /* other control bytes are ignored and not echoed, by design (06-repl.md §4) */
     }
@@ -289,7 +296,7 @@ int main(void)
          * exported value must describe the arrays that exist) and keeps them alive. */
         if (repl_cmd_bytes != (u32)sizeof repl_cmd || repl_out_bytes != (u32)sizeof repl_out)
             pl_halt(0x60);
-        echo("\nulp forth\n ok\n");     /* GUARDRAIL: the prompt must arrive from the ULP itself, so
+        msg(MSG_BANNER);     /* GUARDRAIL: the prompt must arrive from the ULP itself, so
                                         * "the HP printed it" can never be mistaken for "Forth ran". */
 #ifdef P42_BENCH
 #ifdef P42_ONLY
@@ -326,7 +333,7 @@ int main(void)
              * Retiring is loud, bounded, and recoverable: spawn again from a clean prompt. */
             int k;
             for (k = 0; k < NTSK; k++) if (tsk[k].state == 1) tsk[k].state = 2;
-            echo("\ntasks need an empty stack\n");
+            msg(MSG_TASK_STACK);
         } else {
             vm_run_tasks();
         }

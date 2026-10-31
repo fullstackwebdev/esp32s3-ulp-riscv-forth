@@ -1853,3 +1853,55 @@ SPAWN TA SPAWN TB SPAWN TC -> ERR_TASKS 1324
 cannot report that); `image_boot_assert()` (absolute `V_LATEST` means a stale bake is a dictionary-falls-off-the-end
 bug — halts with `0x51`); `_Static_assert` that `HDRTOP % 4 == 0`, since an unaligned `lw` traps.
 
+## E-077 — Stack overflow was silent (fixed, loud), `rd16` bound wrapped (fixed), message text moved off the ULP
+
+**Three defects, two of them correctness bugs. Measured before/after on the same tree.**
+
+| | before | after |
+|---|---|---|
+| `.text` | 4 764 | **4 786** |
+| `.rodata` | 372 | **268** (the jump table alone; zero message strings) |
+| `.bss` | 824 | 825 |
+| total pool | 7 680 | **7 599** |
+| countdown | 52 B short | **FITS, 29 B spare** |
+
+**1. `SD 16` wrapped the stack index silently.** `PUSH` wrote `ds[sp & (SD-1)]`, so the 17th value landed in
+slot 0. Measured with only `-DSD` changed: `15 FIB .` answers **610 at SD 256** and **377 at SD 16**, and a
+three-line Fibonacci file **hangs the machine** at SD 16 (exit 124, no output). The green suite never saw it
+because it peaks at **6 data cells**; measured peaks are suite 6/7, `15 FIB` **17/15**, three tasks 3/3,
+ten-number line 10/3, with the law `data = depth + 2`.
+Fixed by checking the index **before** the store and reporting once at the dispatch boundary
+(`ERR_STACK`, code `0x89`), where emitting is safe and the stacks can be reset: the operator loses the line,
+not the session. Cost **+22 B of text, 0 pool** — `SD 32` would have cost **+394 B**, which the pool does not
+have while blocks also fit.
+
+**2. `rd16`'s bound test wrapped.** `a + 1u < MEMSZ` is true at `a = 0xFFFFFFFF` (the sum is 0), so `-1 @`
+passed the check and read `mem - 1`. Now `a < MEMSZ - 1u`. `P(a)` never had the bug because it tests `a`.
+
+**3. Message text is no longer on the coprocessor.** The ULP emits **one byte** per message (`src/msg_codes.h`,
+one `MSG_LIST` X-macro that expands to enumerators on the ULP and to the string table on the HP);
+`main/repl_main.c` expands it through `src/msg_expand.h`. `.rodata` 372 → **268**, and `strings` over the ULP
+image returns **0** for every message. The transcript is **byte-identical**: `tests/run.sh` now pipes the
+engine and `ntsk.fs` through `tools/expand.c` (which includes the same header) and compares against the
+unchanged `expected.txt`.
+
+**Verified on the board** (`/dev/ttyACM1`, clean console):
+
+```
+banner (expanded by the HP)   -> "\nulp forth\n ok\n"
+2 3 + .                       -> 5 ok
+BOGUS                         -> BOGUS?
+10 FIB .                      -> 55 ok
+15 FIB .                      -> ERR_STACK          <- and the next line still works
+2 3 + .                       -> 5 ok
+HERE .                        -> 612
+SPAWN TA SPAWN TB             -> ok / 1324
+12<BS>3 .                     -> echo "\b \b", prints 13    (0x81 erase code)
+```
+
+**Also measured, not adopted (agent findings, all reproduced or refuted by measurement):** computed goto
+`-6 B` (the 268 B table is conserved — `&&label` is also 4 B); un-checking accessors as proposed **+40 B**
+(only 13 body lines are safe; GCC then outlines `PUSH`); `UC_FOLD` **−14 B**, **−22 B** with computed goto
+(deferred by decision); `-Oz` byte-identical to `-Os`; `-mrelax` 0; `-fno-jump-tables` +88 net;
+`-fno-omit-frame-pointer` +376; `-fno-crossjumping` +386.
+

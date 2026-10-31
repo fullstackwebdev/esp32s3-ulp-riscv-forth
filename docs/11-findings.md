@@ -307,3 +307,23 @@ The same change broke `IMMEDIATE`, which is **Forth in the prelude** (`LATEST 2 
 wrote into the middle of the new hash. The symptom was `IF?` three lines further down, not an error at
 `IMMEDIATE`. One header shape, one owner of the flag bit.
 
+## F-115 · The stack index wrapped silently, and the suite could not have caught it
+`PUSH` used `ds[sp & (SD-1)]`, so at `SD=16` the 17th value overwrote slot 0. `15 FIB .` measures **610 at
+SD 256** and **377 at SD 16**; a three-line file **hangs** the machine at SD 16. The suite peaks at **6**
+data cells, which is why months of green told us nothing — a test suite only certifies the depths it
+reaches. Now a push past `SD` sets `stack_ovf`, reported once at the dispatch boundary as `ERR_STACK`
+(`0x89`) with the stacks reset, so the line is lost and the session survives. Cost +22 B text, **0 pool**;
+`SD 32` would have been +394 B.
+
+## F-116 · Comparing `a + width` instead of `a` is a wraparound bug, not a bounds check
+`rd16` tested `a + 1u < MEMSZ`, which is **true** for `a = 0xFFFFFFFF` because the sum wraps to 0. `-1 @`
+therefore passed the check and read `mem - 1`. `P(a)` was always correct because it compares the address
+itself. Any "is there room for N bytes" test must compare the address, never the address plus its width.
+
+## F-117 · Message text cost 104 B of the ULP's `.rodata`; it belongs on the host
+One `MSG_LIST` X-macro expands to enumerators on the ULP and to the string table on the HP, so the two
+sides cannot drift, and `.rodata` fell 372 → **268** — which is now *only* the 67-entry dispatch jump table.
+`strings` over the ULP image returns **0**. The transcript stays byte-identical because `tests/run.sh` pipes
+the engine through `tools/expand.c`, which includes the same header: the test proves the operator's view,
+not a filter's own copy.
+

@@ -18,6 +18,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
+/* The ULP writes ONE byte per message into repl_out[] (0x81..) and msg_expand.h turns it back into text
+ * here. Every other byte in that ring is ASCII (echoed input, digits, the offending word, '?', '\n'), so a
+ * byte >= 0x80 is unambiguously a code, and the expansion is a substitution at the same position in the
+ * stream: the transcript keeps its bytes and its order against the echo.
+ * GUARDRAIL: a relative include, not an include dir. main/CMakeLists.txt deliberately keeps
+ * COMPONENT_ADD_INCLUDEDIRS empty so the ULP can never pick up a different uforth.c; adding src/ to the
+ * host's search path to reach one header would undo that. One list, both cores (R6). */
+#include "../src/msg_expand.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "ulp_riscv.h"
@@ -64,14 +72,14 @@ static void console_task(void *arg)
         uint32_t oh = ulp_repl_out_head;
         uint32_t ot = ulp_repl_out_tail;
         if (oh != ot) {
-            uint8_t out[64];
-            uint32_t k = 0;
-            while (ot != oh && k < sizeof out) {
-                out[k++] = OUT_BYTES[ot & OUT_MASK];
-                ot++;
-            }
+            /* GUARDRAIL: the expansion AND the ring bookkeeping live in msg_drain_ring() so the host test
+             * drives the same code, including the "does not fit" path: a message dropped instead of retried
+             * looks exactly like a healthy line with no reply, and that path only fires when the staging
+             * buffer is nearly full. */
+            char out[MSG_OUT_TEXT];
+            uint32_t n = msg_drain_ring(OUT_BYTES, OUT_MASK, oh, &ot, out, sizeof out);
             ulp_repl_out_tail = ot;
-            uart_write_bytes(CONSOLE_UART, (const char *)out, k);
+            if (n) uart_write_bytes(CONSOLE_UART, out, n);
         }
 
         vTaskDelay(pdMS_TO_TICKS(2));

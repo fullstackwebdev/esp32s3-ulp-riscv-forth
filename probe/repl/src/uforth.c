@@ -74,7 +74,10 @@ static void wr8(u32 a, u8 v)     { *P(a) = v; }
 #if defined(ALIGN_TRAP)
 static u16 rd16(u32 a)           { if (a & 1u) pl_halt(0x50u); return *(volatile u16 *)(mem + a); }
 #else
-static u16 rd16(u32 a)           { return a + 1u < MEMSZ ? *(volatile u16 *)(mem + a) : 0u; }
+/* GUARDRAIL: the old test was `a + 1u < MEMSZ`, which WRAPS for a = 0xFFFFFFFF: the sum becomes 0, the
+ * test passes, and the load reads mem - 1 — a wild pointer, not a rejected address. (`-1 @` reaches it.)
+ * Compare the address, never the address plus its own width. P(a) never had this bug because it tests `a`. */
+static u16 rd16(u32 a)           { return a < MEMSZ - 1u ? *(volatile u16 *)(mem + a) : 0u; }
 #endif
 static void wr16(u32 a, u16 v)   { wr8(a, v); wr8(a + 1, v >> 8); }
 static u32 rd32(u32 a)           { return rd16(a) | (u32)rd16(a + 2) << 16; }
@@ -308,11 +311,21 @@ static VM *V = &vm_live;              /* the machine currently executing */
 #define rs  (V->RS)
 #define w   (V->W)
 #define ip  (V->IP)
-static void PUSH(u32 v) { ds[sp & (SD - 1)] = v; sp++; }
+/* GUARDRAIL: `ds[sp & (SD-1)]` WRAPS when sp reaches SD, so the 17th value lands in slot 0 and silently
+ * corrupts whatever is there. Measured on the shipped SD=16: `15 FIB .` answers 377 instead of 610, and a
+ * three-line Fibonacci file HANGS the machine (E-077). This is not a sizing question — a wrong answer with
+ * no error is the worst failure this machine can produce. The index is now checked, and the check is
+ * BEFORE the store so a fault leaves the stacks intact enough to recover: `stack_ovf` is reported once at
+ * the dispatch boundary (vm_enter), where output is safe, and the line is abandoned with errf set.
+ * GUARDRAIL: do not make this a silent clamp or a saturating push — a program that overflows must find out. */
+static u8 stack_ovf;
+static void PUSH(u32 v) { if (sp < SD) { ds[sp] = v; sp++; } else stack_ovf = 1; }
 #define POP()    (ds[--sp & (SD - 1)])
 #define TOS      ds[(sp - 1) & (SD - 1)]
 #define NOS      ds[(sp - 2) & (SD - 1)]
-static void RPUSH(u32 v) { rs[rsp & (SD - 1)] = v; rsp++; }
+/* GUARDRAIL: same wrap on the return stack; a nested IF/DO that overflows corrupts the return addresses
+ * and the machine resumes at an unrelated token — the 15 FIB hang above is exactly this. */
+static void RPUSH(u32 v) { if (rsp < SD) { rs[rsp] = v; rsp++; } else stack_ovf = 1; }
 #define RPOP()   (rs[--rsp & (SD - 1)])
 #define RTOP     rs[(rsp - 1) & (SD - 1)]
 
@@ -423,9 +436,15 @@ static void p31_report(void)
 _Static_assert(MEMSZ % 4 == 0, "HDRTOP must be 4-aligned: header entries are rd32'd");
 _Static_assert((HDRTOP) % 4 == 0, "the header area must start 4-aligned");
 
-/* GUARDRAIL: mkhdr_pad needs a named, printed failure and say() is defined far below — declare it here
- * rather than moving the definition, because call-before-declaration compiles as implicit int in C89. */
-static void say(const char *s);
+/* ---- messages: ONE byte on the wire, the text lives on the HP core (msg_codes.h) ----
+ * GUARDRAIL: every message the engine prints goes through msg(), never a string literal. The text cost
+ * 104 B of the ULP's .rodata, the scarcest resource here, while the host has 32 MB of flash it cannot
+ * spend; and a string literal per call site is a second copy of a message that the host must also know.
+ * GUARDRAIL: msg() is the single emit path. Do not reintroduce a per-character string loop — the point
+ * is that no message text and no text-walking code is left in the ULP image. */
+#include "msg_codes.h"
+static void msg(u8 code) { pl_emit((int)code); }
+
 static u32 hash_pad(u8 n)
 {
     u32 h = 5381u; u8 i;
@@ -477,7 +496,7 @@ static u16 mkhdr_pad(u8 cf, u8 imm)
     u32 hs = hash_pad(rd8(PAD)), x = rd32(V_HERE), h = rd32(V_LATEST) - 4u;
     /* GUARDRAIL: the room check precedes BOTH writes. Once the code area has been written over the header
      * area the damage is a wrong-word dispatch at some later line, not a failure here. */
-    if (x + 2u > h || (x & 0x7ffu) != x) { say("ERR_DICT "); errf = 1; return 0; }
+    if (x + 2u > h || (x & 0x7ffu) != x) { msg(MSG_ERR_DICT); errf = 1; return 0; }
     wr16(x, cf);                                    /* the code field lives at the xt, in the code area */
     wr32(h, (hs << 12) | ((x & 0x7ffu) << 1) | (u32)(imm & 1u));
     wr32(V_LATEST, h); wr32(V_HERE, x + 2);
@@ -612,10 +631,6 @@ static void vm_task_init(int k, u16 xt)
 }
 
 static void vm_enter(void);
-/* GUARDRAIL: `say` is defined further down, and a call before its definition silently compiles as an
- * implicit int in older C modes — declare it. (Third time an ordering bit us: P_HAVE_DOCOL, ring sizes,
- * and now a helper used above its own definition.) */
-static void say(const char *s);
 
 /* Host driver: give each ready task a turn until all are done. */
 /* Spawn by name: parse the next word out of tib, resolve it, take the first free slot.
@@ -633,7 +648,7 @@ static int vm_spawn_name(void)
     /* GUARDRAIL: err() prints the word in PAD, which here is the NAME BEING SPAWNED — so a full table
      * reported `TC?` and looked exactly like an unknown word (the same confusion that made the block
      * id-drift present as a bare `?`). A full table is its own failure and must say so. */
-    if (k >= NTSK) { say("ERR_TASKS "); errf = 1; return -1; }
+    if (k >= NTSK) { msg(MSG_ERR_TASKS); errf = 1; return -1; }
     vm_task_init(k, xt);
     return k;
 }
@@ -692,6 +707,14 @@ static void vm_enter(void)
          * word and sets errf, so the hole announces itself. */
         default: err(); break;
         }
+        /* GUARDRAIL: the fault is reported HERE, not inside PUSH, because emitting from an arbitrary
+         * primitive can recurse into output while the machine's stacks are unusable. One branch per
+         * dispatch buys a named error instead of silent corruption, and the stacks are reset so the REPL
+         * survives: the operator loses the line, not the session. */
+        if (stack_ovf) {
+            stack_ovf = 0; sp = 0; rsp = 0; msg(MSG_ERR_STACK); errf = 1;
+            vm_depth--; return;
+        }
         if (!ip) { if (!vm_task_leave()) { vm_depth--; return; } continue; }
         w = rd16_paged(ip); ip += 2;
     }
@@ -726,7 +749,9 @@ static void interpret(void)
     }
 }
 
-static void say(const char *s) { while (*s) pl_emit(*s++); }
+/* GUARDRAIL: no string emitter here any more. say() existed only to print the three engine errors that
+ * are now one byte each (msg()), and a general string emitter on the ULP is exactly the 104 B of .rodata
+ * this change removed. blk_say() in the block layer is separate and lives with its own strings. */
 
 void forth_quit(void)
 {
@@ -736,13 +761,13 @@ void forth_quit(void)
         for (;;) {
             c = pl_key();
             if (c == '\r' || c == '\n') break;
-            if (c == 8 || c == 127) { if (tl) { tl--; say("\b \b"); } }
+            if (c == 8 || c == 127) { if (tl) { tl--; msg(MSG_ERASE); } }
             else if (c >= ' ' && tl < TIBSZ - 1) { tib[tl++] = c; pl_emit(c); }
         }
         pl_emit('\n');
         interpret();
-        if (sp >= SD) { say("stack?\n"); sp = rsp = 0; }
-        else if (!errf) say(" ok\n");
+        if (sp >= SD) { msg(MSG_UNDERFLOW); sp = rsp = 0; }
+        else if (!errf) msg(MSG_OK);
     }
 }
 

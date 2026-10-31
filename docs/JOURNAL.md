@@ -1737,3 +1737,25 @@ Two things this touched that I did not expect:
 Also added, because a 20-bit hash has to be *checked* rather than trusted: a **bake-time collision scan** that
 aborts the bake. A collision returns the wrong word silently, which is the one failure this machine cannot report.
 
+**J-95 · The suite was green because it never went deep, and the bytes came from where the text was.**
+Three agents ran in parallel copies. Two of their findings were bugs, and both were verified before I
+believed them:
+
+* **`SD 16` wrapped.** `15 FIB .` answers 610 at SD 256 and **377 at SD 16**, and a three-line file hangs the
+  machine. The suite peaks at six cells, so it certified nothing about the stack — a test only vouches for the
+  depths it reaches. Fixed by checking the push index and reporting `ERR_STACK` at the dispatch boundary:
+  +22 B of text, no pool. `SD 32` (+394 B) is deferred; the *correct* behaviour is now loud rather than deep.
+* **`rd16`'s bound test wrapped** (`a + 1u < MEMSZ` is true at `a = 0xFFFFFFFF`), so `-1 @` read `mem - 1`.
+
+The third change was the one that paid: messages are now **one byte on the wire**, expanded by the host from
+a table both cores share. `.rodata` 372 → 268, `strings` on the ULP image returns **0**, and the countdown
+went from **52 B short to FITS with 29 B spare** — blocks and R4 in one image.
+
+The validation I care about most: `tests/run.sh` pipes the engine through `tools/expand.c` and compares
+against the *unchanged* `expected.txt`, so "the operator sees the same transcript" is a test, not a claim.
+
+Agents' other numbers, for the record: computed goto −6 B (the table is conserved — `&&label` is also 4 B),
+un-checking the accessors as proposed **+40 B** (only 13 body lines are safe, and GCC then outlines `PUSH`),
+`UC_FOLD` −14 B (−22 B with cgoto, deferred by decision), `-Oz` identical to `-Os`, `-mrelax` 0,
+`-fno-jump-tables` +88 net. Repo is now under git with a checkpoint commit.
+
