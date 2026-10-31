@@ -42,7 +42,13 @@ CREATE ovlrun 0 ,          \ hook slot: the current overlay's entry point
 \ same name: the colon definition silently replaced the variable, and `phase .` then ran the word with an
 \ empty stack (ERR_STACK). Any cell whose name is a prefix-alike of a word must be named apart.
 CREATE curblk -1 ,         \ which block is loaded, -1 = none
-: PHASE ( blk -- )  DUP curblk @ = IF DROP EXIT THEN  DUP curblk !  OVL ;
+: PHASE ( blk -- )  DUP curblk @ = IF DROP EXIT THEN  DUP curblk !  0 ovlrun !  OVL ;
+\ GUARDRAIL: PHASE CLEARS the hook cell. With the source switch, LOAD arms the block and returns, so the
+\ block's text runs when the interpreter next asks for a token - i.e. AFTER the rest of the current line.
+\ A `PHASE GO` on one line would therefore GO with the hook the PREVIOUS phase left behind, which is the
+\ stale-hook garbage class. Clearing it makes that case execute token 0, and EXECUTE of 0 is a named error
+\ (it used to dispatch into mem[0..1] and run garbage from address 2). A phase block must set the hook in
+\ its own text, before the line that GOes.
 \ GUARDRAIL: the first version was `... IF DROP ELSE DUP phase ! OVL THEN ;` and it underflowed on the
 \ load path: `DUP <cell> !` consumes the block number, so OVL was called with an empty stack (ERR_STACK).
 \ The `EXIT` form keeps one copy for OVL; the alternative is a cell to re-push, i.e. more state.

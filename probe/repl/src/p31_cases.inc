@@ -52,7 +52,12 @@
         L_P_UNLOOP: rsp -= 2; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_EXEC)
-        L_P_EXEC:   w = (u16)POP(); goto top;           /* call without fetching next */
+        L_P_EXEC:   w = (u16)POP();
+            /* GUARDRAIL: EXECUTE of token 0 is always a bug - it dispatched into mem[0..1] (V_STATE =
+             * 0 => DOCOL) and ran garbage from address 2, silently. A cleared hook cell (GO after a
+             * deferred PHASE, before the block set it) is exactly that case, and it has to be loud. */
+            if (!w) { err(); goto tail; }
+            goto top;                              /* call without fetching next */
 
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DUP)

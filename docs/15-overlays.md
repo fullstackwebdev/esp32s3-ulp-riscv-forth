@@ -254,3 +254,44 @@ alignment theory needs has no mechanism here.
 Checked on the chip after the `PAD 12→16` / `DICT 44→48` move: `4 @` = 554 (V_HERE), `8 @` = 1537 (V_LATEST),
 `12 @` = 1537 (V_SEAL, equal to V_LATEST right after `SEAL`, as it must be), `0 BLOCK .` = 1840 = `MEMSZ 1968 −
 BLKSZ 128`. The bake, the engine and the chip agree, so the constants are not the failure.
+
+---
+
+## FIXED: the source switch (the friend's design) — device-verified
+
+`LOAD` no longer calls `interpret()`. `p_load` fetches the block once and arms `V_LOADB` (0 = none, else
+`(block+1) | (offset << 8)`); `word()` — the only reader of `tib`, confirmed by grep: no `parse`, `[CHAR]` or
+`[']` variant exists in this engine — refills `tib` from the block when the current source is dry, and when the
+block is exhausted the saved line resumes exactly where it was.
+
+That single change fixed both outstanding bugs:
+
+- **stack**: the deepest chain lost the extra `interpret + vm_enter`. `-fstack-usage` now gives
+  `main 96 → vm_enter 64 → mkentry → hash_pad 16` ≈ **200 B** against a **339 B** reserve: ~139 B of margin,
+  where the old chain was ~336 B and over.
+- **lost tail**: `0 LOAD 99 .` now prints the block's output *and* `99`, in that order.
+- **definitions from a block**: `0 PHASE` → `HI` → **42** on the chip, which never worked before.
+
+Two guards make the deferred semantics loud rather than silent:
+
+1. `PHASE` clears the hook cell, so `PHASE GO` on one line executes token 0 — and `EXECUTE` of token 0 is now a
+   **named error**; it used to dispatch into `mem[0..1]` (`V_STATE = 0` → DOCOL) and run garbage from address 2.
+   A phase block must set the hook in its own text.
+2. An error disarms `V_LOADB`, so the remains of a half-loaded block cannot be fed to the next line.
+
+Device run, all 30 checks green (`MEMSZ` 1936, pool 7 853/7 856, 98 words, 1 008 B free):
+blocks 0..127 answer and 128 → `ERR_RANGE`; `0 PHASE` → `HI` → 42; `0 OVL` → `HI` → 42; 40 overlay loads leave
+`HERE`/`LATEST` exactly at the sealed values; `1 OVL` of a block redefining `RES` → `ERR_DICT` and `RES` still
+prints 7.
+
+### Still open (named, not hidden)
+
+- **Test 2** — a real multi-phase program bigger than one image (Tiny BASIC) — is now *possible* (128-block
+  store, working definitions) and still **not written**. It is the test that decides whether overlays are worth
+  their 536 B of resident cost.
+- `ERR_BUSY` still does not print its own escape hatch (`0 2 BLKXFER` sends `BLK_ABORT` and clears the latch);
+  naming it costs `.rodata` bytes, so it is a deliberate pending trade.
+- The real host's **checksum-mismatch nack** is not covered by any test: the engine's fake server takes a
+  different path, so the magnitude-of-the-negative-status fix is correct by rule, not by evidence.
+- A **stack canary** painted from the main core (which can write RTC RAM) would turn the arithmetic into a
+  measurement; the arithmetic plus a working chip says it is no longer urgent, but it belongs in the probe rules.

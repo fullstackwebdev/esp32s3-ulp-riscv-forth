@@ -37,7 +37,7 @@
  * 255 B over, and MEMSZ is 1:1 with the pool because mem[] IS the image. So overlays cost ~105 B of
  * dictionary AND ~255 B of app space on this build - the capability is bought with the very space it
  * makes optional. flash_safe refused the oversized image (exit 1), which is why this number exists. */
-#define MEMSZ    1968          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+#define MEMSZ    1936          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */

@@ -69,9 +69,12 @@ void pl_halt(int code);                  /* stop the machine; code 0 = no tasks 
  * the current overlay. Without it, an overlay word whose 12-bit hash matches a resident word simply shadows
  * it for as long as the overlay is loaded (find() returns the first match walking down from V_LATEST), which
  * is the one failure this machine cannot report at run time. */
-enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8, V_SEAL = 12,
-       PAD = 16,                                  /* counted string, 32 bytes */
-       DICT = 48 };
+enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8, V_SEAL = 12, V_LOADB = 16,
+       PAD = 20,                                  /* counted string, 32 bytes */
+       DICT = 52 };
+/* GUARDRAIL: V_LOADB is the pending-block cursor for the SOURCE SWITCH below: 0 = none, otherwise
+ * (block+1) in the low byte and the byte offset into that block in the high byte. It costs 4 B of app space
+ * and it is what replaced LOAD's recursive interpret() call - see the note on word(). */
 
 #ifdef IMAGE
 #include "image.h"
@@ -568,9 +571,44 @@ static void err(void)
 }
 
 /* parse next blank-delimited word into PAD (upper-cased); returns length */
+/* GUARDRAIL: the source switch. LOAD used to call interpret() recursively from inside a primitive, which
+ * (a) re-entered vm_enter and put the chip's ~327 B stack 9 B over on the deepest chain - measured, a block
+ * containing a definition failed with an ambiguous `?` while a block containing only execution worked - and
+ * (b) lost the rest of the line, because the nested interpret consumed the outer one's cursor. word() is the
+ * ONLY reader of tib (checked: no parse/[CHAR]/['] variant exists in this engine), so switching sources here
+ * is local: when the current source runs dry, a pending block refills tib chunk by chunk, and when the block
+ * is exhausted the saved line continues exactly where it was. No recursion, no lost tail, no extra frame. */
+#if defined(OVL_LOAD)
+static void blk_refill(void)
+{
+    u32 v = rd32(V_LOADB), blk, off, i, end;
+    if (!v) return;
+    blk = (v & 0xffu) - 1u;
+    off = v >> 8;
+    if (off >= BLKSZ) { wr32(V_LOADB, 0); return; }
+    end = off + TIBSZ - 1;
+    if (end > BLKSZ) end = BLKSZ;
+    if (end < BLKSZ) {                      /* not the last chunk: cut back to a token boundary */
+        u32 k = end;
+        while (k > off && rd8(BLKADR + k) > ' ') k--;
+        if (k > off) end = k;
+    }
+    for (i = off; i < end; i++) {
+        u8 c = rd8(BLKADR + i);
+        tib[i - off] = (c >= ' ') ? c : ' ';
+    }
+    tib[end - off] = ' ';
+    ti = 0; tl = (u8)(end - off + 1);
+    wr32(V_LOADB, (end >= BLKSZ) ? 0u : ((blk + 1u) | (end << 8)));
+}
+#endif
+
 static u8 word(void)
 {
     u8 n = 0, c;
+#if defined(OVL_LOAD)
+    if (ti >= tl) blk_refill();              /* the current source is dry: switch to the pending block */
+#endif
     while (ti < tl && tib[ti] <= ' ') ti++;
     while (ti < tl && tib[ti] > ' ') {
         c = tib[ti++];
@@ -1050,51 +1088,26 @@ static void p_blk_block(void)               /* ( n -- addr | code ) */
     blk_errmsg(st); PUSH((u32)st);
 }
 static void p_blk_update(void) { blkvars[BLK_VBLKDRT] = 0xffffffffu; }
-/* GUARDRAIL: LOAD copies each chunk of the window into tib instead of pointing the interpreter at the
- * window. Two reasons, both from this tree: (1) tib is a fixed array (TIBSZ), so there is no pointer to
- * redirect — only a buffer to fill; (2) a COPY makes an overlay safe against most self-clobbering: source
- * text that calls BLOCK for data fetches another block into the window, and only the UNREAD TAIL of the
- * current block can be lost, never the chunk being compiled. Any control byte (a newline in a text block)
- * becomes a space so word() sees token boundaries.
- * GUARDRAIL: the chip has TIBSZ 96 while a block is BLKSZ 128 (tools/bake.sh compiles the host bake at 128,
- * ulp_repl.c pins the chip at 96), so a block NEVER fits one pass. The first version of this function was a
- * single bounded copy and would have silently dropped a block's last 32 bytes — source that compiles in the
- * bake and vanishes on the chip. It chunks, and each chunk is cut back to the last SPACE so no token is
- * ever split across passes. */
-#if defined(OVL_LOAD)
-static void interpret(void);
-
-static void p_load(void)                    /* ( blk -- ) interpret the block's text as source */
+/* GUARDRAIL: LOAD arms the SOURCE SWITCH instead of interpreting the block itself. It fetches the block once
+ * (so the window holds it) and stores the cursor in V_LOADB; word() then feeds those tokens to the SAME
+ * interpreter that is already running. That is what removes the extra interpret/vm_enter frame (the chip's
+ * ~327 B stack was 9 B over on the deepest chain), keeps the rest of the line alive, and makes an error inside
+ * the block unwind the outer line instead of a nested one.
+ * GUARDRAIL: BLOCK called from overlay text still clobbers the window - the fetch happens once, here, and a
+ * later BLOCK replaces the remaining chunks. Keep data use out of overlay source.
+ * GUARDRAIL: repl_blk_req must bracket the xfer, exactly as p_blk_block and p_blk_save do. Without it the read
+ * is never serviced: measured on the chip, the first overlay token read garbage while the SAVE just before it
+ * (which sets the flag) worked fine. */
+static void p_load(void)                    /* ( blk -- ) arm a block as the interpreter's source */
 {
-    u32 n = POP(), off = 0;
+    u32 n = POP();
     i32 st;
-    /* GUARDRAIL: repl_blk_req must bracket the xfer, exactly as p_blk_block and p_blk_save do it. Without
-     * it the read is never serviced: measured on the chip, `0 OVL` returned with the buffer untouched and
-     * the FIRST word of the overlay answered ERR_NO_SERVER, while the SAVE that preceded it (which sets the
-     * flag) worked fine. A mailbox request nobody is told about is a timeout, not a fetch. */
     repl_blk_req = 1u;
     st = blk_xfer(n, BLK_READ);
     repl_blk_req = 0u;
     if (st != BK_OK) { blk_errmsg(st); errf = 1; return; }
-    while (off < BLKSZ && !errf) {
-        u32 i, end = off + TIBSZ - 1;
-        if (end > BLKSZ) end = BLKSZ;
-        if (end < BLKSZ) {                  /* not the last chunk: cut back to a token boundary */
-            u32 k = end;
-            while (k > off && rd8(BLKADR + k) > ' ') k--;
-            if (k > off) end = k;
-        }
-        for (i = off; i < end; i++) {
-            u8 c = rd8(BLKADR + i);
-            tib[i - off] = (c >= ' ') ? c : ' ';
-        }
-        tib[end - off] = ' ';               /* close the final token */
-        ti = 0; tl = (u8)(end - off + 1);
-        interpret();
-        off = end;
-    }
+    wr32(V_LOADB, n + 1u);                  /* offset 0: word() pulls the first chunk */
 }
-#endif
 
 static void p_blk_save(void)                /* ( -- st ) */
 {
@@ -1564,6 +1577,11 @@ static void interpret(void)
         sp = rsp = 0;
         if (rd32(V_STATE)) { wr32(V_HERE, savehere); wr32(V_LATEST, savelatest); }
         wr32(V_STATE, 0); ti = tl;
+#if defined(OVL_LOAD)
+        /* GUARDRAIL: an error must also disarm the source switch, or the remains of a half-loaded block would
+         * be fed to the NEXT line and compile into whatever the operator typed after the failure. */
+        wr32(V_LOADB, 0);
+#endif
     }
 }
 
