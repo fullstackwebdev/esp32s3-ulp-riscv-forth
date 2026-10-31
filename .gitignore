@@ -36,3 +36,26 @@ cache/objects/
 # are reproducible (cache by refetch, listings by probe/repl/tools/disasm.sh), so keep them out of history.
 cache/derived/
 probe/*/probe-results/asm/*.dis
+
+# --- P54 cleanup (J-102) -------------------------------------------------------------------------
+# IDF build trees: 134 MB each, 0 tracked, and reproducible with one command. 2.86 GB of the old 3.3 GB
+# worktree was these. Never commit one; probe/repl/build is the live tree and stays on disk.
+probe/**/build*/
+probe/**/build.*/
+# loose probe logs: moved to archive/logs/, which is on disk and not tracked (they are evidence of a
+# build, not of an idea — the ideas live in FINDINGS.md / EVIDENCE.md / docs/)
+probe/repl/*.log
+# research twin trees: each is a copy of probe/repl/src plus its variants, derived and huge. The
+# FINDINGS.md, TASK.md, tools and diffs ARE tracked; the trees that produced them are not.
+probe/research/*/out/
+probe/research/*/variants/
+probe/research/*/src/
+probe/research/*/bench/
+probe/research/*/tests/
+probe/research/*/artifacts/
+probe/research/*/host
+probe/research/*/host_*
+probe/research/*/RESULTS.txt
+# patch/patch leftovers
+*.orig
+*.rej

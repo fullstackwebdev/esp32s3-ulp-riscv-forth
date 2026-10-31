@@ -1,0 +1,257 @@
+--- /dev/shm/ship_uforth.c	2026-10-30 23:54:36.384329011 -0700
++++ ../research/P54-hdr/src/uforth.c	2026-10-30 23:32:53.895872074 -0700
+@@ -82,6 +82,13 @@
+ static void wr16(u32 a, u16 v)   { wr8(a, v); wr8(a + 1, v >> 8); }
+ static u32 rd32(u32 a)           { return rd16(a) | (u32)rd16(a + 2) << 16; }
+ static void wr32(u32 a, u32 v)   { wr16(a, v); wr16(a + 2, v >> 16); }
++/* GUARDRAIL: host-only. A 3-byte header entry (P54) cannot be read with rd32 at all — half of the
++ * entries sit at odd addresses and an `lw` there traps on rv32 — so the bake-time collision check needs
++ * this reader. find() must NOT call it: there the bytes are compared one at a time on purpose, so the
++ * load is the filter. Guarded out of the ULP image, where nothing reads a whole entry. */
++#ifdef HOST
++static u32 rd24(u32 a)           { return rd8(a) | (u32)rd8(a + 1) << 8 | (u32)rd8(a + 2) << 16; }
++#endif
+ 
+ /* ---- P33: transparency removed, and why nothing else moved ----------------
+  * P32 priced transparent paging at 2466 B and 800 B over the pool. A visible block interface
+@@ -315,6 +322,53 @@
+ }
+ #endif /* P33_BLOCK */
+ 
++/* ---- P51: hash dictionary, no names, headers in their own area ----
++ * GUARDRAIL: names were 283 B for 81 words (average 3.5 characters: `+`, `DUP`, `.`) and each header
++ * also carried a 2 B link and a length/flags byte — 730 B of a 1 146 B dictionary. A 4-byte entry
++ * holding a 20-bit DJB2 hash, an 11-bit xt and the immediate flag returns 406 B, and find() becomes a
++ * fixed-stride 4-byte compare instead of a link chase with up to 31 byte compares.
++ * GUARDRAIL: the previous design measured only 82 B because it kept the link and the code field. The
++ * saving lives entirely in *dropping* both: headers are now a contiguous array with no link, and the
++ * xt is stored IN the entry, so the code field lives at the xt in the code area.
++ * GUARDRAIL: headers grow DOWN from HDRTOP, code grows UP from DICT. They must never meet, and the check
++ * is BEFORE the body is written: a dictionary that has already overwritten a header presents as a
++ * wrong-word dispatch, not as an error (the same shape as F-107).
++ * GUARDRAIL: the key is small enough that collisions must be CHECKED at bake time (see the -d path).
++ * A collision silently dispatches the wrong word, which is the one failure this machine cannot report.
++ *
++ * ---- P54: 3-byte entries, 24 bits = `imm1 | xt10 | hash13` (little-endian: imm is bit 0) ----
++ * GUARDRAIL: the 4-byte entry was `imm1 | xt11 | hash20`, i.e. 8 spare bits per word (680 B of headers
++ * for fields that need 24). The stride is 3 now, so an entry is NOT 2- or 4-aligned and the whole key
++ * cannot be one lw any more: HDRTOP - 3k alternates parity with k, and a misaligned `lh`/`lw` TRAPS on
++ * rv32 (F-78). Every access to this area is a byte access — do not "optimise" find() back to rd16/rd32.
++ * GUARDRAIL: imm stays at BIT 0 because the prelude's IMMEDIATE (`LATEST DUP C@ 1 OR SWAP C!`) is the
++ * only writer of that flag and it can only reach one byte. Any field order that buries imm inside a
++ * byte makes IMMEDIATE a two-byte read-modify-write over its neighbour's entry.
++ * GUARDRAIL: the previous `_Static_assert(MEMSZ % 4)` and `_Static_assert(HDRTOP % 4)` existed ONLY for
++ * the 4-byte entries' alignment, and they are gone with them. What replaces them is the invariant the
++ * new layout actually needs: xt is stored as xt/2 in 10 bits, so the code area must fit under 2 KiB.
++ * GUARDRAIL: xt/2 assumes every code offset is EVEN. Tokens are u16 and a4() rounds up to 4, so the only
++ * writes to V_HERE that exist keep it even — mkhdr_pad asserts that rather than trusting it (an odd xt
++ * would be halved into a wrong-word dispatch, silently).
++ * GUARDRAIL: 13 bits over 85 words has an expected 0.44 collisions, so the hash is not "probably fine":
++ * tools/hashsearch.py proves injectivity for the baked vocabulary and the bake-time check below keeps it
++ * true afterwards. The shipping multiplier is collision-free at 13 bits AND at 12 (it first collides at
++ * 11: SAVE vs THEN, 0x2d4), so 13 is headroom, not luck — each word added later has a 85/8192 = 1.0 %
++ * chance of colliding against the ones already there, and the bake refuses rather than mis-dispatching. */
++#if defined(P33_BLOCK)
++#define HDRTOP BLKADR            /* headers must stay below the block buffer */
++#else
++#define HDRTOP MEMSZ
++#endif
++#define HDRSZ 3u                 /* bytes per entry: 24 bits = imm1 | xt10 | hash13 */
++/* GUARDRAIL: 10 bits of xt/2 is 2 KiB of code area, and the host suite already builds at MEMSZ 2048 —
++ * at 2048 the last even offset is 2046 and xt/2 == 1023 still fits. Anything above this assert must
++ * either widen the xt field (a 4th byte, i.e. no saving) or move to a token-indexed xt. */
++_Static_assert(MEMSZ <= 2048, "xt is stored as xt/2 in 10 bits: the code area must stay under 2 KiB");
++/* Prove, rather than assume, that find()'s direct `mem[h]` reads are in range: the loop keeps h below
++ * HDRTOP and this says the header area is inside mem[]. */
++_Static_assert((HDRTOP) <= MEMSZ, "the header area lives inside mem[]: find() indexes it without rd8()");
++
+ /* ---- P51 boot shape check: the baked image and this build must agree about MEMSZ ----
+  * GUARDRAIL: image.h embeds V_LATEST, and with P51 that is an ABSOLUTE address, because the header area
+  * grows down from MEMSZ. The shipping image had been baked at MEMSZ 1900 while the ULP built at 1704 —
+@@ -325,7 +379,14 @@
+ static void image_boot_assert(void)
+ {
+     u32 latest = rd32(V_LATEST), here = rd32(V_HERE);
+-    if (latest > MEMSZ || (latest & 3u) != 0u || here > latest) pl_halt(0x51u);
++    /* GUARDRAIL: the old test was `(latest & 3u) != 0u`, which only meant anything while an entry was a
++     * 4-aligned word. With a 3-byte stride V_LATEST is deliberately NOT 4-aligned (it is HDRTOP - 3*N),
++     * so that test would halt every correct image. What the stride needs instead is that the baked span
++     * is a whole number of entries — a 4-byte image against a 3-byte engine leaves HDRTOP - latest = 1
++     * mod 3, and so does any hand-baked image, which is the E-079 failure class arriving one width later.
++     * GUARDRAIL: `latest > MEMSZ` stays and does NOT become `latest + 3*N`: the image carries an absolute
++     * V_LATEST, so an image baked at another MEMSZ is the failure this catches (E-079). */
++    if (latest > MEMSZ || ((u32)HDRTOP - latest) % HDRSZ != 0u || here > latest) pl_halt(0x51u);
+ }
+ 
+ /* ---- P27: the interpreter state is one struct, so a switch is a struct copy ----
+@@ -461,30 +522,6 @@
+ }
+ #endif
+ 
+-/* ---- P51: hash dictionary, no names, headers in their own area ----
+- * GUARDRAIL: names were 283 B for 81 words (average 3.5 characters: `+`, `DUP`, `.`) and each header
+- * also carried a 2 B link and a length/flags byte — 730 B of a 1 146 B dictionary. A 4-byte entry
+- * holding a 20-bit DJB2 hash, an 11-bit xt and the immediate flag returns 406 B, and find() becomes a
+- * fixed-stride 4-byte compare instead of a link chase with up to 31 byte compares.
+- * GUARDRAIL: the previous design measured only 82 B because it kept the link and the code field. The
+- * saving lives entirely in *dropping* both: headers are now a contiguous array with stride 4 and no
+- * link, and the xt is stored IN the entry, so the code field lives at the xt in the code area.
+- * GUARDRAIL: a 32-bit word at 2-mod-4 TRAPS on rv32 (F-78: rd32 must be 4-aligned). Every entry here is
+- * 4-aligned by construction — HDRTOP is a multiple of 4 and entries are written downward in steps of 4 —
+- * so the whole key is one lw. Do not add a variable-length field to this area.
+- * GUARDRAIL: headers grow DOWN from HDRTOP, code grows UP from DICT. They must never meet, and the check
+- * is BEFORE the body is written: a dictionary that has already overwritten a header presents as a
+- * wrong-word dispatch, not as an error (the same shape as F-107).
+- * GUARDRAIL: 20 bits is small enough that collisions must be CHECKED at bake time (see the -d path).
+- * A collision silently dispatches the wrong word, which is the one failure this machine cannot report. */
+-#if defined(P33_BLOCK)
+-#define HDRTOP BLKADR            /* headers must stay below the block buffer */
+-#else
+-#define HDRTOP MEMSZ
+-#endif
+-_Static_assert(MEMSZ % 4 == 0, "HDRTOP must be 4-aligned: header entries are rd32'd");
+-_Static_assert((HDRTOP) % 4 == 0, "the header area must start 4-aligned");
+-
+ /* ---- messages: ONE byte on the wire, the text lives on the HP core (msg_codes.h) ----
+  * GUARDRAIL: every message the engine prints goes through msg(), never a string literal. The text cost
+  * 104 B of the ULP's .rodata, the scarcest resource here, while the host has 32 MB of flash it cannot
+@@ -498,25 +535,42 @@
+ {
+     u32 h = 5381u; u8 i;
+     for (i = 0; i < n; i++) h = (h * 33u) + rd8(PAD + 1 + i);
+-    return h & 0xfffffu;                     /* 20 bits: the entry has 11 for xt and 1 for immediate */
++    /* GUARDRAIL: the mask is the measurement, not a detail — djb2/m33 with this seed is collision-free
++     * over the 85 baked names at 13 bits (and at 12, but not at 11: SAVE vs THEN). Changing the seed,
++     * the multiplier or this mask invalidates that search: re-run tools/hashsearch.py on a fresh
++     * -DP54_NAMES dump, then re-bake — the -d path re-checks the stored keys pairwise and exits 3. */
++    return h & 0x1fffu;                      /* 13 bits: the entry has 10 for xt/2 and 1 for immediate */
+ }
+ 
+ static u16 find(u8 n, u8 *imm)
+ {
+-    u32 key, hs, h;
++    u32 hs, h;
++    u8 b0, b1;
+     if (!n) return 0;
+     hs = hash_pad(n);
+-    /* GUARDRAIL: fixed stride, no links. Every entry is one rd32 at a 4-aligned address, so a miss costs
+-     * a load and a compare — this loop replaced up to 31 byte compares per header on the input path,
+-     * which P46 measured as the single largest cost of typing at this REPL. */
+-    for (h = rd32(V_LATEST); h + 4u <= (u32)HDRTOP; h += 4u) {
+-        key = rd32(h);
+-        if ((key >> 12) != hs) continue;
++    /* GUARDRAIL: fixed stride, no links, byte reads (see the P54 note above: an entry at HDRTOP-3k is
++     * odd for half the k, so rd16/rd32 would trap). `mem[h]` is unchecked on purpose: the loop bounds
++     * h + 3 <= HDRTOP and _Static_assert(HDRTOP <= MEMSZ) prove h + 2 < MEMSZ, which is exactly the
++     * guarantee rd8() re-tests per byte — three tests on the input path would cost more than the byte
++     * reads they guard. Do not use this idiom for an address the loop does not bound. */
++    for (h = rd32(V_LATEST); h + HDRSZ <= (u32)HDRTOP; h += HDRSZ) {
++        /* The 8-bit filter first: a miss is one lbu, which is what all but one of these iterations is.
++         * P46 measured this loop as the single largest cost of typing at this REPL. byte 2 holds hash
++         * bits 5..12; byte 1 holds hash bits 0..4 in its top 5 bits. */
++        if (mem[h + 2u] != (u8)(hs >> 5)) continue;
++        b1 = mem[h + 1u];
++        if ((b1 >> 3) != (u8)(hs & 0x1fu)) continue;
++        b0 = mem[h];
+ #ifdef P31_TRACE
+         if (p31_nhit < (int)(sizeof p31_hits / sizeof p31_hits[0])) p31_hits[p31_nhit++] = h;
+ #endif
+-        *imm = (u8)(key & 1u);
+-        return (u16)((key >> 1) & 0x7ffu);
++        /* xt/2 is bits 1..10, i.e. bits 1..7 in b0 and bits 0..2 in b1's low bits; xt is that doubled.
++         * GUARDRAIL: double LAST by shifting the halves up by 8, not by masking a doubled value — an
++         * earlier `& 0x7fe` form cleared xt/2's bit 0 and every word at xt 2 mod 4 dispatched one
++         * halfword down (measured: SPAWN resolved to xt 94 while its own header said 190, and nothing
++         * printed `?` — the wrong-word silence this dictionary exists to avoid). */
++        *imm = (u8)(b0 & 1u);
++        return (u16)((((u32)(b1 & 7u)) << 8) | (b0 & 0xfeu));
+     }
+     return 0;
+ }
+@@ -539,15 +593,41 @@
+ static void clit(u32 v) { cw(rd16(V_XLIT)); cw(v); cw(v >> 16); }
+ static void a4(void) { wr32(V_HERE, (rd32(V_HERE) + 3) & ~3u); }
+ 
++/* ---- P54: name dump for the hash search (host bake only) ----
++ * GUARDRAIL: the vocabulary that the hash has to be injective over is the set of names the ENGINE
++ * actually interns, not the set a regex over the prelude thinks it sees — a second derivation of the
++ * same list is exactly what R6 forbids, and a name missed here is a collision the search never sees.
++ * So the list comes out of mkhdr_pad, the one place a name becomes a header. */
++#ifdef P54_NAMES
++#include <stdio.h>
++#endif
++
+ /* build a header from the name currently in PAD; returns the xt */
+ static u16 mkhdr_pad(u8 cf, u8 imm)
+ {
+-    u32 hs = hash_pad(rd8(PAD)), x = rd32(V_HERE), h = rd32(V_LATEST) - 4u;
++    u32 hs = hash_pad(rd8(PAD)), x = rd32(V_HERE), h = rd32(V_LATEST) - HDRSZ, v;
+     /* GUARDRAIL: the room check precedes BOTH writes. Once the code area has been written over the header
+      * area the damage is a wrong-word dispatch at some later line, not a failure here. */
+-    if (x + 2u > h || (x & 0x7ffu) != x) { msg(MSG_ERR_DICT); errf = 1; return 0; }
++    if (x + 2u > h || x >= 2048u) { msg(MSG_ERR_DICT); errf = 1; return 0; }
++    /* GUARDRAIL: xt is stored as xt/2, so an odd x would be halved into a wrong-word dispatch with no
++     * trace anywhere. Nothing but cw()'s +2 and a4()'s round-up-to-4 writes V_HERE, so odd is an engine
++     * bug, not user input — but this is the only place an offset becomes a header field, so this is
++     * where it has to fail. Measured: 6 B of .text (5 244 -> 5 238 with it compiled out of the ULP
++     * build), kept unconditionally: the alternative is a silent half-offset dispatch.
++     * GUARDRAIL: `v` is a 24-bit little-endian value, written as wr16 + wr8. A single wr32 at h would
++     * clobber h+3, which is the already-written entry ABOVE (entries grow DOWN), and a wr32 at h - 1
++     * pays one byte of the free gap to keep the write word-shaped — measured at +72 B of .text, which
++     * is a bad trade for one byte of app space. */
++    if (x & 1u) { msg(MSG_ERR_DICT); errf = 1; return 0; }
++    v = ((hs << 11) | ((x >> 1) & 0x3ffu) << 1) | (u32)(imm & 1u);
+     wr16(x, cf);                                    /* the code field lives at the xt, in the code area */
+-    wr32(h, (hs << 12) | ((x & 0x7ffu) << 1) | (u32)(imm & 1u));
++    /* GUARDRAIL: printed BEFORE the header write so a bake that runs out of room still names the word that
++     * broke it; a dump taken after the write would silently miss the last entry. */
++#ifdef P54_NAMES
++    { u8 k, nn = rd8(PAD); fprintf(stderr, "NAME "); for (k = 0; k < nn; k++) fputc(rd8(PAD + 1 + k), stderr);
++      fprintf(stderr, "\n"); }
++#endif
++    wr16(h, (u16)v); wr8(h + 2u, (u8)(v >> 16));
+     wr32(V_LATEST, h); wr32(V_HERE, x + 2);
+     return (u16)x;
+ }
+@@ -1020,24 +1100,29 @@
+          * now always print 100 % because the dump writes the whole span required to carry the headers. */
+         {
+             u32 here = rd32(V_HERE), latest = rd32(V_LATEST);
+-            fprintf(stderr, "image: code %u + headers %u, free %u (MEMSZ %u, %u words)\n",
+-                    here, (u32)HDRTOP - latest, latest - here, MEMSZ, ((u32)HDRTOP - latest) / 4u);
++            fprintf(stderr, "image: code %u + headers %u, free %u (MEMSZ %u, "
++                            "%u words x %u B)\n",
++                    here, (u32)HDRTOP - latest, latest - here, MEMSZ,
++                    ((u32)HDRTOP - latest) / HDRSZ, (unsigned)HDRSZ);
+         }
+-        /* GUARDRAIL: a 20-bit hash over this dictionary must be checked when it is BUILT. A collision does
++        /* GUARDRAIL: a 13-bit hash over this dictionary must be checked when it is BUILT. A collision does
+          * not fail a lookup loudly — it returns the wrong word, and the machine has no way to report that.
+-         * 81 words in 1 048 576 values is ~0.3 % per pair, which is exactly the odds that are never worth
+-         * betting when the prize is a silent wrong dispatch (F-107 showed how expensive that looks). */
++         * 85 words in 8 192 values is 0.44 expected collisions: a coin flip, which is exactly the odds
++         * that are never worth betting when the prize is a silent wrong dispatch (F-107).
++         * GUARDRAIL: this check compares the STORED keys pairwise, so it stays correct if hash_pad ever
++         * changes; it does not (and cannot) recompute the hash from names, because the image keeps no
++         * names. The injectivity search lives in tools/hashsearch.py, on the name list -DP54_NAMES dumps. */
+         {
+             u32 a, b, ka, kb;
+-            for (a = rd32(V_LATEST); a + 4u < (u32)HDRTOP; a += 4u) {
+-                ka = rd32(a) >> 12;
+-                for (b = a + 4u; b + 4u <= (u32)HDRTOP; b += 4u) {
+-                    kb = rd32(b) >> 12;
++            for (a = rd32(V_LATEST); a + HDRSZ < (u32)HDRTOP; a += HDRSZ) {
++                ka = rd24(a) >> 11;
++                for (b = a + HDRSZ; b + HDRSZ <= (u32)HDRTOP; b += HDRSZ) {
++                    kb = rd24(b) >> 11;
+                     if (ka == kb) {
+-                        fprintf(stderr, "FATAL: hash collision 0x%05x between xt=%u and xt=%u — "
++                        fprintf(stderr, "FATAL: hash collision 0x%04x between xt=%u and xt=%u — "
+                                 "widen the hash or rename a word\n",
+-                                (unsigned)ka, (unsigned)((rd32(a) >> 1) & 0x7ffu),
+-                                (unsigned)((rd32(b) >> 1) & 0x7ffu));
++                                (unsigned)ka, (unsigned)(rd24(a) & 0x7feu),
++                                (unsigned)(rd24(b) & 0x7feu));
+                         exit(3);
+                     }
+                 }

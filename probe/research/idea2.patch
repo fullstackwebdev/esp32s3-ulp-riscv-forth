@@ -1,0 +1,66 @@
+--- ../repl/src/uforth.c	2026-10-30 23:15:38.736637471 -0700
++++ P54-fail/variants/var_f_c_plus_d/uforth.c	2026-10-30 23:33:51.871821243 -0700
+@@ -493,6 +493,10 @@
+  * is that no message text and no text-walking code is left in the ULP image. */
+ #include "msg_codes.h"
+ static void msg(u8 code) { pl_emit((int)code); }
++/* GUARDRAIL: variant (f) = (c)+(d). The two are independent: (c) removes a duplicated code-selection
++ * table, (d) removes the repeated errf store. Measured together because a lever that only pays in
++ * combination is a different claim from either alone, and the pool number must be the combined one. */
++static void __attribute__((noinline)) errf_msg(u8 code) { msg(code); errf = 1; }
+ 
+ static u32 hash_pad(u8 n)
+ {
+@@ -545,7 +549,8 @@
+     u32 hs = hash_pad(rd8(PAD)), x = rd32(V_HERE), h = rd32(V_LATEST) - 4u;
+     /* GUARDRAIL: the room check precedes BOTH writes. Once the code area has been written over the header
+      * area the damage is a wrong-word dispatch at some later line, not a failure here. */
+-    if (x + 2u > h || (x & 0x7ffu) != x) { msg(MSG_ERR_DICT); errf = 1; return 0; }
++    /* GUARDRAIL: variant (f) — (d) applied: the errf store lives in the helper now. */
++    if (x + 2u > h || (x & 0x7ffu) != x) { errf_msg(MSG_ERR_DICT); return 0; }
+     wr16(x, cf);                                    /* the code field lives at the xt, in the code area */
+     wr32(h, (hs << 12) | ((x & 0x7ffu) << 1) | (u32)(imm & 1u));
+     wr32(V_LATEST, h); wr32(V_HERE, x + 2);
+@@ -693,12 +698,16 @@
+ 
+ static void blk_errmsg(i32 st)
+ {
+-    if (st == BK_BUSY)         msg(MSG_ERR_BUSY);
+-    else if (st == BK_NOSERVER) msg(MSG_ERR_NOSERVER);
+-    else if (st == BK_CRC)      msg(MSG_ERR_CRC);
+-    else if (st == BK_BUFOVER)  msg(MSG_ERR_BUFOVER);
+-    else if (st == BK_DIRTY)    msg(MSG_ERR_DIRTY);
+-    else                        msg(MSG_ERR_UNNAMED);
++    /* GUARDRAIL: the six-way chain used to store the code six times behind a 24 B .rodata jump table
++     * (26 B of dispatch + 36 B of `li`+`j`); choosing the code first and emitting once measures −48 B
++     * of pool (P54-fail). The predicates and the UNNAMED fallback are the shipped ones. */
++    u8 c = MSG_ERR_UNNAMED;
++    if (st == BK_BUSY)          c = MSG_ERR_BUSY;
++    else if (st == BK_NOSERVER) c = MSG_ERR_NOSERVER;
++    else if (st == BK_CRC)      c = MSG_ERR_CRC;
++    else if (st == BK_BUFOVER)  c = MSG_ERR_BUFOVER;
++    else if (st == BK_DIRTY)    c = MSG_ERR_DIRTY;
++    msg(c);
+ }
+ 
+ static void p_blk_block(void)               /* ( n -- addr | code ) */
+@@ -751,7 +760,8 @@
+     /* GUARDRAIL: err() prints the word in PAD, which here is the NAME BEING SPAWNED — so a full table
+      * reported `TC?` and looked exactly like an unknown word (the same confusion that made the block
+      * id-drift present as a bare `?`). A full table is its own failure and must say so. */
+-    if (k >= NTSK) { msg(MSG_ERR_TASKS); errf = 1; return -1; }
++    /* GUARDRAIL: variant (f) — (d) applied. */
++    if (k >= NTSK) { errf_msg(MSG_ERR_TASKS); return -1; }
+     vm_task_init(k, xt);
+     return k;
+ }
+@@ -815,7 +825,8 @@
+          * dispatch buys a named error instead of silent corruption, and the stacks are reset so the REPL
+          * survives: the operator loses the line, not the session. */
+         if (stack_ovf) {
+-            stack_ovf = 0; sp = 0; rsp = 0; msg(MSG_ERR_STACK); errf = 1;
++            /* GUARDRAIL: variant (f) — (d) applied. */
++            stack_ovf = 0; sp = 0; rsp = 0; errf_msg(MSG_ERR_STACK);
+             vm_depth--; return;
+         }
+         if (!ip) { if (!vm_task_leave()) { vm_depth--; return; } continue; }
