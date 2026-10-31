@@ -374,3 +374,28 @@ gap. Measured: application space **154 → 354 B**, pool unchanged at 7 853 / 7 
 The general rule, now in `countdown.sh` and `CONSTRAINTS.md`: **`.bss` and `.text` are not "overhead", they
 are the app space.** Audit them by symbol before concluding that a machine this size cannot grow.
 
+## F-122 · `PAUSE` does not hand the machine to the other task (OPEN)
+Two tasks that both `PAUSE` do not interleave. With `: PC 1 . PAUSE 2 . ;` and `: PD 3 . PAUSE 4 . ;`,
+`SPAWN PC SPAWN PD` must print **1324** (each digit once, alternating). It prints **122** — variably
+**1212** before the flush change below — so the second task resumes inside the first task's body.
+
+**Confirmed on the device, not just the host**: `SPAWN PC SPAWN PD` → `1212` on the chip at `MEMSZ` 2 024.
+
+Why it survived 15 iterations of optimisation: the host build **never stepped tasks** (`vm_run_tasks` was
+called only from the ULP's `main`), so no host test could execute two tasks at all; and every device probe
+used PAUSE-free tasks (`: TA 10 20 + . ;`), which do work (`3070`). The defect is therefore older than this
+session's changes.
+
+What is known:
+- `vm_copy(VM *d, const VM *s)` and both call sites in `vm_switch` have the right direction.
+- Adding `VM_FLUSH()`/`VM_RELOAD()` around PAUSE's `vm_switch` — which is *required* since P56 hoisted `w`/`ip`
+  into locals — changed the symptom (1212 → 122) without fixing it, so it is a necessary but not sufficient
+  part of the fix. Reverted rather than shipped, because a partial fix that changes one wrong output into
+  another is not progress.
+- The remaining suspect is the paused task's saved `W`/`IP`: the resumed body starts at the first task's
+  continuation, which is what a save into the wrong record (or a load from the wrong record) looks like.
+
+**Guarded by** `tests/known_defects/tasks_pause.fs` + `tools/known_defects.sh`, which asserts the CORRECT
+string (`1324`) and prints `FIXED` when it starts passing. It lives outside `tests/*.fs` on purpose: that
+directory requires a golden per file, and recording `122` would be recording a gap.
+

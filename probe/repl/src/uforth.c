@@ -1483,6 +1483,16 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-i")) interactive = 1;
         else if (load(argv[i])) return 1;
     }
+#ifndef IMAGE
+    /* GUARDRAIL: step ready tasks on the HOST too. `vm_run_tasks` was called only from the ULP's main, so
+     * two-task EXECUTION was never exercised on the host — and a scheduler change that ran only the first
+     * of two spawned tasks passed all 12 checks with an identical bench, failing only on the chip (P60).
+     * GUARDRAIL: only after a CLEAN load and never during a bake (-d): a file that aborts on errf must not
+     * execute half-defined tasks, and a dump must be a pure image of what was compiled.
+     * GUARDRAIL: requires a clean stack, exactly as the ULP does — a task switch overwrites vm_live, so a
+     * pending value would be silently lost. */
+    if (!dump && !interactive && vm_next_ready(-1) >= 0 && sp == 0u && rsp == 0u) vm_run_tasks();
+#endif
     if (dump) {
         /* GUARDRAIL: headers live ABOVE V_HERE now, so dumping only V_HERE bytes would bake an image with no
          * dictionary at all — every word would be unknown on the chip while the host test passed. Dump the
