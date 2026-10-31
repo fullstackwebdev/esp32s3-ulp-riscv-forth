@@ -58,8 +58,11 @@ void pl_halt(int code);                  /* stop the machine; code 0 = no tasks 
  * this was nearly deleted. */
 enum { V_STATE = 0, V_HERE = 4, V_LATEST = 8, V_BASE = 12,
        V_XLIT = 16, V_XEXIT = 18, V_XSTR = 20,   /* xts the C code compiles */
-       PAD = 24,                                  /* counted string, 32 bytes */
-       DICT = 56 };
+       /* GUARDRAIL: PAD starts at 22, not 24. The three xt slots end at 21, so 22..23 were padding, and
+        * every byte of padding here pushes the code area up and costs app space 1:1. Byte access has no
+        * alignment requirement and 22 is even, so nothing is lost by tightening. DICT follows at 54. */
+       PAD = 22,                                  /* counted string, 32 bytes */
+       DICT = 54 };
 
 #ifdef IMAGE
 #include "image.h"
