@@ -66,3 +66,5 @@ probe/repl/out/
 # disk) and must not ride into main: 824 scratch files were committed by a bare `git add -A` and would have merged.
 probe/repl/.auto/
 probe/repl/artifacts/
+__pycache__/
+*.pyc
