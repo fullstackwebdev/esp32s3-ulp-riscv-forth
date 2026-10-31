@@ -3,198 +3,198 @@
  * different machines (P30's lesson). */
 
 #if !defined(P31_SUBSET) || defined(P_HAVE_DOCOL)
-        case P_DOCOL: RPUSH(ip); ip = w + 2; break;
+        L_P_DOCOL: RPUSH(ip); ip = w + 2; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DOVAR)
-        case P_DOVAR: PUSH((w + 2 + 3) & ~3u); break;
+        L_P_DOVAR: PUSH((w + 2 + 3) & ~3u); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DOCON)
-        case P_DOCON: PUSH(rd32((w + 2 + 3) & ~3u)); break;
+        L_P_DOCON: PUSH(rd32((w + 2 + 3) & ~3u)); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_EXIT)
-        case P_EXIT:
+        L_P_EXIT:
             /* P56: same switch point as the loop tail — flush the hoisted w/ip before vm_task_leave can
              * copy V, and reload afterwards because it overwrote the fields those locals shadow. */
-            if (!ip) { VM_FLUSH(); if (!vm_task_leave()) { VMD_LEAVE(); return; } VM_RELOAD(); continue; }
-            ip = RPOP(); break;
+            if (!ip) { VM_FLUSH(); if (!vm_task_leave()) { VMD_LEAVE(); return; } VM_RELOAD(); goto top; }
+            ip = RPOP(); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_LIT)
-        case P_LIT:   PUSH(rd32_paged(ip)); ip += 4; break;
+        L_P_LIT:   PUSH(rd32_paged(ip)); ip += 4; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_BRANCH)
-        case P_BRANCH:  ip = rd16_paged(ip); break;
+        L_P_BRANCH:  ip = rd16_paged(ip); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_ZBRANCH)
-        case P_ZBRANCH: if (POP()) ip += 2; else ip = rd16_paged(ip); break;
+        L_P_ZBRANCH: if (POP()) ip += 2; else ip = rd16_paged(ip); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DO)
-        case P_DO:    a = POP(); b = POP(); RPUSH(b); RPUSH(a); break;
+        L_P_DO:    a = POP(); b = POP(); RPUSH(b); RPUSH(a); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_LOOP)
-        case P_LOOP: case P_PLOOP:
+        L_P_LOOP: L_P_PLOOP:
             n = (cf == P_LOOP) ? 1 : POP();
             a = rs[(rsp - 2) & (SD - 1)]; b = RTOP + n;          /* limit, new index */
             if ((i32)((RTOP - a) ^ (b - a)) < 0) { rsp -= 2; ip += 2; }  /* crossed limit */
             else { RTOP = b; ip = rd16_paged(ip); }
-            break;
+            goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_I)
-        case P_I:      PUSH(RTOP); break;
+        L_P_I:      PUSH(RTOP); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_J)
-        case P_J:      PUSH(rs[(rsp - 3) & (SD - 1)]); break;
+        L_P_J:      PUSH(rs[(rsp - 3) & (SD - 1)]); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_UNLOOP)
-        case P_UNLOOP: rsp -= 2; break;
+        L_P_UNLOOP: rsp -= 2; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_EXEC)
-        case P_EXEC:   w = (u16)POP(); continue;           /* call without fetching next */
+        L_P_EXEC:   w = (u16)POP(); goto top;           /* call without fetching next */
 
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DUP)
-        case P_DUP:  PUSH(TOS); break;
+        L_P_DUP:  PUSH(TOS); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DROP)
-        case P_DROP: sp--; break;
+        L_P_DROP: sp--; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_SWAP)
-        case P_SWAP: a = TOS; TOS = NOS; NOS = a; break;
+        L_P_SWAP: a = TOS; TOS = NOS; NOS = a; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_OVER)
-        case P_OVER: PUSH(NOS); break;
+        L_P_OVER: PUSH(NOS); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_ROT)
-        case P_ROT:  a = ds[(sp - 3) & (SD - 1)]; ds[(sp - 3) & (SD - 1)] = NOS; NOS = TOS; TOS = a; break;
+        L_P_ROT:  a = ds[(sp - 3) & (SD - 1)]; ds[(sp - 3) & (SD - 1)] = NOS; NOS = TOS; TOS = a; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_TOR)
-        case P_TOR:   RPUSH(POP()); break;
+        L_P_TOR:   RPUSH(POP()); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_RFROM)
-        case P_RFROM: PUSH(RPOP()); break;
+        L_P_RFROM: PUSH(RPOP()); goto tail;
 
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_FETCH)
-        case P_FETCH:  TOS = rd32(TOS); break;
+        L_P_FETCH:  TOS = rd32(TOS); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_STORE)
-        case P_STORE:  a = POP(); b = POP(); wr32(a, b); break;
+        L_P_STORE:  a = POP(); b = POP(); wr32(a, b); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_CFETCH)
-        case P_CFETCH: TOS = rd8(TOS); break;
+        L_P_CFETCH: TOS = rd8(TOS); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_CSTORE)
-        case P_CSTORE: a = POP(); b = POP(); wr8(a, b); break;
+        L_P_CSTORE: a = POP(); b = POP(); wr8(a, b); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_WFETCH)
-        case P_WFETCH: TOS = rd16(TOS); break;
+        L_P_WFETCH: TOS = rd16(TOS); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_WSTORE)
-        case P_WSTORE: a = POP(); b = POP(); wr16(a, b); break;
+        L_P_WSTORE: a = POP(); b = POP(); wr16(a, b); goto tail;
 
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_ADD)
-        case P_ADD: b = POP(); TOS += b; break;
+        L_P_ADD: b = POP(); TOS += b; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_SUB)
-        case P_SUB: b = POP(); TOS -= b; break;
+        L_P_SUB: b = POP(); TOS -= b; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_MUL)
-        case P_MUL: b = POP(); TOS *= b; break;
+        L_P_MUL: b = POP(); TOS *= b; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DIVMOD)
-        case P_DIVMOD:                                     /* signed, truncating */
+        L_P_DIVMOD:                                     /* signed, truncating */
             b = POP(); a = TOS;
             if (b == 0) { TOS = 0; PUSH(0); }
             else if ((i32)b == -1) { TOS = 0; PUSH(0u - a); }
             else { TOS = (u32)((i32)a % (i32)b); PUSH((u32)((i32)a / (i32)b)); }
-            break;
+            goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_UDIVMOD)
-        case P_UDIVMOD:
+        L_P_UDIVMOD:
             b = POP(); a = TOS;
             if (b == 0) { TOS = 0; PUSH(0); } else { TOS = a % b; PUSH(a / b); }
-            break;
+            goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_AND)
-        case P_AND: b = POP(); TOS &= b; break;
+        L_P_AND: b = POP(); TOS &= b; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_OR)
-        case P_OR:  b = POP(); TOS |= b; break;
+        L_P_OR:  b = POP(); TOS |= b; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_XOR)
-        case P_XOR: b = POP(); TOS ^= b; break;
+        L_P_XOR: b = POP(); TOS ^= b; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_INVERT)
-        case P_INVERT: TOS = ~TOS; break;
+        L_P_INVERT: TOS = ~TOS; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_LSHIFT)
-        case P_LSHIFT: b = POP(); TOS <<= (b & 31); break;
+        L_P_LSHIFT: b = POP(); TOS <<= (b & 31); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_RSHIFT)
-        case P_RSHIFT: b = POP(); TOS >>= (b & 31); break;
+        L_P_RSHIFT: b = POP(); TOS >>= (b & 31); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_ZEQ)
-        case P_ZEQ: TOS = TOS ? 0 : ~0u; break;
+        L_P_ZEQ: TOS = TOS ? 0 : ~0u; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_LT)
-        case P_LT:  b = POP(); TOS = ((i32)TOS < (i32)b) ? ~0u : 0; break;
+        L_P_LT:  b = POP(); TOS = ((i32)TOS < (i32)b) ? ~0u : 0; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_ULT)
-        case P_ULT: b = POP(); TOS = (TOS < b) ? ~0u : 0; break;
+        L_P_ULT: b = POP(); TOS = (TOS < b) ? ~0u : 0; goto tail;
 
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_KEY)
-        case P_KEY:  PUSH(pl_key()); break;
+        L_P_KEY:  PUSH(pl_key()); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_KEYQ)
-        case P_KEYQ: PUSH(pl_hw(5, 0, 0) ? ~0u : 0); break;
+        L_P_KEYQ: PUSH(pl_hw(5, 0, 0) ? ~0u : 0); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_EMIT)
-        case P_EMIT: pl_emit(POP()); break;
+        L_P_EMIT: pl_emit(POP()); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_TYPE)
-        case P_TYPE: n = POP(); a = POP(); while (n--) pl_emit(rd8(a++)); break;
+        L_P_TYPE: n = POP(); a = POP(); while (n--) pl_emit(rd8(a++)); goto tail;
 
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_COMMA)
-        case P_COMMA:  a4(); a = rd32(V_HERE); wr32(a, POP()); wr32(V_HERE, a + 4); break;
+        L_P_COMMA:  a4(); a = rd32(V_HERE); wr32(a, POP()); wr32(V_HERE, a + 4); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_WCOMMA)
-        case P_WCOMMA: cw(POP()); break;
+        L_P_WCOMMA: cw(POP()); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_CCOMMA)
-        case P_CCOMMA: a = rd32(V_HERE); wr8(a, POP()); wr32(V_HERE, a + 1); break;
+        L_P_CCOMMA: a = rd32(V_HERE); wr8(a, POP()); wr32(V_HERE, a + 1); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_COLON)
-        case P_COLON:
+        L_P_COLON:
             savehere = rd32(V_HERE); savelatest = rd32(V_LATEST);
             if (mkhdr(P_DOCOL)) wr32(V_STATE, 1);
-            break;
+            goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_SEMI)
-        case P_SEMI:   cw(rd16(V_XEXIT)); wr32(V_STATE, 0); break;
+        L_P_SEMI:   cw(rd16(V_XEXIT)); wr32(V_STATE, 0); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_CREATE)
-        case P_CREATE: if (mkhdr(P_DOVAR)) a4(); break;
+        L_P_CREATE: if (mkhdr(P_DOVAR)) a4(); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_CONSTANT)
-        case P_CONSTANT:
+        L_P_CONSTANT:
             if (mkhdr(P_DOCON)) { a4(); a = rd32(V_HERE); wr32(a, POP()); wr32(V_HERE, a + 4); }
-            break;
+            goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_TICK)
-        case P_TICK: case P_BTICK:
+        L_P_TICK: L_P_BTICK:
             i = word(); x = i ? find(i, &imm) : 0;
             if (!x) err();
             else if (cf == P_TICK) PUSH(x);
             else clit(x);
-            break;
+            goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_LITERAL)
-        case P_LITERAL: clit(POP()); break;
+        L_P_LITERAL: clit(POP()); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_DOTQ)
-        case P_DOTQ:
+        L_P_DOTQ:
             if (ti < tl) ti++;                              /* skip one space */
             i = ti; while (ti < tl && tib[ti] != '"') ti++;
             n = ti - i; if (ti < tl) ti++;
@@ -203,35 +203,35 @@
                 for (b = 0; b < n; b++) wr8(a + 1 + b, tib[i + b]);
                 wr32(V_HERE, (a + n + 2) & ~1u);
             } else for (b = 0; b < n; b++) pl_emit(tib[i + b]);
-            break;
+            goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_PDOTQ)
-        case P_PDOTQ:
+        L_P_PDOTQ:
             n = rd8(ip); for (b = 0; b < n; b++) pl_emit(rd8(ip + 1 + b));
             ip = (u16)((ip + n + 2) & ~1u);
-            break;
+            goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_BSLASH)
-        case P_BSLASH: ti = tl; break;
+        L_P_BSLASH: ti = tl; goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_PAREN)
-        case P_PAREN:  while (ti < tl) if (tib[ti++] == ')') break; break;
+        L_P_PAREN:  while (ti < tl) if (tib[ti++] == ')') goto tail; goto tail;
 
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_GPIOG)
-        case P_GPIOG: TOS = pl_hw(0, TOS, 0); break;
+        L_P_GPIOG: TOS = pl_hw(0, TOS, 0); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_GPIOS)
-        case P_GPIOS: a = POP(); b = POP(); pl_hw(1, a, b); break;
+        L_P_GPIOS: a = POP(); b = POP(); pl_hw(1, a, b); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_ADCG)
-        case P_ADCG:  TOS = pl_hw(2, TOS, 0); break;
+        L_P_ADCG:  TOS = pl_hw(2, TOS, 0); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_MS)
-        case P_MS:    pl_hw(3, POP(), 0); break;
+        L_P_MS:    pl_hw(3, POP(), 0); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_WAKE)
-        case P_WAKE:  pl_hw(4, 0, 0); break;
+        L_P_WAKE:  pl_hw(4, 0, 0); goto tail;
 
         /* PAUSE: finish this dispatch, then hand the machine to the next ready task.
          * GUARDRAIL: advance BEFORE saving. With the save point at the PAUSE token the
@@ -239,15 +239,15 @@
          * must name the token the task has *not* run yet. */
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_PAUSE)
-        case P_PAUSE: {
+        L_P_PAUSE: {
             int nx;
-            if (!ip) break;                          /* PAUSE as the last token: nothing to resume */
+            if (!ip) goto tail;                          /* PAUSE as the last token: nothing to resume */
             w = rd16_paged(ip); ip += 2;             /* same as the loop tail below */
             nx = vm_next_ready(cur);
-            if (nx < 0) continue;                    /* single ready task: its own turn again */
+            if (nx < 0) goto top;                    /* single ready task: its own turn again */
             vm_sw_pause++;
             vm_switch(nx);
-            continue;                                /* re-fetch rd16(w) in the new machine */
+            goto top;                                /* re-fetch rd16(w) in the new machine */
         }
 
         /* FAULT: a page fault at this dispatch. The save point here is the CURRENT token
@@ -255,12 +255,12 @@
          * the restore and the re-entry are the same vm_switch(), which is the claim. */
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_FAULT)
-        case P_FAULT:
+        L_P_FAULT:
             if (vm_faults_left) {
                 vm_faults_left--; vm_faults++; vm_sw_fault++;
                 vm_switch(cur < 0 ? 0 : cur);        /* retry = switch to this same machine */
-                continue;                            /* page now resident: re-execute it */
+                goto top;                            /* page now resident: re-execute it */
             }
-            break;                                   /* resident: no-op */
+            goto tail;                                   /* resident: no-op */
         
 #endif

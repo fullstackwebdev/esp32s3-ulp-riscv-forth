@@ -10,34 +10,34 @@
  * maps that to slot 15. Reordering the two changes which cell is read on an underflow.
  */
 #if P54_BINOPS >= 1
-        case P_ADD:   /* P54 op 1, slot 0 */
+        L_P_ADD:   /* P54 op 1, slot 0 */
 #endif
 #if P54_BINOPS >= 2
-        case P_SUB:
+        L_P_SUB:
 #endif
 #if P54_BINOPS >= 3
-        case P_MUL:
+        L_P_MUL:
 #endif
 #if P54_BINOPS >= 4
-        case P_AND:
+        L_P_AND:
 #endif
 #if P54_BINOPS >= 5
-        case P_OR:
+        L_P_OR:
 #endif
 #if P54_BINOPS >= 6
-        case P_XOR:
+        L_P_XOR:
 #endif
 #if P54_BINOPS >= 7
-        case P_LSHIFT:
+        L_P_LSHIFT:
 #endif
 #if P54_BINOPS >= 8
-        case P_RSHIFT:
+        L_P_RSHIFT:
 #endif
 #if P54_BINOPS >= 9
-        case P_LT:
+        L_P_LT:
 #endif
 #if P54_BINOPS >= 10
-        case P_ULT:
+        L_P_ULT:
 #endif
 
 #if P54_BINOPS >= 1
@@ -49,43 +49,43 @@
             a = *px;
             switch (cf - P_ADD) {
 #if P54_BINOPS >= 1
-            case 0: a = (a + b); break;
+            case 0: a = (a + b); goto tail;
 #endif
 #if P54_BINOPS >= 2
-            case 1: a = (a - b); break;
+            case 1: a = (a - b); goto tail;
 #endif
 #if P54_BINOPS >= 3
-            case 2: a = (a * b); break;
+            case 2: a = (a * b); goto tail;
 #endif
 #if P54_BINOPS >= 4
-            case 5: a = (a & b); break;
+            case 5: a = (a & b); goto tail;
 #endif
 #if P54_BINOPS >= 5
-            case 6: a = (a | b); break;
+            case 6: a = (a | b); goto tail;
 #endif
 #if P54_BINOPS >= 6
-            case 7: a = (a ^ b); break;
+            case 7: a = (a ^ b); goto tail;
 #endif
 #if P54_BINOPS >= 7
-            case 9: a = (a << (b & 31u)); break;
+            case 9: a = (a << (b & 31u)); goto tail;
 #endif
 #if P54_BINOPS >= 8
-            case 10: a = (a >> (b & 31u)); break;
+            case 10: a = (a >> (b & 31u)); goto tail;
 #endif
 #if P54_BINOPS >= 9
-            case 12: a = (((i32)a < (i32)b) ? ~0u : 0u); break;
+            case 12: a = (((i32)a < (i32)b) ? ~0u : 0u); goto tail;
 #endif
 #if P54_BINOPS >= 10
-            case 13: a = ((a < b) ? ~0u : 0u); break;
+            case 13: a = ((a < b) ? ~0u : 0u); goto tail;
 #endif
             /* a slot with no label cannot be reached; if one ever is, stop instead of computing */
-            default: p54_op_unreachable(0u, 0u); a = 0u; break;
+            default: p54_op_unreachable(0u, 0u); a = 0u; goto tail;
             }
             *px = a;
 #else
             b = POP();
             TOS = p54_binops[cf - P_ADD](TOS, b);
 #endif
-            break;
+            goto tail;
         }
 #endif

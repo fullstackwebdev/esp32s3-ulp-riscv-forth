@@ -955,22 +955,295 @@ static void vm_enter(void)
 #define VM_FLUSH()   (V->W = lw, V->IP = lip)
 #define VM_RELOAD()  (lw = V->W, lip = V->IP)
     VMD_ENTER();
+    /* P57: disp_tbl maps a primitive id to its case label. The ENTRY WIDTH is per-build, because the
+     * saving is only legal where the whole function fits in a 16-bit span:
+     *   ULP  : u16 offset from L_BAD — .srodata 2 B per entry, `lhu` + `add` + `jalr`.
+     *   HOST : a plain pointer. The x86-64 build of this same function is far larger than 64 KB, and a
+     *          truncated offset there is a jump into nowhere — measured: the bake segfaulted.
+     * GUARDRAIL: one entry per LABEL OCCURRENCE. A line can carry two labels (`L_P_TICK: L_P_BTICK:`) and
+     * an id can appear twice (p31 body gated off by p54_subset.inc, plus the P54 arm) under mutually
+     * exclusive guards. Harvesting only the first label per line left BTICK with no entry, and the symptom
+     * was `[']?` while baking: find() succeeded and the DISPATCH fell to L_BAD.
+     * GUARDRAIL: every slot defaults to L_BAD, never to 0 — 0 is a valid ULP offset (it means L_BAD).
+     */
+#ifdef HOST
+    typedef const void *disp_ent_t;
+#define DISP_ENT(l)  ((const void *)&&l)
+    static const disp_ent_t disp_tbl[P_COUNT] = {
+        [0 ... P_COUNT - 1] = DISP_ENT(L_BAD),
+#else
+    typedef u16 disp_ent_t;
+#define DISP_ENT(l)  ((u16)(&&l - &&L_BAD))
+    static const disp_ent_t disp_tbl[P_COUNT] = {
+        [0 ... P_COUNT - 1] = DISP_ENT(L_BAD),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_ADCG)
+        [P_ADCG] = DISP_ENT(L_P_ADCG),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_ADD)
+        [P_ADD] = DISP_ENT(L_P_ADD),
+#endif
+#if P54_BINOPS >= 1
+        [P_ADD] = DISP_ENT(L_P_ADD),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_AND)
+        [P_AND] = DISP_ENT(L_P_AND),
+#endif
+#if P54_BINOPS >= 4
+        [P_AND] = DISP_ENT(L_P_AND),
+#endif
+#if defined(P33_BLOCK)
+        [P_BLKXFER] = DISP_ENT(L_P_BLKXFER),
+#endif
+#if defined(BLKPRIM)
+        [P_BLOCK] = DISP_ENT(L_P_BLOCK),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_BRANCH)
+        [P_BRANCH] = DISP_ENT(L_P_BRANCH),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_BSLASH)
+        [P_BSLASH] = DISP_ENT(L_P_BSLASH),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_TICK)
+        [P_BTICK] = DISP_ENT(L_P_BTICK),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_CCOMMA)
+        [P_CCOMMA] = DISP_ENT(L_P_CCOMMA),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_CFETCH)
+        [P_CFETCH] = DISP_ENT(L_P_CFETCH),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_COLON)
+        [P_COLON] = DISP_ENT(L_P_COLON),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_COMMA)
+        [P_COMMA] = DISP_ENT(L_P_COMMA),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_CONSTANT)
+        [P_CONSTANT] = DISP_ENT(L_P_CONSTANT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_CREATE)
+        [P_CREATE] = DISP_ENT(L_P_CREATE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_CSTORE)
+        [P_CSTORE] = DISP_ENT(L_P_CSTORE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_DIVMOD)
+        [P_DIVMOD] = DISP_ENT(L_P_DIVMOD),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_DO)
+        [P_DO] = DISP_ENT(L_P_DO),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_DOCOL)
+        [P_DOCOL] = DISP_ENT(L_P_DOCOL),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_DOCON)
+        [P_DOCON] = DISP_ENT(L_P_DOCON),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_DOTQ)
+        [P_DOTQ] = DISP_ENT(L_P_DOTQ),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_DOVAR)
+        [P_DOVAR] = DISP_ENT(L_P_DOVAR),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_DROP)
+        [P_DROP] = DISP_ENT(L_P_DROP),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_DUP)
+        [P_DUP] = DISP_ENT(L_P_DUP),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_EMIT)
+        [P_EMIT] = DISP_ENT(L_P_EMIT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_EXEC)
+        [P_EXEC] = DISP_ENT(L_P_EXEC),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_EXIT)
+        [P_EXIT] = DISP_ENT(L_P_EXIT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_FAULT)
+        [P_FAULT] = DISP_ENT(L_P_FAULT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_FETCH)
+        [P_FETCH] = DISP_ENT(L_P_FETCH),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_GPIOG)
+        [P_GPIOG] = DISP_ENT(L_P_GPIOG),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_GPIOS)
+        [P_GPIOS] = DISP_ENT(L_P_GPIOS),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_I)
+        [P_I] = DISP_ENT(L_P_I),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_INVERT)
+        [P_INVERT] = DISP_ENT(L_P_INVERT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_J)
+        [P_J] = DISP_ENT(L_P_J),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_KEY)
+        [P_KEY] = DISP_ENT(L_P_KEY),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_KEYQ)
+        [P_KEYQ] = DISP_ENT(L_P_KEYQ),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_LIT)
+        [P_LIT] = DISP_ENT(L_P_LIT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_LITERAL)
+        [P_LITERAL] = DISP_ENT(L_P_LITERAL),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_LOOP)
+        [P_LOOP] = DISP_ENT(L_P_LOOP),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_LSHIFT)
+        [P_LSHIFT] = DISP_ENT(L_P_LSHIFT),
+#endif
+#if P54_BINOPS >= 7
+        [P_LSHIFT] = DISP_ENT(L_P_LSHIFT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_LT)
+        [P_LT] = DISP_ENT(L_P_LT),
+#endif
+#if P54_BINOPS >= 9
+        [P_LT] = DISP_ENT(L_P_LT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_MS)
+        [P_MS] = DISP_ENT(L_P_MS),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_MUL)
+        [P_MUL] = DISP_ENT(L_P_MUL),
+#endif
+#if P54_BINOPS >= 3
+        [P_MUL] = DISP_ENT(L_P_MUL),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_OR)
+        [P_OR] = DISP_ENT(L_P_OR),
+#endif
+#if P54_BINOPS >= 5
+        [P_OR] = DISP_ENT(L_P_OR),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_OVER)
+        [P_OVER] = DISP_ENT(L_P_OVER),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_PAREN)
+        [P_PAREN] = DISP_ENT(L_P_PAREN),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_PAUSE)
+        [P_PAUSE] = DISP_ENT(L_P_PAUSE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_PDOTQ)
+        [P_PDOTQ] = DISP_ENT(L_P_PDOTQ),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_LOOP)
+        [P_PLOOP] = DISP_ENT(L_P_PLOOP),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_RFROM)
+        [P_RFROM] = DISP_ENT(L_P_RFROM),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_ROT)
+        [P_ROT] = DISP_ENT(L_P_ROT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_RSHIFT)
+        [P_RSHIFT] = DISP_ENT(L_P_RSHIFT),
+#endif
+#if P54_BINOPS >= 8
+        [P_RSHIFT] = DISP_ENT(L_P_RSHIFT),
+#endif
+#if defined(BLKPRIM)
+        [P_SAVE] = DISP_ENT(L_P_SAVE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_SEMI)
+        [P_SEMI] = DISP_ENT(L_P_SEMI),
+#endif
+#if defined(P43_TASKS)
+        [P_SPAWN] = DISP_ENT(L_P_SPAWN),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_STORE)
+        [P_STORE] = DISP_ENT(L_P_STORE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_SUB)
+        [P_SUB] = DISP_ENT(L_P_SUB),
+#endif
+#if P54_BINOPS >= 2
+        [P_SUB] = DISP_ENT(L_P_SUB),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_SWAP)
+        [P_SWAP] = DISP_ENT(L_P_SWAP),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_TICK)
+        [P_TICK] = DISP_ENT(L_P_TICK),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_TOR)
+        [P_TOR] = DISP_ENT(L_P_TOR),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_TYPE)
+        [P_TYPE] = DISP_ENT(L_P_TYPE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_UDIVMOD)
+        [P_UDIVMOD] = DISP_ENT(L_P_UDIVMOD),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_ULT)
+        [P_ULT] = DISP_ENT(L_P_ULT),
+#endif
+#if P54_BINOPS >= 10
+        [P_ULT] = DISP_ENT(L_P_ULT),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_UNLOOP)
+        [P_UNLOOP] = DISP_ENT(L_P_UNLOOP),
+#endif
+#if defined(BLKPRIM)
+        [P_UPDATE] = DISP_ENT(L_P_UPDATE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_WAKE)
+        [P_WAKE] = DISP_ENT(L_P_WAKE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_WCOMMA)
+        [P_WCOMMA] = DISP_ENT(L_P_WCOMMA),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_WFETCH)
+        [P_WFETCH] = DISP_ENT(L_P_WFETCH),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_WSTORE)
+        [P_WSTORE] = DISP_ENT(L_P_WSTORE),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_XOR)
+        [P_XOR] = DISP_ENT(L_P_XOR),
+#endif
+#if P54_BINOPS >= 6
+        [P_XOR] = DISP_ENT(L_P_XOR),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_ZBRANCH)
+        [P_ZBRANCH] = DISP_ENT(L_P_ZBRANCH),
+#endif
+#if !defined(P31_SUBSET) || defined(P_HAVE_ZEQ)
+        [P_ZEQ] = DISP_ENT(L_P_ZEQ),
+#endif
+    };
+#undef DISP_ENT
     for (;;) {
+top:
 #ifdef P42_COUNT
         p42_dispatches = p42_dispatches + 1u;
 #endif
         u16 cf = rd16_paged(w);                /* checkpoint = (w, ip): a pure read, so it retries */
-        switch (cf) {
-/* GUARDRAIL: the case bodies stay one per line in the .inc, cut from the original switch — a
- * hand-edited case in this file makes the next variant's D-vs-E diff meaningless (P30/P31). */
+        /* P57 GUARDRAIL: dispatch through a 2-byte offset table instead of GCC's switch table. The switch
+         * table is 4-byte absolute addresses; label DIFFERENCES are constant enough for a static
+         * initializer on this target (measured: .srodata 2 B per entry, `lhu` + `add` + `jalr`).
+         * GUARDRAIL: every slot defaults to L_BAD, never to 0 — 0 is a valid offset (it means L_BAD
+         * itself), so a zero hole would send a real token down the corrupt-token path.
+         * GUARDRAIL: the bound check precedes the dispatch because `cf` comes from mem[] and can be any
+         * halfword; without it an out-of-range id indexes past the table. */
+        if (cf >= (u16)P_COUNT) { err(); goto tail; }
+#ifdef HOST
+        goto *disp_tbl[cf];
+#else
+        goto *(&&L_BAD + disp_tbl[cf]);
+#endif
 #include "p33_cases.inc"
-        /* P50 GUARDRAIL: this `default` exists because P50 will move some primitive bodies into assembly
-         * and gate their C cases out. Without it, a token whose case was removed falls through the switch
-         * and the machine silently continues with unchanged stacks — the worst class of bug here, because
-         * every symptom looks like a Forth error rather than a missing dispatcher entry. err() names the
-         * word and sets errf, so the hole announces itself. */
-        default: err(); break;
-        }
+L_BAD:  err(); goto tail;
+tail:
         /* GUARDRAIL: the fault is reported HERE, not inside PUSH, because emitting from an arbitrary
          * primitive can recurse into output while the machine's stacks are unusable. One branch per
          * dispatch buys a named error instead of silent corruption, and the stacks are reset so the REPL
