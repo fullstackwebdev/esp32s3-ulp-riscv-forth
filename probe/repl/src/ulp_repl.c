@@ -58,6 +58,9 @@
 #define MEMSZ    2604          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
+/* GUARDRAIL: SD stays 16. Raising it to 24 was rejected by the engine's own static assertions - dispatch.S hard-codes
+ * the VM layout and assumes SD=16 for the stack wrap check - so deeper stacks would mean rewriting the asm dispatch.
+ * An app that overflows therefore has to nest less, not ask for a bigger stack. */
 #define SD        16            /* P13: peak 108 B */
 /* GUARDRAIL: 96, not 128. The line buffer is 32 B of .bss for a 127-character limit that nothing uses:
  * the longest line any device workload types is 88 characters (bench/arith.fs), and the prelude's 98-character

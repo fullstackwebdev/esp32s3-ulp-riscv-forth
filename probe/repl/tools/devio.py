@@ -75,10 +75,13 @@ class Dev:
             termios.tcsetattr(self.fd, termios.TCSANOW, a)
         else:
             self.drain(0.05, 1.0)
-        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_DTR))
-        fcntl.ioctl(self.fd, termios.TIOCMBIS, struct.pack("I", TIOCM_RTS))
+        # GUARDRAIL: DTR must be HIGH while EN pulses. DTR is wired to IO0 on these boards, so DTR low at the EN edge puts
+        # the chip in the DOWNLOAD BOOTLOADER: measured, the board went silent after a pulse and only esptool could talk
+        # to it. Clearing DTR (low) is what esptool does to ENTER the bootloader - here we want the opposite.
+        fcntl.ioctl(self.fd, termios.TIOCMBIS, struct.pack("I", TIOCM_DTR))   # IO0 high = boot the app
+        fcntl.ioctl(self.fd, termios.TIOCMBIS, struct.pack("I", TIOCM_RTS))   # EN low = reset
         time.sleep(0.12)
-        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_RTS))
+        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_RTS))   # EN high = start
         time.sleep(settle)
         self.drain(0.15, 3.0)
 

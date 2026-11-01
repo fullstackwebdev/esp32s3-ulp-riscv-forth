@@ -91,3 +91,41 @@ the stack paint then overwrote `.bss`, `#k` reported **316 B of 324 used**, and 
 `MEMSZ` 2 700 is therefore the practical maximum with this layout: stack region **332 B**, measured high-water **240 B**
 (92 B margin). `flash_safe.sh`'s reserve is now **300 B** (240 measured + 25 %) instead of a pre-measurement 336 B, and it
 prints the measured figure so the number cannot drift away from evidence.
+
+---
+
+## The TUI stack overflow: two separate bugs, one found by each tool
+
+**Bug 1, in the app, found by the host probe (`[line] sp=…`).** Every ANSI word emitted only the letter `m`:
+
+```
+: M 109 EMIT ;        : INV ESC CSI 55 M ;        (WRONG)
+```
+
+`55` is the character `7`, and it was pushed but never emitted, so **each colour change left one cell on the data
+stack**. A frame with ~8 colour changes reached `sp=16` and `ERR_STACK` killed the program at the end of the line — which
+is why the menu drew perfectly and then ignored every key. Fixed by emitting the digit: `ESC CSI 55 EMIT M`.
+
+Measured before/after on the host engine (same interpreter, no chip):
+
+| word | before | after |
+|---|---|---|
+| `INV` | sp=1 | sp=0 |
+| `HDR` | sp=2 | sp=0 |
+| `TITLE` | sp=6 | sp=0 |
+| `ITEMS` | sp=13 | sp=0 |
+| `FRAME` | overflow | **sp=0 rsp=0** |
+
+**Bug 2, still open, chip-only.** With the leak fixed the chip still reports `ERR_STACK` at the end of `RUN`'s first
+frame, while the host reports a clean frame. The only difference on that path is `KEY`: the host's `pl_key` blocks on
+stdin, the chip's returns −1 immediately, so `K0` (`BEGIN KEY DUP 0 < 0= UNTIL`) spins thousands of times per second.
+That is the next thing to measure: a bounded loop that returns to the engine instead of spinning, or a `KEY` that waits
+in the wake path.
+
+### The tool that made this visible
+
+`tests/tui_menu.py` — reproducible end-to-end test of the full-screen menu: fresh-boot assertion, upload, compile,
+start, then **every keystroke** (`j`, `k`, arrows, Enter, an unknown key, `q`), asserting the selection's *row* (not just
+that a marker exists), that no frame contains `ERR_`, that `q` leaves the alternate screen, and that the REPL answers
+afterwards. `--capture` saves every raw frame. It also caught two bugs in itself: a reset that silently did not happen
+(now a fresh-boot assertion with an esptool fallback) and `cmd`'s echo parsed as data (now `dev.num`).
