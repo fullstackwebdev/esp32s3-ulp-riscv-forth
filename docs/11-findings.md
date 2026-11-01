@@ -494,15 +494,34 @@ context. A true sleep is the wake timer, which is a different mechanism. The `de
 5x. Linter **R9** (`MS does not sleep`) was **retired**, not left as folklore: it was right about the machine it
 measured and would be a lie about this one.
 
-## F-126 · A reset that reports success and does nothing costs more than a slow reset
-On this board (ESP32-S3, native USB-Serial-JTAG) the RTS/DTR modem bits are emulated registers, not a physical EN line.
-Measured: `: ZZZZ 1 ;` moved HERE to 794; a `pulse_reset` left it at **794**; the same call after esptool's hard reset
-read **786** (baked). So the "fast path" was a no-op that two callers per run paid ~1.3 s for, and a harness that
-assumed "pulsed ⇒ fresh" was reading the *previous* run's dictionary.
+## F-127 · A cleanup step waited for a message the protocol never sends, so a good run ended in a traceback
+`term()` hands the operator's terminal to a program and, on the way out, sent `!LINE` to take the line discipline back
+with `dev.cmd("!LINE", timeout=8.0)`. `!LINE` has **no reply of its own**: it clears raw mode and prints nothing
+(`raw_mode = 0; rawn = 0; break;` in `main/repl_main.c`). What `dev.cmd` actually matched was the ` ok` the interpreter
+prints for the *line that started the program* - unsolicited output that is there only if the buffer has not already
+been drained. Measured, in the operator's terminal: a successful build, then
 
-`devio.Dev.pulse_reset` now verifies (`HERE < 900`) and falls back to the esptool reset, and `cli.connect` probes with
-1.5 s timeouts instead of 5 s and names a held port (it found a stale `cli.py` holding `/dev/ttyACM1`: the old message
-said "the board did not come back to a fresh dictionary", which sent me looking at hardware for a process-table bug).
-`./cli.py` startup: **21.7 s → 2.9 s**, measured on a board with a non-fresh dictionary.
+```
+devio.Timeout: no reply to '!LINE' within 8.0s; got ''
+```
 
-**Guarded by** `probe/repl/tests/device.sh`, which every device run goes through.
+with the machine healthy and the terminal half restored, followed by a `q` typed at a shell prompt that had nothing to
+do with it.
+
+**Two rules came out of it:**
+
+1. **A cleanup step must not be able to raise, and must not wait for output that is not guaranteed.** `term()` now
+   writes `!LINE` without waiting and then *proves* the machine is back with `HERE .`, which must answer. On failure it
+   reports a named message and exits non-zero - no traceback, and the terminal is restored before any board I/O so the
+   operator's shell is sane in every case.
+2. **`Ctrl-C` is not a way out of a program.** It stops the proxy; the machine stays inside the app's `KEY` loop, and
+   from then on keystrokes go to the command ring, which the app never reads - so the REPL is unreachable and the board
+   looks dead. `term()` now sends the app's own quit key (`q`) and requires the interpreter's ` ok`, repeated up to three
+   times because a launcher nests (the menu runs a demo, so one `q` leaves the demo and the *menu* is still waiting -
+   measured as "no ` ok`" with a single key). Stopping at the first ` ok` also avoids leaving a stale `q` in the keybox
+   that would quit the next program on its first poll.
+
+**Guarded by** `tests/tui_cli.py`: it drains the console to silence before the final `q` (creating the empty-buffer
+condition that failed - "the console goes quiet before exit: 0 B"), then checks exit status; and it starts a second
+run, presses Ctrl-C mid-animation, and requires a usable machine afterwards (22 checks).
+

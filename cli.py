@@ -232,6 +232,8 @@ def term(dev, word=None):
     # either way, so scripts and CI can drive a full-screen program too.
     interact = os.isatty(fin)
     old = termios.tcgetattr(fin) if interact else None
+    ok = True
+    interrupted = False
     try:
         if interact:
             tty.setraw(fin)
@@ -246,6 +248,7 @@ def term(dev, word=None):
                 if not b:
                     break
                 if b == b"\x03":                   # Ctrl-C: always ours, never the program's
+                    interrupted = True
                     break
                 os.write(dev.fd, b)
             if dev.fd in r:
@@ -266,8 +269,50 @@ def term(dev, word=None):
             termios.tcsetattr(fin, termios.TCSADRAIN, old)
         sys.stdout.write(RESTORE)
         sys.stdout.flush()
-        dev.cmd("!LINE", timeout=8.0, allow_error=True)
-    say("  (back in the REPL)", DM)
+        # GUARDRAIL: `!LINE` has NO REPLY. It switches the host's own line discipline and prints nothing (`raw_mode = 0;
+        # rawn = 0; break;` in repl_main.c). Waiting for a marker therefore waited for UNSOLICITED output - the ` ok`
+        # the REPL prints for the word that started the program - so it passed whenever that line happened to still be in
+        # the buffer and crashed with `devio.Timeout: no reply to '!LINE' within 8.0s` when it had already been consumed.
+        # Measured in the operator's terminal as a traceback AFTER a successful build, with the machine fine and the
+        # terminal half restored: a cleanup step must never be able to raise. Send it without waiting, then prove the
+        # machine is back with a command that DOES answer.
+        if interrupted:
+            # GUARDRAIL: Ctrl-C stops the PROXY, not the PROGRAM. The machine is inside the app's KEY loop, and once the
+            # host stops forwarding raw bytes the app can never return - `!LINE` then answers nothing and the board looks
+            # dead (measured: the 8 s timeout this cleanup used to raise, in the operator's terminal).
+            # GUARDRAIL: send `q` REPEATEDLY, and stop at the first ` ok`. A program can be nested - the launcher's menu
+            # runs a demo, so one `q` leaves the demo and the MENU is still waiting; measured as "no ok" with a single
+            # key. The ` ok` is printed when the *line* that started the program finishes, so it is the exact signal
+            # that nothing is left running. Stopping there also avoids a stale key: a `q` sent after the app has gone
+            # would sit in the keybox and quit the NEXT program on its first poll.
+            buf = b""
+            for _ in range(3):
+                os.write(dev.fd, b"q")
+                end = time.time() + 1.0
+                while time.time() < end and b"ok" not in buf:
+                    r, _, _ = select.select([dev.fd], [], [], 0.1)
+                    if r:
+                        try:
+                            buf += os.read(dev.fd, 4096)
+                        except OSError:
+                            break
+                if b"ok" in buf:
+                    break
+            if b"ok" not in buf:
+                say("  the program did not stop on Ctrl-C - the board needs a reset (unplug/replug).", YL)
+                ok = False
+        os.write(dev.fd, b"!LINE\r")
+        try:
+            dev.num("HERE .", timeout=4.0)
+        except Exception as e:
+            # GUARDRAIL: set a flag, do NOT `return` from `finally`. A return there discards whatever exception brought us
+            # here - the exact silent-failure shape this project bans - so the original error would vanish and the
+            # operator would be told the board stopped answering instead.
+            ok = False
+            say(f"  the board stopped answering after the program exited ({type(e).__name__}).", YL)
+            say("  unplug the USB cable, plug it back in, and run this again.", YL)
+    say("  (back at the line prompt)", DM)
+    return ok
 
 
 def status(dev):
@@ -365,7 +410,8 @@ def main():
             say("  upload had errors - fix them above, then run again.", YL)
             return 1
         if a.term is not None:
-            term(dev, a.term)
+            if not term(dev, a.term):
+                return 3
             # GUARDRAIL: `--library` RUNS the library; when the app exits, the run is over. Dropping into the REPL left a
             # live process holding /dev/ttyACM1 for as long as the terminal stayed open, so the NEXT `./cli.py --library`
             # had to be told "already open by pid ...". Measured: the operator's second run paid a 9 s reset attempt and

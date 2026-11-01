@@ -41,6 +41,10 @@ it** (35–43 ms, measured), `q` comes back to the menu, and **`q` on the menu e
 `--repl` stays in the REPL instead. Any program can be re-entered any number of times; the images live in the block
 store and survive a reset.
 
+**Leaving:** `q` on the menu ends the run and gives your port back (`--repl` stays at the prompt instead). `Ctrl-C`
+always gets your terminal back *and* stops the program — it sends the app its own quit key and waits for the
+interpreter's ` ok`, up to three times, because the menu runs the demo and each `q` leaves one level.
+
 The bars draw eight rows of blocks, each in its own colour, and redraw on every key press. The spinner **rotates**
 `| / - \` at about four frames per second (that is `MS 250` doing its job) with its phase number beside it. Both leave
 on `q`, and the menu paints exactly one row red — the selected one. `MS` is a busy-wait on this machine: nothing else

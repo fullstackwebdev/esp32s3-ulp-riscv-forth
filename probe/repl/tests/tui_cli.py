@@ -171,12 +171,52 @@ def main():
 
         os.write(master, b"q")
         frame(master)
+        # GUARDRAIL: drain until the console is SILENT before the last `q`. `term()`'s cleanup used to wait for a reply
+        # to `!LINE`, which the host never sends - so it only passed while the REPL's closing ` ok` was still unread in
+        # the buffer, and crashed with `devio.Timeout: no reply to '!LINE' within 8.0s` when it had already been
+        # consumed. That is what the operator hit: a traceback after a successful build, on a healthy machine. An empty
+        # buffer at exit is the failing condition, so the test now CREATES it instead of hoping.
+        quiet = b""
+        for _ in range(8):
+            piece = dwell(master, 0.25)
+            quiet += piece
+            if not piece:
+                break
+        check("the console goes quiet before exit", len(quiet) < 600, f"{len(quiet)} B of trailing output")
         os.write(master, b"q")                          # q on the menu: leave the launcher
         try:
             proc.wait(timeout=15.0)
             check("`q` on the menu ends the run", proc.returncode == 0, f"exit {proc.returncode}")
         except subprocess.TimeoutExpired:
             check("`q` on the menu ends the run", False, "still running after `q`")
+
+        # GUARDRAIL: Ctrl-C must end the PROGRAM, not just the proxy. The machine is inside the app's KEY loop, and once
+        # the host stops forwarding raw bytes the app can never return - the REPL stays unreachable and the board looks
+        # dead. `term()` now sends the app's own quit key and waits for the interpreter's ` ok`. Proven the same way as
+        # everything else here: start a run, interrupt it mid-animation, and require a usable machine afterwards.
+        m2, s2 = pty.openpty()
+        p2 = subprocess.Popen([sys.executable, str(ROOT / "cli.py"), "--library", "--term"], cwd=str(ROOT),
+                              stdin=s2, stdout=s2, stderr=s2, close_fds=True)
+        os.close(s2)
+        try:
+            frame(m2, CAP)                      # the menu
+            os.write(m2, b"\r")                 # run the bars program
+            frame(m2, 10.0)
+            os.write(m2, b"\x03")               # Ctrl-C while it owns the terminal
+            tail = dwell(m2, 3.0)
+            try:
+                p2.wait(timeout=15.0)
+                rc = p2.returncode
+            except subprocess.TimeoutExpired:
+                rc = "still running"
+            check("Ctrl-C ends the program and the run", rc == 0 and b"did not stop" not in tail,
+                  f"exit {rc}")
+            check("Ctrl-C reports the line prompt", b"line prompt" in tail or b"Forth REPL" in tail,
+                  tail[-60:].decode("latin-1").replace("\r", " ").strip())
+        finally:
+            if p2.poll() is None:
+                p2.kill()
+            os.close(m2)
 
         # GUARDRAIL: `--library` must RELEASE the port. It used to fall into the REPL, which left a live process holding
         # /dev/ttyACM1 for as long as the terminal stayed open, so the operator's next run paid a 9 s reset attempt and

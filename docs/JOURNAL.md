@@ -2020,3 +2020,32 @@ belongs at the END of a frame; both demos had `SENT` right after the title.
 Plus `dev.cmd(settle=…)` so a `LOAD` - which answers with exactly one line - does not pay the 20 ms second-line window:
 **build 4.8 s → 4.1 s, total 11.3 s → 6.6 s**, with per-block progress so the wait is visible. The remaining ~4 s is 34
 blocks on a 19 MHz chip at one USB round trip each; that is the design's floor, not a bug.
+
+**J-106 · The traceback after a good build: a cleanup step listening for a message nobody sends.**
+The operator pasted a crash that happened *after* "library ready", on a working machine:
+
+```
+devio.Timeout: no reply to '!LINE' within 8.0s; got ''
+```
+
+`!LINE` is how the host takes the line discipline back, and it prints nothing - it just clears raw mode. What `dev.cmd`
+had been matching all along was the ` ok` printed for the line that started the program, i.e. **unsolicited output that
+survives only if the buffer was not already drained.** In a terminal, with the frame consumed and the ` ok` already
+read, nothing was left to match, and the cleanup raised through `main` and printed a traceback over a half-restored
+terminal.
+
+Two fixes, both about the same rule - *wait only for what must arrive*:
+
+* the cleanup writes `!LINE` without waiting, then proves the machine is back with `HERE .` (which must answer). It
+  cannot raise: terminal restored first, then a named message and exit 3 if the board really is gone. No `return` in
+  `finally` either - that would discard the exception that brought us there, which is the silent-failure shape this
+  project bans.
+* **Ctrl-C now actually ends the program.** It only ever stopped the proxy: the machine stayed inside the app's `KEY`
+  loop, keystrokes stopped reaching the keybox, and the REPL became unreachable while the board looked dead. `term()`
+  now sends the app's own quit key and requires the interpreter's ` ok` - up to three times, because a launcher nests
+  (one `q` leaves the demo and the *menu* still waits - measured as "no ok" with one key). Stopping at the first ` ok`
+  also avoids a stale `q` in the keybox quitting the next program on its first poll.
+
+The test now *creates* the failing condition instead of being saved by a race: it drains the console to silence before
+the final `q` ("the console goes quiet before exit: 0 B"), and it starts a second run, interrupts it mid-animation with
+Ctrl-C, and requires a usable machine afterwards. Device: 69 checks across six files.
