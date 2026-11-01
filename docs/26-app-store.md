@@ -138,22 +138,37 @@ tests/apps/<app>.host.txt        the host golden (24x80 cells, exactly as drawn)
 **One phase per file.** A phase file defines exactly one entry word (the file's name uppercased, e.g. `CALC1`) and may
 **not** `CREATE`/`VARIABLE` anything (R16). It ends by setting `NXT` (usually `SHELF CHAIN`) so the shelf comes back.
 
-## Block allocation (the store is 128 blocks; nobody may stray outside their range)
+## Block allocation (the store is 128 blocks — corrected by measurement)
 
-| range | owner | notes |
+The first version of this table did not add up: it gave mail 20 blocks and asked for 5 pages of 8 blocks (40) plus two
+phase descriptors (~16). Lane MAIL measured the contradiction and was told to report it rather than shrink the content,
+which is exactly right. The principle the arithmetic exposes:
+
+> **Descriptors are durable — one per phase, `ceil((20 + image + headers) / 128)` blocks, 8 in practice.
+> Source blocks are TRANSIENT — a phase's source is only needed while `cli.upload` and `#d` are staging it, so every
+> phase shares ONE scratch range at the top of the store.**
+
+| range | owner | durable? |
 |---|---|---|
-| 0–7 | reserved | descriptor packing experiment, never for app data |
-| 8–19 | calculator | |
-| 20–39 | spreadsheet | |
-| 40–59 | mail | |
-| 60–79 | gopher/browser | |
-| 80–95 | reader | |
-| 96–111 | shelf | |
-| 112–127 | resident launcher source | `appstore.fs` upload |
+| 0–7 | reserved (descriptor packing, never content) | – |
+| 8–15 | calc1 descriptor | yes |
+| 16–23 | calc2 descriptor | yes |
+| 24–31 | sheet1 descriptor | yes |
+| 32–39 | mail1 descriptor | yes |
+| 40–47 | gopher1 descriptor | yes |
+| 48–55 | reader1 descriptor | yes |
+| 56–63 | shelf1 descriptor | yes |
+| 64–79 | **reader content**: 2 pages | yes |
+| 80–103 | **mail content**: 3 pages (p00 list, p01–p02 bodies) | yes |
+| 104–119 | **gopher content**: 2 pages (home + article) | yes |
+| 120–127 | **staging**: the source of ANY phase is uploaded here, then `#d` writes its descriptor in its own range | no |
 
-A phase costs its **source** blocks (1–2) plus its **descriptor** blocks (`ceil((20 + image bytes) / 128)`, i.e. up to 10
-for a maximal phase). So a maximal phase is ~11–12 blocks: **10–12 phases fit the store**, and that is the ceiling the
-docs may claim.
+Rules that follow: a phase lives in the range of its *descriptor* (that is what `GO` chains to); the staging range is
+reused by every upload and must never hold anything a phase needs at run time; content ranges never move, because page N is
+`START + N*8` arithmetic.
+
+**One phase per app where possible.** A view switch driven by a cell (`APP_PG`, a cursor) costs a few bytes; a second
+descriptor costs 8 blocks. Views belong in cells; new *capabilities* belong in phases.
 
 ## Registry cells (below the seal; `registry.fs`)
 
