@@ -37,6 +37,11 @@ word that genuinely passes values must say so, and that declaration is documenta
 
     tools/lint_forth.py examples/tui_min.fs        lint a file (exit 1 on findings)
     tools/lint_forth.py --selftest                 prove every rule fires on the bug it came from
+    tools/sink.py                                  the CORPUS: 12 programs with their expected verdicts
+
+    Run tools/sink.py after EVERY change to a rule. --selftest proves a rule fires on its own fixture; the corpus
+    proves it does not fire on good code and still fires on bad code that was written before the rule existed. A rule
+    that starts flagging 01_arith.fs is a false positive; a rule that stops flagging bad_r07.fs is a false negative.
 """
 import re
 import sys

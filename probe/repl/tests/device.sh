@@ -22,6 +22,8 @@ flock -n 9 || { echo "board busy (another device run holds $LOCK)" >&2; exit 3; 
 # linter believes in, and ms_clock.py measures the ULP's only clock (MS).
 # `linter believes in` -> `MOD` was in that table and not on the chip: the linter certified block 79 of a launcher that
 # could not compile, and only the chip said so.
+# GUARDRAIL: `tools/sink.py --device` is last and is the only runner that does not live in tests/: it is the
+# CORPUS (small programs + their expected lint verdicts), so it doubles as the linter's regression suite.
 tests=(lint_vocab.py ms_clock.py tui_menu.py adopt_sum.py programs.py tui_cli.py)
 fail=0
 for t in "${tests[@]}"; do
@@ -32,9 +34,20 @@ for t in "${tests[@]}"; do
         echo "=== $t FAILED ===" >&2
     fi
 done
+
+# GUARDRAIL: `tools/sink.py --device` lives in tools/ because it is the CORPUS - small programs plus the lint verdict
+# each one must get - so it is the linter's regression suite as much as the machine's. It runs last because it is the
+# only runner that resets the dictionary between every entry.
+echo
+echo "=== tools/sink.py --device (the corpus: 6 programs on the chip, 12 lint verdicts) ==="
+if ! nice -n 10 python3 tools/sink.py --device; then
+    fail=$((fail + 1))
+    echo "=== sink.py FAILED ===" >&2
+fi
+
 echo
 if [ "$fail" -ne 0 ]; then
-    echo "device: $fail of ${#tests[@]} test file(s) failed" >&2
+    echo "device: $fail failure(s) across ${#tests[@]} test file(s) + the sink corpus" >&2
     exit 1
 fi
-echo "device: all ${#tests[@]} test files pass"
+echo "device: all ${#tests[@]} test files pass, plus the sink corpus"

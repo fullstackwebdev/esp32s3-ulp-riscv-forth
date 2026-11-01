@@ -210,7 +210,15 @@ Run the linter before you flash anything:
 ```
 python3 probe/repl/tools/lint_forth.py examples/tui_min.fs
 python3 probe/repl/tools/lint_forth.py --selftest      # proves each rule fires on the bug it came from
+python3 probe/repl/tools/sink.py                       # the CORPUS: 12 programs, each with its expected verdict
+python3 probe/repl/tools/sink.py --device              # ... and run the 6 good ones on the chip
 ```
+
+**`sink.py` is the linter's regression suite.** `probe/repl/tests/sink/` holds twelve small programs in order of what
+they establish — arithmetic, loops, number printing, the ANSI byte path, cells, then five programs that are *wrong on
+purpose* — and each one carries the verdict it must get. Run it after **every** change to a rule: a rule that starts
+flagging `01_arith.fs` is a false positive, a rule that stops flagging `bad_r07.fs` is a false negative, and both show
+up by name.
 
 | rule | what it catches | the bug it came from |
 |---|---|---|

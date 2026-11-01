@@ -2096,3 +2096,29 @@ Two of the three needed the selftest to be honest: R10's fixture is a *hand-made
 refuses to produce one — the rule is the belt to that braces (a regression in `fsplit`, or a hand-written multi-block
 upload). And R10 was blind at first because `CONSTANT`/`,` were not in its vocabulary: a rule that cannot see the word
 it is named after is a rule that reports nothing.
+
+**J-109 · The throwaway probes became a corpus: `tools/sink.py` + `tests/sink/`.**
+Every ad-hoc probe this session was a `.tmp_*.py` that got deleted after use, which is how a lesson gets re-learned. The
+ones worth keeping are now twelve small Forth programs in `probe/repl/tests/sink/`, ordered by what they establish, and
+one runner that checks each against **the verdict it must get**:
+
+| # | file | establishes | must lint as | on the chip |
+|---|---|---|---|---|
+| 1 | 01_arith.fs | arithmetic and the stack | clean | `6620` |
+| 2 | 02_loops.fs | BEGIN/WHILE/REPEAT over a `CREATE`d cell | clean | `1543` |
+| 3 | 03_digits.fs | two-digit printing with a **bounded** EMIT | clean | `0 1 … 12` |
+| 4 | 04_escape.fs | the ANSI byte path and the frame sentinel | clean | ESC[2J ESC[31m ok NUL |
+| 5 | 05_cells.fs | `CREATE` / `!` / `@` below the seal | clean | `38` |
+| 6-11 | bad_r01/02/03/04/07/08 | a `\` comment, an undefined word, underflow, leak, unbounded EMIT, `KEY` never tested | **the named rule** | r07 must print `ERR_ULPCODE` |
+| 12 | bad_r11.fs | a definition too long for one block | R11 fit | — |
+
+That is the point the operator asked for: the corpus is *the linter's* regression suite too. `--selftest` proves a rule
+fires on the fixture it was born with; the corpus proves it does not fire on good code and still fires on bad code
+written earlier. It runs in `tests/device.sh` and costs ~50 ms without a board.
+
+Two facts fell out of building it, both now pinned:
+* **`.` prints no trailing space** — `2 3 + .` answers `5 ok`, so three of them concatenate to `6620`. The sink
+  expectations are the record.
+* **the first block op after a hard reset can answer `ERR_BUSY`** — the store is still booting and the layer is latched
+  (measured: HERE stayed 786, block 64 refused). One `0 2 BLKXFER` abort plus one retry is the documented escape; the
+  runner does both, or the corpus fails for a reason unrelated to what it tests.

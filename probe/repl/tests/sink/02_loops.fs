@@ -1,0 +1,3 @@
+CREATE T 0 ,
+: ADDUP ( n -- ) BEGIN DUP 0 SWAP < WHILE DUP T @ + T ! 1- REPEAT DROP ;
+: RUNSINK ( -- ) 5 ADDUP T @ . 7 ADDUP T @ . ;

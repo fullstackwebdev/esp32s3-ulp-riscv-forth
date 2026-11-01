@@ -1,0 +1,5 @@
+: SP ( -- ) 32 EMIT ;
+: DIGIT ( n -- ) 15 AND 48 + EMIT ;
+: .N ( n -- ) 100 /MOD DROP DUP 10 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;
+: ROW ( -- ) 0 BEGIN DUP 13 < WHILE DUP .N SP 1+ REPEAT DROP ;
+: RUNSINK ( -- ) ROW ;
