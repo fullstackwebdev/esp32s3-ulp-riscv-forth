@@ -167,6 +167,40 @@ SHELF     96   CONSTANT           SHELF_DESC is the literal 96 used by every ret
 Names are capitalised with an app prefix so the 12-bit hash cannot collide across apps; `tools/hashsearch.py` is run over
 the union of the app vocabularies before a wave is merged.
 
+## The interface every lane codes against (measured, current)
+
+```
+resident:  examples/appstore.fs (dispatcher, 8 words) + examples/apps/registry.fs (cells)
+           measured 344 B  (284 B code + 60 B headers)
+window:    1 366 - 344 = 1 022 B
+per phase: ~1 022 B minus its own drawing vocabulary (~175 B) and strings (~90 B)
+           => ~757 B of LOGIC per phase. Design to 700 and measure.
+```
+
+* `SHELF` is a resident CONSTANT = **96**: every screen returns with `SHELF CHAIN`; the dispatcher does the adopting.
+* A phase never calls `SWITCH`/`GO` - it sets `NXT` (`SHELF CHAIN`) and returns.
+* A phase never owns state (R16): position, page, selection, counters live in `registry.fs` cells.
+
+### Content format (pages are pages)
+
+| concept | rule |
+|---|---|
+| page | **8 consecutive blocks**, one block per screen line |
+| line | up to **70** characters, space-padded (the store fills with spaces) |
+| page base | `START + page * 8`, where `START` is the app's own literal inside its range |
+| authoring | `content/<app>/pNN.txt`, one line per block, ≤70 chars, ≤8 lines - seed with `tools/seed_pages.py` |
+| link (gopher) | a line starting with `>` - its target page number follows immediately |
+| list item (mail) | line 1..7 of page 0; Enter on the selected line opens page `1 + index` |
+
+Blocks per app come from the allocation table; a 4-page document is 32 blocks.
+
+### Two gates a lane can run WITHOUT the board
+
+1. `lint_forth.py --phase --use examples/apps/registry.fs --use examples/appstore.fs <phase>.fs` - clean.
+2. `tests/<app>_logic.fs` + `tests/<app>_logic.expected` - the pure logic (addressing, paging arithmetic, formatting) as
+   words, run by the existing host suite. A `tests/apps/<app>.py` grid test comes next for screens that need no block
+   content; anything that READS the store is verified on the board by the integrator, not claimed by the lane.
+
 ## The five gates — every app passes all of them, in this order
 
 | gate | artefact | fails when |
