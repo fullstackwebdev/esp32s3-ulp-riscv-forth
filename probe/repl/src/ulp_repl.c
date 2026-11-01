@@ -102,7 +102,11 @@
 /* GUARDRAIL: 0 in the P52 bench build only. Tasks cost ~280 B of .bss and ~200 B of text, and the
  * shipping image has 3 B of pool; the scheduler is not in the interpreter's path, so leaving it out does
  * not change dispatch cost or any workload result — it buys the space the instrument needs. */
-#define P43_TASKS 1
+/* GUARDRAIL: UNDEFINED, not 0. Every guard in uforth.c is `#if defined(P43_TASKS)`, so `#define P43_TASKS 0` leaves the
+ * scheduler compiled in - measured: the image was byte-identical with 0. The two notes above already say tasks are OFF
+ * and must stay OFF (they lose the REPL) and that they cost ~280 B of .bss + ~200 B of text, so having this line defined
+ * at all contradicted the file's own rules. Commented out; re-enable only together with the root cause. */
+/* #define P43_TASKS 1 */
 #define IMAGE
 
 #include "uforth.c"
