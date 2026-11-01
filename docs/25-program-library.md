@@ -145,6 +145,7 @@ Three changes, all measured, none of them a delay:
 | publish `blk_out` **after** the mailbox words | ULP (`.c`) | a half-posted request can never be seen |
 | keep polling 8 × 150 µs after a service (`hot`) | HP (`.c`) | the next chained request is ~100–300 µs away, not a tick |
 | `PICKX` checks the status and returns `NOOP` | `.fs` | a failed adopt **stops** the chain instead of running stale bytes |
+| that arm uses `['] NOOP`, not `' NOOP` | `.fs` | `'` parses the input at RUN time, so the arm was a parse, not an xt (`F-134`) |
 | the per-adopt `img: adopted …` line is behind `#v 1` | HP (`.c`) | it was 4.5 of the 5.1 ms a hop cost |
 
 **30.8 ms/hop → 2.1 ms**, i.e. 24 hops in 50 ms instead of 739 ms, and `tests/dispatcher.py` now asserts the *latency*

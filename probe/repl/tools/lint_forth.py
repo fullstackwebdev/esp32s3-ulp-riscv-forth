@@ -18,6 +18,10 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
   R8 key -1     KEY returns -1 for "no key". A body that reads KEY, never tests -1 and has no other
                 pacing treats "nothing" as a keystroke, so its loop runs flat out: measured as a spinner
                 drawing 267 frames/s (16 KB in 4 s) instead of one frame per press.
+  R12 tick      bare `'` inside a definition. It calls word() at RUN time, so a body compiled with `' NOOP` pushes
+                nothing and parses whatever input arrives next: measured as `?` lines from `: T ( -- ) ' NOOP EXECUTE ;`
+                on the board, and as the launcher's failed-adopt arm being a no-op (F-134). `[']` is the immediate
+                compile-time form.
   R10 block start  a block may not BEGIN with a word that consumes the stack. A block is a LINE and every line
                 starts with an empty stack (`run_line()` does `sp = 0`), so anything the previous block pushed is
                 gone. Measured: `fsplit` cut `: SWITCH ... ; 40` | `CONSTANT IMGP ...`, and the device answered
@@ -73,6 +77,12 @@ PRIMS = {
     # reported `' NOOP` as "NOOP needs nothing, fine" - but on a word that takes arguments it would subtract them and
     # report a phantom underflow. The walk skips the operand instead (see `tick` below).
     "'": (0, 1),
+    # GUARDRAIL: `[']` is the COMPILE-TIME tick (p31_prims.inc: `X(BTICK,"[']",1)`, immediate, `clit(x)`), and it is the
+    # only form that works inside a definition: bare `'` (P_TICK) calls `word()` at RUN time, so a `' NOOP` compiled into
+    # a body pushes nothing and executes a parse of whatever input comes next - measured on the board as two `?` lines
+    # from `: T ( -- ) ' NOOP EXECUTE ;`. The launcher's failed-adopt path carried exactly that bug: PICKX returned an xt
+    # only on the success arm, and the safety arm printed NAME? instead of running NOOP (F-134).
+    "[']": (0, 1),
     "UNLOOP": (0, 0), '."': (0, 0),
 }
 CONTROL = {"IF", "ELSE", "THEN", "BEGIN", "UNTIL", "WHILE", "REPEAT", "AGAIN", "DO", "LOOP", "+LOOP", "EXIT"}
@@ -277,7 +287,28 @@ def lint_definitions(src, base=None):
         for tk in toks:
             if tick:
                 tick = False
-                continue                      # GUARDRAIL: the operand of `'` is a NAME, not a call
+                # GUARDRAIL: skipping the operand is right for the STACK EFFECT and wrong for EXISTENCE. `'` is parsed by
+                # the outer interpreter at compile time, so a ticked word must already exist - `' UNDEF` is `NAME?` on
+                # the chip, and because the walk skipped the operand the linter called it clean. Measured while adding
+                # the dispatcher: `boot.fs` ticks NOOP, and a typo there would have been a device session, not a lint.
+                if tk not in vocab and not tk[0].isdigit():
+                    findings.append((lineno, "R2 order",
+                                     f"`' {tk}` ticks a word that is not defined - NAME? at compile time"))
+                continue
+            if tk == "[']":
+                depth += 1
+                tick = True
+                continue
+            if tk == "'":
+                # GUARDRAIL: R12. `'` inside a definition compiles a runtime parse, not a literal - the xt is NOT on the
+                # stack when the body runs. Reported at the definition, with the fix in the message, because the symptom
+                # (`?` lines from a running word) sends you looking at the wrong word entirely.
+                findings.append((lineno, "R12 tick",
+                                 f"{name}: `' {toks[toks.index(tk) + 1] if toks.index(tk) + 1 < len(toks) else '?'}`"
+                                 " compiles a RUNTIME parse - inside a definition use `[']` (the immediate, compile-time tick)"))
+                depth += 1
+                tick = True
+                continue
             if tk == "'":
                 depth += 1
                 tick = True
@@ -507,6 +538,14 @@ GOOD = """: WAIT ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
 # regression in the splitter, or a hand-made multi-block upload.
 KIND_BLOCKS = [": SWITCH ( desc -- ) NXT ! ; 40", "CONSTANT IMGP : HDR0 ( -- ) CLR HOME ;"]
 GOOD_BLOCKS = ": A 1 ; 40 CONSTANT X : B 2 + . ;"
+# GUARDRAIL: the tick fixture earns its place: `'` was added to the effect table for the dispatcher and the operand is
+# SKIPPED, which is exactly the shape that makes an undefined ticked word invisible. Both directions are proven here -
+# a ticked resident word is silent, a ticked unknown word is R2.
+# GUARDRAIL: the fixture uses `[']`, because `'` inside a definition is the BUG (R12) - the first version of this test
+# asserted the broken form was clean, which is how a linter certifies the mistake it is supposed to catch.
+GOOD_TICK = ": NOOP ; : A ( -- ) ['] NOOP EXECUTE ;"
+BAD_TICK = ": NOOP ; : A ( -- ) ['] NOXX EXECUTE ;"
+BAD_R12 = ": NOOP ; : A ( -- ) ' NOOP EXECUTE ;"
 
 
 def selftest():
@@ -526,6 +565,19 @@ def selftest():
     f = check_blocks(GOOD_BLOCKS)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  good blocks (must be silent)      {f[:1] if f else ''}")
+    f = lint_definitions(GOOD_TICK)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  ticked resident word (must be silent) {f[:1] if f else ''}")
+    f = lint_definitions(BAD_TICK)
+    hit = any(r == "R2 order" for _, r, _ in f)
+    ok = ok and hit
+    print(f"  {'caught' if hit else 'MISSED'}  ticked UNKNOWN word                R2 order"
+          + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
+    f = lint_definitions(BAD_R12)
+    hit = any(r == "R12 tick" for _, r, _ in f)
+    ok = ok and hit
+    print(f"  {'caught' if hit else 'MISSED'}  bare ' inside a definition         R12 tick"
+          + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
     # R11: a definition too long for one block is a lint finding, not a flash-time surprise
     f = check_blocks(": LONG " + " ".join(["1"] * 60) + " ;")
     ok = ok and any(r == "R11 fit" for _, r, _ in f)

@@ -1,0 +1,1 @@
+: RUNSINK ( -- ) ['] NOXX EXECUTE ;

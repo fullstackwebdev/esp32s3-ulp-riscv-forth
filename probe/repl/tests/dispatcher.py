@@ -54,6 +54,20 @@ def main():
         seal, latest = dev.num("bh @ ."), dev.num("bl @ .")
         window = latest - seal
         check("the dispatcher fits in the high store and seals", n == 5, f"{n} blocks, seal {seal}")
+
+        # GUARDRAIL: the block server must be QUIET at rest. When the stack-paint canary drifted onto `blk_out`, the flag
+        # read 0xA5A5A5A5 and the server answered 12 028 phantom requests in 2 s, trampling the transfer window under a
+        # real load (F-131). The symptom was ERR_CRC in 2-3 of 12 uploads - a flake nobody could reproduce on demand. One
+        # idle second and a stable counter is the whole test: it fails loudly the moment the flag stops being a flag.
+        def served():
+            rep = dev.cmd("#u", timeout=6.0, allow_error=True)
+            m = re.search(r"\| total (\d+)", rep)
+            return int(m.group(1)) if m else -1
+
+        a = served()
+        time.sleep(1.0)
+        b = served()
+        check("the block server is quiet at rest", a >= 0 and a == b, f"served {a} -> {b} in 1 s idle")
         check("a dispatcher-only launcher leaves a big window", window > 1000,
               f"window {window} B (menu launcher today: 254 B)")
 
@@ -95,6 +109,55 @@ def main():
         check(f"every phase ran, in order ({HOPS})", got == HOPS, f"counter {got}")
         hits = re.findall(rb"REFUSED \w+|ERR_BUSY|ERR_", buf)
         check("no adopt was refused or busy", not hits, str(hits[:3]) if hits else "none")
+        # GUARDRAIL: 24 adopts owe us ZERO `img: adopted` lines. That line is 4.8 ms of UART at 115200 and the server
+        # cannot poll while it writes - it was 4.5 of the 5.1 ms a hop cost (F-133). The latency check above cannot see
+        # this on its own: 24 hops x 4.8 ms is 115 ms, still under the 8 ms/hop threshold, so the noise would pass.
+        check("the per-adopt log line is off by default", b"img: adopted" not in buf,
+              f"{buf.count(b'img: adopted')} lines in {len(buf)} B")
+        # and the switch has to work in BOTH directions, or the default is just a deletion: run a real 2-hop chain
+        # (32 -> 34 -> ...) with the line on, then with it off again, and require the line to follow the switch.
+        on = dev.cmd("#v 1", timeout=5.0)
+        loud = dev.cmd("32 GO", timeout=20.0, allow_error=True)
+        quiet = dev.cmd("#v 0", timeout=5.0)
+        again = dev.cmd("32 GO", timeout=20.0, allow_error=True)
+        check("`#v 1` brings the line back", "img: adopted" in loud and "ON" in on,
+              f"{loud.count('img: adopted')} line(s), switch said {on.strip()[-20:]!r}")
+        check("`#v 0` silences it again", "img: adopted" not in again and "off" in quiet,
+              f"{again.count('img: adopted')} line(s), switch said {quiet.strip()[-20:]!r}")
+
+        # GUARDRAIL: the refusal path is the one the launcher's safety guarantee rests on ("a failed adopt STOPS the
+        # chain instead of running stale bytes") and it was never executed by the happy-path test above - which is how
+        # `['] NOOP` sat broken in PICKX for a whole turn: the good arm ran 24 times and the bad arm contained a bare
+        # `'`, which compiles a RUN-time parse, so the arm would have parsed input instead of returning NOOP (F-134).
+        # Point a phase at a descriptor that was never written, and require three things: the line RETURNS, no phase
+        # after it runs, and the refusal is NAMED in the transcript.
+        # one phase that bumps the counter and then names a block nobody ever described
+        scratch.write_text(": PHASEB0 ( -- ) PA @ 1+ PA ! 17 CHAIN ;\n")
+        dev.cmd("RW", timeout=5.0)
+        n, bad = cli.upload(dev, str(scratch), 20)
+        if bad:
+            raise SystemExit(f"the refusal phase did not compile: {bad}")
+        cs, ce = dev.num("bh @ ."), dev.num("HERE .")
+        hs, he = dev.num("LATEST ."), dev.num("bl @ .")
+        ent = dev.num("' PHASEB0 .")
+        dev.cmd("#d 30 %d %d %d %d %d" % (cs, ce, hs, he, ent))
+        dev.cmd("RW")
+        dev.cmd("0 PA !", timeout=5.0)
+        buf, end = b"", time.time() + 15
+        os.write(dev.fd, b"30 GO\r")
+        while time.time() < end and b" ok" not in buf:
+            r, _, _ = select.select([dev.fd], [], [], 0.05)
+            if r:
+                try:
+                    buf += os.read(dev.fd, 8192)
+                except OSError:
+                    break
+        got = dev.num("PA @ .")
+        check("a chain into an UNDESCRIBED block returns", b" ok" in buf, f"{len(buf)} B back")
+        check("...and stops at the refusal, does not run past it", got == 1,
+              f"counter {got} (1 = the phase ran, the refused hop did not)")
+        check("...and says so", b"REFUSED" in buf,
+              repr([l for l in buf.splitlines() if b"REFUSED" in l][:1]))
     finally:
         if scratch.exists():
             scratch.unlink()

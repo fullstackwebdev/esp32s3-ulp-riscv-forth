@@ -623,3 +623,28 @@ latency and not only the outcome.
 **Tried and rejected:** `CONFIG_FREERTOS_HZ=1000` did reach 2.2 ms/hop, but it also exposed an unrelated intermittent
 garbage path (5 failures in 11 trials at 1 kHz against 0 in 6 at 100 Hz, `ERR_ULPCODE 0xff`). The world-wide tick rate
 is not the place to buy one subsystem's latency; the bounded spin is.
+
+## F-134 · `'` is a RUN-time parse, `[']` is the compile-time one — and the launcher's refusal arm used the wrong one
+`X(TICK,"'",0)` and `X(BTICK,"[']",1)`: bare `'` reads the next word **from the input stream when it executes**, while
+`[']` is immediate and calls `clit()` — it compiles a literal. So inside a definition:
+
+```
+: T ( -- ) ' NOOP EXECUTE ;        ( compiles a parse; at run time there is no input: two `?` lines )
+: T ( -- ) ['] NOOP EXECUTE ;      ( pushes NOOP's xt: correct )
+```
+
+`PICKX`, the arm that is supposed to make a **refused adopt stop the chain instead of executing stale bytes**, read
+`UNLATCH ' NOOP`. On the success path (`... ELSE DROP @ THEN`) that arm never ran, and the 24-hop test only ever adopted
+valid descriptors — so the guarantee added the turn before was **not true**, and nothing noticed for a whole turn.
+
+Found by asking "do we have coverage of any of this?" The linter modelled `'` as "push an xt, skip the operand", which is
+right for the stack effect and wrong for the code: a ticked operand was also never checked for existence.
+
+**Fixed:** both launchers use `['] NOOP`; the linter gained **R12** (a bare `'` inside a definition, with the fix in the
+message) and learned `[']`; the corpus gained `06_tick.fs` (`[']` runs on the chip) and `bad_r12.fs`/`bad_tick.fs`; the
+host suite lints `boot.fs` and `menu.fs`; and `tests/dispatcher.py` now **executes the refusal**: a phase chains to a
+block nobody described, and the test requires the line to RETURN, the counter to stop at 1, and `REFUSED` to be printed.
+Verified to fail without the fix (`a chain into an UNDESCRIBED block returns` → no ` ok`).
+
+**Lesson:** the same symbol can be two different words in this machine — `'` and `[']` differ by *when* they parse. If a
+guarantee's code path never runs in a test, the guarantee is a comment.

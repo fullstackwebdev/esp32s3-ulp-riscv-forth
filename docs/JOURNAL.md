@@ -2159,3 +2159,26 @@ linter learned that `'` pushes an xt and skips its operand; and phase names must
 
 **Rejected:** `CONFIG_FREERTOS_HZ=1000` reached 2.2 ms but exposed an unrelated intermittent garbage path (5 failures in
 11 trials at 1 kHz vs 0 in 6 at 100 Hz). One subsystem's latency is not worth the whole system's tick rate.
+
+**J-111 · "Do we have coverage of any of this?" — two holes, one of them a false guarantee.**
+The question found what the numbers had hidden.
+
+*The refusal arm was a lie.* The guarantee added with the window work — "a failed adopt STOPS the chain instead of
+executing stale bytes" — rested on `PICKX` returning a `NOOP` xt, and that arm read `UNLATCH ' NOOP`. Bare `'`
+(`P_TICK`) calls `word()` at **run** time; `[']` (`BTICK`, immediate) compiles a literal. So the arm compiled a *parse*
+that ran with no input and printed `?`. It never showed because the 24-hop test only ever adopted valid descriptors.
+Fixed in both launchers, and `tests/dispatcher.py` now **forces** the refusal: a phase chains to a block nobody described
+and the test requires the line to return, the counter to stop at 1, and `REFUSED` to be printed. Proof: revert the fix and
+`a chain into an UNDESCRIBED block returns` fails with no ` ok`.
+
+*The linter could not see it.* It modelled `'` as "push an xt, skip the operand" — right for the stack, wrong for the
+code, and it never checked that a ticked word exists. It now has **R12** (bare `'` inside a definition, message carries
+the fix), knows `[']`, and reports `['] NOXX` as R2. The corpus grew to 15 entries (`06_tick.fs` runs `[']` on the chip;
+`bad_r12.fs` and `bad_tick.fs` are the two refusals) and `tests/run.sh` now lints `boot.fs`/`menu.fs` — a shippable file
+that no host check reads is a file whose next regression waits for a board.
+
+Also added, both from the same "was that ever tested?" pass: `dispatcher.py` asserts the block server is **quiet at rest**
+(one idle second, stable `#u` total — the exact signature of the canary storm that cost two hours) and that the
+per-adopt line is off by default and follows `#v` both ways (the 8 ms/hop threshold could NOT have caught that one: 24
+hops x 4.8 ms is still 115 ms). `dispatcher.py` is 14 checks; the suite is 7 device files + a 15-entry corpus + the host
+suite, all green.

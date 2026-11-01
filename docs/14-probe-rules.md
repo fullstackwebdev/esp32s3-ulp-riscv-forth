@@ -179,3 +179,15 @@ POOL`), so the instrument cannot overlap its subject unless the gate is bypassed
 **Corollary — off-by-one address arithmetic hides in "obvious" constants.** The first fix computed the base from
 `STACK_TOP 0x1FF0` and was 16 B low, because the top is not 0x2000. Write `base == budget` instead of
 `base == top - (total - budget)`.
+
+## R15 — The same name can be two words; test the form you ship
+
+**Lesson:** `'` (`P_TICK`, not immediate) calls `word()` at **run** time; `[']` (`BTICK`, immediate) calls `clit()` and
+compiles a literal. Inside a definition they are not the same thing at all: `: T ' NOOP EXECUTE ;` compiles a parse and
+prints `?` at run time, while `['] NOOP` works. The launcher's *refusal* arm used the broken form, so the "a failed
+adopt stops the chain" guarantee added the turn before was false — and the happy-path test (24 valid hops) could not see
+it, because that arm never executed (`F-134`).
+**Do instead:** cover the failure arm with a device test that **forces the failure** (`tests/dispatcher.py` chains into an
+undescribed block and requires the line to return, the counter to stop, and `REFUSED` to be printed), and confirm the new
+test fails when the fix is reverted. When two spellings look interchangeable, find the primitive table
+(`src/p31_prims.inc`) and read the immediate flag instead of assuming.
