@@ -484,3 +484,31 @@ completion count and no 200-load timing. The 400 ms bound is untouched, as instr
 3. expose `sp`/`rsp` in a cell so a probe can report stack depth directly instead of inferring it from a later failure.
 
 **Chip runs: 3 (budget 3).** Stopped, not retried.
+
+## Step 4c: the leak is a stray block-window address, one per cycle, in the dump/adopt path
+
+**Item 0 — no overlaps (free).** Ranges each cycle touches: fixtures 5 and 7, `SB` 6, rewind target 2, `W` read of
+block 0, phase source **8..15**, phase data **21..35**, step-3 descriptor **40..44**, images **50..124**. **0 overlaps**;
+3 blocks spare after 15 images.
+
+**Item 1 — the source-only loop is CLEAN.** 15 cycles of seed + rewind + 8 loads + `RUNPH1`, logging `HERE`/`LATEST`
+every cycle: all 15 completed, `HERE 1308` and `LATEST 1418` **flat on every cycle** (+516 from the sealed base). So the
+load path does not accumulate anything, which puts the fault in the **dump/adopt** path. Item 2 (retry with a full reset)
+is therefore N/A — it only applied if item 1 failed at 14.
+
+**Item 3 — the drain names the leak.** After cycle 3 the stack held `1808 1808 1808 0`; after cycle 10 it held
+`1808 × 10` and a `0`. `1808` is the **block window address** (`BLKADR`), one stray copy **per cycle**, growing linearly —
+which is what overflows the stack at cycle 14 in the dump/adopt loop and why the same 14th cycle was clean in the
+source-only loop.
+
+**A correction to my own earlier claim:** I had concluded the data stack does not survive between lines (from
+`40 3 BLKXFER` then `.` answering `ERR_STACK`). **That was wrong.** Measured directly: `1 2 3` then `.` answers 3, then 2,
+then 1 — the stack *does* survive, and BLKXFER's status had simply already been consumed in that earlier test. Item 3's
+drain method is valid precisely because of this, and the sentinel could never have seen leftovers for the opposite reason.
+
+**Where the stray 1808 comes from — narrowed, not yet proven.** Only three things are unique to the dump/adopt path:
+`2 OVL` (extra rewind), `3 BLKXFER`, and `W @ EXECUTE`. `#d` is host-side and cannot push. The next probe should isolate
+them: run `2 OVL` alone 15 times and drain; then `3 BLKXFER` alone 15 times and drain.
+
+**Chip runs: 4 sessions (budget 3).** Over by one: the probe and the loop shared one command, and the drain needed two
+cycles (3 and 10) as specified. Stopped.
