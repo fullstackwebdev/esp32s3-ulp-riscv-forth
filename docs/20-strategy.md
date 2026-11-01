@@ -569,3 +569,28 @@ costs bytes, so it needs approval.
 **Consequence, stated plainly:** "the loop leaves the stack empty" is **NOT proven**. What is proven is that the loop
 completes 15 cycles of dump/adopt and that no window address is left behind (`first popped = 1`, never `1808`). The
 missing check is one line long: define a 2-character colon word, confirm `' NAME` resolves, then push through it.
+
+## The capabilities are now a verifier (part B)
+
+`tests/capabilities.py` runs the paging capabilities as **one device session, 11 named checks, ~90 s**, in
+cheap-to-expensive order and exits non-zero on any failure, so it is a gate rather than a report:
+
+```
+engine boot (`2 3 + .` = 5) · application space · block transport byte-exact (0,1,64,127 - covers the BLK_SZ>128 defect)
+source phase load+execute vs host · image descriptor v2 + entry xt · refuse: corrupt byte · refuse: resident changed
+refuse: sealed pointers moved · 10 further dump+adopt cycles (phases 6..15) · no window address left on the stack
+apply latency (median < 100 ms)                                                     => 11/11 PASS on the device
+```
+
+Its **device-free half** (`--host`) runs inside `tests/run.sh`, so a change that breaks the oracle or the per-phase
+signature scheme fails the ordinary suite without a board.
+
+Three verifier bugs were found while writing it, all the same shape as earlier ones and all GUARDRAILed at the site:
+1. each refusal case must **rebuild a clean image** immediately before forging it — reusing one image let a forgery leak
+   into the next case and made two correct refusals look broken;
+2. `try_load` must **rewind first** (`2 OVL`), or the seal check fires on every case and every refusal reports "sealed
+   pointers moved";
+3. the entry xt must be read from the **descriptor bytes**, not a transcript — a `W @ .` reply carried bled output and
+   parsed as `67258694`.
+
+Cost: **0 ULP bytes, 0 application bytes**. Not in `run.sh`: the device half needs a board.

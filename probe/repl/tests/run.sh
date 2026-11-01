@@ -57,6 +57,11 @@ python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1
 # shipping host flags (128-byte pass), so the test builds its own engine at the chip's 96-byte pass and asserts both
 # ways a boundary bites: a closing ';' past the pass, and a name parsed across it.
 bash tests/block_boundary.sh || { echo "FAIL  block_boundary" >&2; fail=1; }
+# GUARDRAIL: the paging capabilities are verified in ONE device session by tests/capabilities.py. Its DEVICE-FREE half
+# runs here (distinct per-phase oracles from the host engine), so a change that breaks the oracle or the signature scheme
+# fails the ordinary suite instead of waiting for a board. The device half is the gate before a keep:
+#     python3 tests/capabilities.py          (11 checks, ~90 s, one session)
+python3 tests/capabilities.py --host || { echo "FAIL  capabilities (host half)" >&2; fail=1; }
 for f in tests/*.fs; do
     name=$(basename "$f" .fs)
     want="tests/$name.expected"
