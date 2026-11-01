@@ -55,6 +55,33 @@ class Dev:
         time.sleep(1.0)
         self.drain(0.5)
 
+    def pulse_reset(self, settle=0.9):
+        """Reset the board by pulsing EN on the RTS line, holding the port open.
+
+        GUARDRAIL: esptool's hard reset costs ~2.5 s per invocation because it re-opens the port and talks the bootloader
+        protocol - measured in cli.py's startup. A DTR/RTS pulse does the same reset in ~50 ms and is what the boot-log
+        capture already used. The cost is that we must wait for the ULP to boot ourselves, hence settle.
+        """
+        import fcntl, struct
+        TIOCM_DTR, TIOCM_RTS = 0x002, 0x004
+        if self.fd is None:
+            self.fd = os.open(self.port, os.O_RDWR | os.O_NOCTTY)
+            a = termios.tcgetattr(self.fd)
+            a[0] = 0; a[1] = 0
+            a[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
+            a[3] = 0
+            a[4] = a[5] = termios.B115200
+            a[6][termios.VMIN] = 0; a[6][termios.VTIME] = 0
+            termios.tcsetattr(self.fd, termios.TCSANOW, a)
+        else:
+            self.drain(0.05, 1.0)
+        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_DTR))
+        fcntl.ioctl(self.fd, termios.TIOCMBIS, struct.pack("I", TIOCM_RTS))
+        time.sleep(0.12)
+        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_RTS))
+        time.sleep(settle)
+        self.drain(0.15, 3.0)
+
     def hard_reset_capture(self, seconds=4.0):
         """GUARDRAIL: esptool-based reset() closes the port, so the ROM boot log - the only record of why a wedged board
         restarted - was lost every time. Toggle EN via RTS while HOLDING the port, and read the boot text as it arrives."""
@@ -196,7 +223,7 @@ class Dev:
         """
         items = list(items)
         pending = list(items)
-        BATCH = 2
+        BATCH = 4
         for _ in range(5):
             acked = {}                       # GUARDRAIL: accumulate acks across the WHOLE pass. Filtering on the last
                                              # batch's acks alone marked already-seeded blocks as pending (-2, -21).
@@ -204,7 +231,7 @@ class Dev:
                 batch = pending[i:i + BATCH]
                 for blk, text in batch:
                     os.write(self.fd, f"#b {blk} {text.encode().hex()}".encode() + b"\r")
-                out = self.drain(0.15, 6.0)
+                out = self.drain(0.08, 6.0)
                 acked.update({int(m.group(1)): int(m.group(2))
                               for m in re.finditer(r"seed: block (\d+) <- (\d+) bytes", out)})
             pending = [(b, t) for b, t in pending if acked.get(b) != len(t.encode())]

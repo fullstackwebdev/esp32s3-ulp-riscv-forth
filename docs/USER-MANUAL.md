@@ -20,8 +20,25 @@ There is also a bigger, faster chip in the same package doing errands for it: it
 ## 2. Start it
 
 ```
-./cli.py
+./cli.py                     Forth REPL (about 1.5 s to connect)
+./cli.py -i app.fs           upload a program, compile it on the chip, then REPL
+./cli.py -i app.fs --term    upload, then hand the whole terminal to the program
+./cli.py -i app.fs --term RUN   ... and start it with the word RUN
 ```
+
+Inside the REPL, lines starting with a dot are commands for your side, not the chip:
+
+```
+.help          what you can do
+.term [WORD]   hand the terminal over (optional WORD is sent first, e.g. .term RUN)
+.load FILE     upload another program without leaving
+.status        blocks, erases, wear
+.quit          leave
+```
+
+`--term` gives the program a clean alternate screen and passes every keystroke straight through.
+**Ctrl-C always gives your terminal back** - alternate screen, cursor and colours are restored even if the
+program misbehaves, because a terminal left in the alternate buffer looks like a broken shell.
 
 First run writes the app into the chip's flash-backed block store and asks the chip to compile it. You
 will see a line like `44 blocks written and compiled by the chip.` That is not a download of a binary —

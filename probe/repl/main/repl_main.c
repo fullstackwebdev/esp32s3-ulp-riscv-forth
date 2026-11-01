@@ -279,8 +279,10 @@ static void seed_poll(void)
             ln[n] = 0;
             if (!strcmp(ln, "!RAW")) {
                 raw_mode = 1; rawn = 0; raw_skip_cr = 1;
-                printf("raw: keystrokes go to the program now; type !LINE to get the prompt back\n");
-                fflush(stdout);
+                /* GUARDRAIL: no message here. The switch happens while a full-screen program owns the terminal, so a
+                 * line of text lands in the middle of its screen (measured: "raw: keystrokes go to the program now"
+                 * printed across the app's title bar). The mode is documented instead of announced; !LINE still works. */
+
                 n = 0;
                 continue;
             }
