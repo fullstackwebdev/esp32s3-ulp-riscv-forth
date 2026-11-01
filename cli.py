@@ -20,6 +20,7 @@ import re
 import pathlib
 import select
 import sys
+import runpy
 import termios
 import time
 import tty
@@ -202,6 +203,18 @@ def upload(dev, path, first_block, staging=None):
 
 
 LIB_FIRST, DEMO_FIRST = 70, 30          # launcher source; phase source is reused for every build
+# The App Store build (docs/26). (name, source, descriptor block, entry word). The descriptor numbers are the table's:
+# 8 calc1, 16 calc2, 24 sheet, 32 mail, 40 gopher, 48 reader, 56 the shelf itself. The shelf OPENs with 8/24/32/40/48
+# (slot -> descriptor, verified by printing OPND for slots 0..4) and every phase returns with `SHELF CHAIN`, i.e. 56.
+APPSTORE = [
+    ("calc",   "examples/apps/calc/calc1.fs",    8,  "CALC1"),
+    ("tape",   "examples/apps/calc/calc2.fs",    16, "CALC2"),
+    ("mail",   "examples/apps/mail/mail1.fs",    32, "MAIL1"),
+    ("reader", "examples/apps/reader/read1.fs",  48, "READ1"),
+    ("shelf",  "examples/apps/shelf/shelf1.fs",  56, "RUNSHELF"),
+]
+APPSTORE_RESIDENT = ["examples/apps/registry.fs", "examples/appstore.fs"]
+STAGING, STAGING_BLOCKS = 120, 8         # docs/26: the source of ANY phase is staged here, 8 blocks per pass
 # The window is DECLARED, not inherited. It is what is left above the seal after the resident launcher and its headers,
 # and every phase must fit in it. Measured drift in one afternoon: 346 -> 290 -> 237 B as the launcher grew, and at
 # 237 B a working 222 B program stopped fitting - which read as "the demo broke", not as "the budget moved". A floor
@@ -461,6 +474,63 @@ def library(dev, root):
     return built
 
 
+def appstore(dev, root, only=()):
+    """Build the App Store: resident + SEAL, then every phase's descriptor, then hand the terminal to the shelf.
+
+    GUARDRAIL: the phases are COMPILED AFTER `SEAL`, never before. The fresh dictionary is 1 366 B and the shelf's image
+    alone is 1 021 B, so `resident + phase` overflows the fresh space (measured: ERR_DICT on the host when SEAL was
+    omitted). SEAL moves the resident headers down and gives each phase the 1 037 B window that is its real budget.
+    GUARDRAIL: descriptors are written with `#d` and then FLUSHED with `#f`. `#d` lands in the flash sector cache, so a
+    build that skips the flush looks correct and is gone after a power cycle (lane R measured it).
+    """
+    win = 0
+    for rel in APPSTORE_RESIDENT:
+        n, bad = upload(dev, str(root / rel), STAGING, staging=STAGING_BLOCKS)
+        if bad:
+            say(f"  {rel} did not compile: {bad}", YL)
+            return None
+    dev.cmd("SEAL", timeout=30.0, allow_error=True)
+    win = dev.num("LATEST .") - dev.num("bh @ .")
+    say(f"  resident sealed; phase window {win} B", CY)
+    built = []
+    for name, rel, desc, entry in APPSTORE:
+        # GUARDRAIL: the shelf is ALWAYS built, even when the caller names one app. It is the entry point (`RUNSHELF`) and
+        # every phase returns to it with `SHELF CHAIN` - so `--appstore mail` without it handed the terminal to a word that
+        # did not exist, dropped into the REPL, and looked like the feature was broken. `only` filters the APPS.
+        if only and name not in only and name != "shelf":
+            continue
+        path = root / rel
+        # GUARDRAIL: rewind to the seal before EVERY phase. Each phase is compiled into the same window, so without this
+        # the previous phase's 900-1000 B are still there: measured on the tape phase as `ESC?`, `IV?`, `HDR?` (words the
+        # previous phase had defined, now absent because its definitions were never recorded) and then ERR_DICT for the
+        # rest. `RW` is the launcher's own rewind: `bh @ VH ! bl @ VL !`.
+        dev.cmd("RW", timeout=5.0, allow_error=True)
+        n, bad = upload(dev, str(path), STAGING, staging=STAGING_BLOCKS)
+        if bad:
+            say(f"  {name}: compile failed: {bad}", YL)
+            return None
+        cs, ce = dev.num("bh @ ."), dev.num("HERE .")
+        hs, he = dev.num("LATEST ."), dev.num("bl @ .")
+        ent = dev.num(f"' {entry} .")
+        if ent in (0, -1):
+            say(f"  {name}: `' {entry}` did not resolve - the phase did not compile", YL)
+            return None
+        image = (ce - cs) + (he - hs)
+        # GUARDRAIL: refuse an over-window image HERE. The device would adopt it and jump past the pasted code (the
+        # 41 Hz re-entry), so the build has to be the gate - the same rule cli.budget() applies to the library.
+        if image > win:
+            say(f"  {name}: {image} B image is {image - win} B over the {win} B window - not building it", YL)
+            return None
+        rep = dev.cmd(f"#d {desc} {cs} {ce} {hs} {he} {ent}", timeout=20.0, allow_error=True)
+        if "REFUSED" in rep or "ERR_" in rep:
+            say(f"  {name}: descriptor refused: {rep.strip()[-70:]}", YL)
+            return None
+        built.append((name, desc, image))
+        say(f"  {name:<7} desc {desc:<3} {image:>5} B of {win}  entry {ent}", DM)
+    dev.cmd("#f", timeout=30.0, allow_error=True)
+    return built
+
+
 def term(dev, word=None):
     """Hand the terminal to a Forth program: raw bytes in, everything out, full-screen escapes intact."""
     if word:
@@ -623,6 +693,8 @@ def main():
                     help="after loading, hand the terminal to the program (default word: RUN)")
     ap.add_argument("--library", action="store_true",
                     help="build the program library (resident launcher + demo images) and run the menu")
+    ap.add_argument("--appstore", nargs="*", metavar="APP", default=None,
+                    help="build the App Store (docs/26) and open the shelf; a list builds only those apps")
     ap.add_argument("--geometry", action="store_true",
                     help="print the compiler-side constants the board must agree with, then exit (needs no board)")
     ap.add_argument("--repl", action="store_true",
@@ -644,6 +716,28 @@ def main():
     try:
         blk = a.block
         failed = False
+        if a.appstore is not None:
+            root = pathlib.Path(__file__).resolve().parent
+            # GUARDRAIL: content first, and only for the apps being built. A content phase that reads an unseeded block
+            # draws the store's padding (spaces on the chip, the fake server's pattern on the host) and looks broken
+            # rather than empty - measured while wiring this command.
+            apps = a.appstore or [n for n, _r, _d, _e in APPSTORE if n in ("mail", "reader", "gopher")]
+            if built := appstore(dev, root, only=set(a.appstore or ())):
+                seeded = [x for x in apps if x in ("mail", "reader", "gopher")]
+                if seeded:
+                    # GUARDRAIL: seed_pages computes its own ROOT from __file__, so running it through runpy gets the
+                    # same page arithmetic the device seeder uses - no second copy of "which block is page 2".
+                    rc = runpy.run_path(str(root / "tools" / "seed_pages.py"))
+                    for app_name in seeded:
+                        for _p, blk, text in rc["pages"](app_name):
+                            dev.seed_many([(blk, text)])
+                    dev.cmd("#f", timeout=30.0, allow_error=True)
+                    say(f"  content seeded: {', '.join(seeded)}", DM)
+                # the shelf is the entry point: it OPENs an app with slot -> descriptor and returns via SHELF (56)
+                if a.term is None:
+                    a.term = "RUNSHELF"
+            else:
+                return 1
         if a.library:
             root = pathlib.Path(__file__).resolve().parent
             if not library(dev, root):

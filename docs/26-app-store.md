@@ -274,6 +274,27 @@ that searches the filesystem for them has already lost the time it was trying to
 project, and `grep -r` from the repo root walks `probe/results/` and `.auto/tmp/` clones. Scope every search to the files
 the contract names.
 
+## Demo it
+
+```
+./cli.py --appstore              build resident + all five phases, seed content, open the shelf
+./cli.py --appstore mail         the same, but only the mail app (the shelf is always built - it is the entry word)
+```
+
+Measured by that command on the board: calc **995 B**, tape **641 B**, mail **910 B**, reader **973 B**, shelf **1 026 B**,
+all against the 1 037 B window, descriptors 8 / 16 / 32 / 48 / 56, content seeded and flashed.
+
+**The screen on the chip is not yet demo-able:** the shelf draws ~1 KB in one burst, the output ring is 128 B, and the
+frame's HEAD is lost (the visible result is a screen shifted up by several rows). That is `F-137`, still open. The same
+build renders correctly on the host, which is the demo to show today:
+
+```
+cd probe/repl
+python3 tools/screen.py ../../examples/apps/shelf/shelf1.fs \
+    --prelude ../../examples/apps/registry.fs --prelude ../../examples/appstore.fs \
+    --content mail --host artifacts/host_app --entry RUNSHELF --keys 'jj' --grid
+```
+
 ## Wave 2 status (measured, 2026-11-01)
 
 | app | files | image | window | state |
