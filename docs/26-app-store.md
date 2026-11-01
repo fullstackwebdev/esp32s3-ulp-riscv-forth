@@ -274,6 +274,20 @@ that searches the filesystem for them has already lost the time it was trying to
 project, and `grep -r` from the repo root walks `probe/results/` and `.auto/tmp/` clones. Scope every search to the files
 the contract names.
 
+## Wave 2 status (measured, 2026-11-01)
+
+| app | files | image | window | state |
+|---|---|---|---|---|
+| **shelf** | `shelf/shelf1.fs` | 1 021 B | 1 037 B | merged; 6 cards, live values from cells, refuses the empty slot |
+| **calc** | `calc/calc1.fs`, `calc2.fs` | 995 / 643 B | 1 037 B | merged; two phases chained 8 <-> 16, arithmetic proven by `calc_logic` |
+| **mail** | `mail/mail1.fs` + 3 pages | 826 B | 1 037 B | merged; **on the board**: title, heading and both messages match the host grid |
+| **reader** | `reader/read1.fs` + 2 pages | 979 B | 1 037 B | merged; 58 B headroom, `SENT` added so a frame has a boundary |
+| **sheet** | `sheet/sheet1.fs` | **1 371 B** | 1 022 B | **over by 349 B, reported not hidden**: every feature present, parked like the calculator draft, wave 3 splits it |
+| **gopher** | – | – | – | lane timed out with no files; it did independently find the alignment trap (F-136), which is why that fix went in |
+
+Every phase is lint-clean under `--phase` with the registry + launcher as `--use` vocabulary, and the host suite runs four
+new logic tests (`calc_logic`, `sheet_logic`, `mail_logic`, `reader_logic`) plus the corpus.
+
 ## The five gates — every app passes all of them, in this order
 
 | gate | artefact | fails when |

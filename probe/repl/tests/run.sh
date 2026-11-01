@@ -78,7 +78,7 @@ for f in ../../examples/tui_min.fs ../../examples/boot.fs ../../examples/menu.fs
     fi
 done
 rm -f /tmp/lint.$$
-echo "PASS  linter (10 rules) on the shippable examples"
+echo "PASS  linter (11 rules) on the shippable examples"
 # terminal_demo.fs is a WORK IN PROGRESS, and the reason is not laziness: it needs ~2 100 B of dictionary and the machine
 # has 1 366, so it cannot be loaded, cannot be tested on the board, and its 41 lint findings cannot be separated from
 # "this file is not finished". Its status is PRINTED so it cannot be forgotten.

@@ -283,6 +283,10 @@ def collect_vocab(src):
     reports every resident word as undefined. That is a false positive on the one layout the machine actually ships.
     """
     v = {}
+    raw = src          # GUARDRAIL: the ORIGINAL, captured BEFORE the blanking below. Taking it after (as the first
+                       # version did) gave every `--use` word the effect (0, 0) because its `( a -- b )` declaration had
+                       # already been turned into spaces, so `CHAIN ( desc -- )` stopped consuming its descriptor and four
+                       # lanes reported "R4 leak" on their return path. A comment is not code, but a declaration IS data.
     # GUARDRAIL: `collect_vocab` reads a BASE file, so a GUARDRAIL comment in it that quotes `CREATE X` invented a cell in
     # the vocabulary every lane is linted against - the same comment-is-not-code bug the definition scan had. Blank first.
     if "(" in src:
@@ -297,8 +301,13 @@ def collect_vocab(src):
         src = "".join(out)
     for m in re.finditer(r"(?:CREATE|CONSTANT)\s+(\S+)", src):
         v[m.group(1)] = (0, 1)
+    # GUARDRAIL: the body must be sliced from the ORIGINAL text, because a stack declaration `( a -- b )` IS a
+    # parenthesised comment and the blanking above turns it into spaces. Reading the blanked copy gave every
+    # `--use` word the effect (0, 0): `CHAIN ( desc -- )` stopped consuming its descriptor, so every phase that ends
+    # `X CHAIN` reported "R4 leak: ... leaves 1 item" (four lanes at once - mail, calc1, calc2, shelf - which is what
+    # said "the tool is wrong, not the code"). Offsets are identical in both strings.
     for m in re.finditer(r":\s+(\S+)(.*?);", src, re.S):
-        v[m.group(1)] = declared(m.group(2)) or (0, 0)
+        v[m.group(1)] = declared(raw[m.start(2):m.end(2)]) or (0, 0)
     return v
 
 
