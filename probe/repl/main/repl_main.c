@@ -109,6 +109,16 @@ static void console_task(void *arg)
 #define BLK_N     128
 #define BLK_SZ    256
 static uint32_t blk_sz;      /* transfer size, published by the ULP */
+/* GUARDRAIL: test-only stall for the op-3 race test. `#s <ms>` makes this task sleep once, so the ULP times out on its
+ * next block request. Main-core only, zero ULP bytes; without it the race cannot be provoked deliberately. */
+static uint32_t stall_ms;
+static int blk_out_prev;      /* edge detector for the ULP's outstanding-request flag */
+/* GUARDRAIL: when this task first SAW the request. The ULP's wait (BLKWAIT 2 000 000 iterations) is ~845 ms MEASURED
+ * on hardware, and on a timeout the ULP deliberately leaves blk_out set - so the flag alone cannot distinguish "still
+ * waiting" from "gave up". A destructive op (image load) must therefore be applied only inside a conservative fraction
+ * of that window; outside it, refuse loudly instead of adopting a dictionary the machine was told it does not have.
+ * Failure mode is a named nack, never silent corruption. */
+static uint32_t edge_ms;
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
 /* ---- ULP stack high-water probe (row 10 of the A/B) ---------------------------------------------------------
  * The ULP stack grows down from ulp___stack_top (0x50001ff0) into .bss, so an overflow corrupts engine state
@@ -258,6 +268,11 @@ static void seed_poll(void)
                          * about the dictionary it will be pasted onto. Editing a resident word's body without
                          * changing its length leaves HERE and LATEST identical, so pointers alone cannot detect it. */
                         d2[11] = (uint8_t)sum; d2[12] = (uint8_t)(sum >> 8);
+                        /* GUARDRAIL: the entry xt must be written AFTER every other descriptor field. The 16-byte
+                         * layout's old `d2[15] = 0` ("reserved") still ran after this line and zeroed the LOW byte:
+                         * measured as an image whose header said RUNPH1=1282 while the descriptor handed back 1280,
+                         * so the caller EXECUTEd the wrong address (cells stayed 0). Reserved bytes are not free real
+                         * estate - check the field map before reusing one. */
                         d2[15] = (uint8_t)v[5]; d2[16] = (uint8_t)(v[5] >> 8);   /* entry xt, 0 = none */
                         d2[2] = 2;                                              /* descriptor version 2 */
                         {
@@ -271,12 +286,24 @@ static void seed_poll(void)
                             for (k2 = v[4]; k2 < (unsigned)ulp_repl_blk_off; k2++) rs = (rs + memimg[k2]) & 0xffffu;
                             d2[13] = (uint8_t)rs; d2[14] = (uint8_t)(rs >> 8);
                         }
-                        d2[15] = 0;
                     }
                     printf("dump: code %u + hdr %u = %u B, descriptor packed -> %u blocks from block %u, sum %u\n",
                            (unsigned)(v[2] - v[1]), (unsigned)(v[4] - v[3]), payload,
                            (20u + payload + 127u) / 128u, v[0], sum);
                 }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#s <ms>` stalls the block task ONCE. Test-only (main core, zero ULP bytes) and the only way
+             * to provoke the op-3 race deliberately: without it the host answers within one FreeRTOS tick and the ULP
+             * never times out, so "the host does not apply a stale request" could not be demonstrated. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 's' && ln[2] == ' ') {
+                unsigned ms = 0; int k = 3;
+                while (ln[k] == ' ') k++;
+                while (ln[k] >= '0' && ln[k] <= '9') ms = ms * 10u + (unsigned)(ln[k++] - '0');
+                stall_ms = ms;
+                printf("stall: block task will sleep %u ms on its next request\n", ms);
                 fflush(stdout);
                 n = 0;
                 continue;
@@ -510,7 +537,19 @@ static void block_task(void *arg)
     uint32_t seen = 0;
 #endif
     for (;;) {
-        if (ulp_repl_blk_req) {
+        /* GUARDRAIL: service a request only on a FRESH edge of the ULP's outstanding-request flag (or when a Forth
+         * verb raised repl_blk_req). The naive version - "service whatever blk_out advertises" - was measured twice
+         * wrong: (1) when this task is stalled past the ULP's BLKWAIT, the ULP returns BK_NOSERVER (-3) and leaves
+         * blk_out set, so the late service still ADOPTED the image the machine had been told it does not have
+         * ("img: adopted ... entry 1280" after a -3); (2) with blk_out set for ever after that timeout, the naive
+         * task re-serviced the same stale request continuously and flooded the console.
+         * An edge cannot be missed: this task polls every FreeRTOS tick (~10 ms) and BLKWAIT is ~845 ms measured. */
+        int out_now = (int)ulp_repl_blk_out;      /* read once: the other core clears it when it has the answer */
+        int fresh = out_now && !blk_out_prev;     /* a request this task actually SAW arrive */
+        blk_out_prev = out_now;
+        if (fresh) edge_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (ulp_repl_blk_req || fresh) {
+                if (stall_ms) { vTaskDelay(pdMS_TO_TICKS(stall_ms)); stall_ms = 0; }
 #if defined(BLK_DEBUG)
             if (seen < 3) {
                 volatile uint32_t *dbg = (volatile uint32_t *)(ULP_RAM_BASE + ulp_repl_mb_addr);
@@ -544,6 +583,17 @@ static void block_task(void *arg)
                  *   header collision  -> 6 (BK_BUFOVER) a pasted header must not shadow a resident name */
                 const uint8_t *desc = blkfile[blk];
                 uint8_t *mi = (uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                uint32_t age = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - edge_ms;
+                if (age > 400u) {          /* 400 ms < BLKWAIT ~845 ms: past this the ULP has certainly given up */
+                    /* GUARDRAIL: answer the ULP FIRST, print second. The ULP is blocked on this word, and stdout can
+                     * stall for milliseconds on the USB console - measured as 50 adoption cycles where an op-3 answer
+                     * arrived too late and the cycle test failed. The console must never sit between the work and the
+                     * answer. */
+                    mb[3] = 0; mb[2] = 5;
+                    printf("img: REFUSED stale request (%u ms old, the ULP has given up) - nothing applied\n",
+                           (unsigned)age);
+                    goto img_done;
+                }
                 unsigned cl = (unsigned)desc[3] | ((unsigned)desc[4] << 8);
                 unsigned hl = (unsigned)desc[5] | ((unsigned)desc[6] << 8);
                 unsigned cs = (unsigned)desc[7] | ((unsigned)desc[8] << 8);
@@ -554,21 +604,21 @@ static void block_task(void *arg)
                 unsigned top = (unsigned)ulp_repl_blk_off;
                 unsigned vhere = (unsigned)mi[4] | ((unsigned)mi[5] << 8);
                 unsigned vseal = (unsigned)mi[12] | ((unsigned)mi[13] << 8);
-                uint32_t nack = 0; int bad = 0; unsigned k2;
+                uint32_t nack = 0; int bad = 0, answered = 0; unsigned k2;
                 if (desc[0] != 'F' || desc[1] != 'I' || desc[2] != 2 || cl == 0u || hl == 0u
                     || hl % 3u != 0u || cs < 52u || hs <= cs || hs + hl > top) {
-                    printf("img: REFUSED bad descriptor (magic/version/geometry)\n"); nack = 5; bad = 1;
+                    nack = 5; bad = 1; mb[3] = 0; mb[2] = 5; answered = 1; printf("img: REFUSED bad descriptor (magic/version/geometry)\n");
                 }
                 if (!bad && (cs != vhere || hs + hl != vseal)) {
+                    nack = 5; bad = 1; mb[3] = 0; mb[2] = 5; answered = 1;
                     printf("img: REFUSED sealed pointers moved (image built on HERE %u LATEST %u, this machine has %u and %u)\n",
                            cs, hs + hl, vhere, vseal);
-                    nack = 5; bad = 1;
                 }
                 if (!bad) {
                     unsigned rs = 0;
                     for (k2 = 52u; k2 < cs; k2++) rs = (rs + mi[k2]) & 0xffffu;
                     for (k2 = hs + hl; k2 < top; k2++) rs = (rs + mi[k2]) & 0xffffu;
-                    if (rs != rsum) { printf("img: REFUSED resident dictionary changed (sum %u, built on %u)\n", rs, rsum); nack = 4; bad = 1; }
+                    if (rs != rsum) { nack = 4; bad = 1; mb[3] = 0; mb[2] = 4; answered = 1; printf("img: REFUSED resident dictionary changed (sum %u, built on %u)\n", rs, rsum); }
                 }
                 if (!bad) {
                     unsigned b2 = blk, o2 = 20, s2 = 0;
@@ -576,7 +626,7 @@ static void block_task(void *arg)
                         s2 = (s2 + blkfile[b2][o2]) & 0xffffu;
                         if (++o2 == blk_sz) { o2 = 0; b2++; }
                     }
-                    if (b2 >= BLK_N || s2 != psum) { printf("img: REFUSED image corrupt (sum %u, descriptor %u)\n", s2, psum); nack = 4; bad = 1; }
+                    if (b2 >= BLK_N || s2 != psum) { nack = 4; bad = 1; mb[3] = 0; mb[2] = 4; answered = 1; printf("img: REFUSED image corrupt (sum %u, descriptor %u)\n", s2, psum); }
                 }
                 if (!bad) {
                     unsigned b2 = blk, o2 = 20 + cl, k3, j, hb[3], coll = 0;
@@ -587,7 +637,7 @@ static void block_task(void *arg)
                             unsigned ih = ((unsigned)hb[2] << 4) | ((unsigned)hb[1] >> 4), r3;
                             for (r3 = hs + hl; r3 + 2 < top; r3 += 3) {
                                 unsigned rh = ((unsigned)mi[r3 + 2] << 4) | ((unsigned)mi[r3 + 1] >> 4);
-                                if (rh == ih) { if (!coll) printf("img: REFUSED name collision, header hash %u shadows a resident %u\n", ih, r3); coll = ih; }
+                                if (rh == ih) { if (!coll) { mb[3] = 0; mb[2] = 6; answered = 1; printf("img: REFUSED name collision, header hash %u shadows a resident %u\n", ih, r3); } coll = ih; }
                             }
                         }
                         o2 += 3;
@@ -608,9 +658,12 @@ static void block_task(void *arg)
                     /* the entry xt rides back in the block window: 4 bytes, little-endian */
                     buf[0] = (uint8_t)(entry & 0xffu); buf[1] = (uint8_t)((entry >> 8) & 0xffu);
                     buf[2] = 0; buf[3] = 0;
+                    mb[3] = 0; mb[2] = 1u;      /* answer FIRST - see the GUARDRAIL above */
                     printf("img: adopted code %u + hdr %u from block %u, entry %u\n", cl, hl, (unsigned)blk, entry);
+                    answered = 1;
                 }
-                mb[3] = 0; mb[2] = bad ? nack : 1u;
+                if (!answered) { mb[3] = 0; mb[2] = bad ? nack : 1u; }
+img_done:   ;
             } else if (op == 0u) {               /* READ */
                 uint32_t s = 0; int i;
                 for (i = 0; i < (int)blk_sz; i++) { buf[i] = blkfile[blk][i]; s += blkfile[blk][i]; }

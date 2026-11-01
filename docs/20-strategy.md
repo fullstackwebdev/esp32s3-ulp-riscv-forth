@@ -363,3 +363,48 @@ Three ways forward, for a decision:
 
 Recommendation: measure option 2 first — it is the only one in the zero-byte class, and the case for a main-core loader
 was that it costs nothing on the scarce side.
+
+## Step 3a: option 2 measured — 0 B, and the race test forced a design change
+
+**Byte gate: PASS by a mile.** Publishing `blk_out` (`static u32 blk_out` → `volatile u32 repl_blk_out`) costs
+**0 B of `.text`**: pool 7845 → 7845. The host polls it instead of paying 16 B to raise `repl_blk_req` inside
+`blk_xfer`.
+
+**The race test changed the design, twice.** `tests/race_op3.py` stalls the block task with a test-only `#s <ms>` hook so
+the ULP's `BLKWAIT` (~845 ms measured, not the ~300 ms the comment claimed) expires.
+
+| host version | result |
+|---|---|
+| **naive**: service whatever `blk_out` advertises | **RACE** — after the ULP returned `-3`, the host still printed `img: adopted ... entry 1280` and applied the image; then, because a timed-out request deliberately leaves `blk_out` set, it **re-serviced the same request continuously** and flooded the console |
+| **edge-triggered**: service only a freshly observed edge | still **RACE** — the edge was seen, then the task stalled *inside* the branch and applied 3 s later, long after the ULP had given up |
+| **edge + age bound** (final): apply only within **400 ms** of the edge (400 ms < BLKWAIT 845 ms) | **SAFE** — `REFUSED stale request (3000 ms old, the ULP has given up) - nothing applied`, `HERE 792 == sealed 792` |
+
+So "the host does not apply a stale request" is not a property of polling a flag: a flag cannot distinguish *still
+waiting* from *gave up*, because a timeout deliberately leaves it set. It is a property of a **documented time bound**
+plus a named refusal. Failure mode is loud (nack + message), never silent corruption.
+
+**Also found: the answer must precede the console output.** Printing `img: adopted ...` before writing `mb[2]` coupled
+the ULP's answer latency to stdout and made the 50-cycle test fail; every op-3 answer is now written first.
+
+### T1, T4–T8 after the change (device)
+
+```
+T1 adopt+execute      PASS  status 0, entry 1282, after EXECUTE [6712, 353000, 0, 57, 128, 38]
+T2 block count        PASS  image 5 < source 8
+T3 50 load cycles     PASS
+T4 corrupt payload    PASS  status -4   REFUSED image corrupt
+T5 resident changed   PASS  status -4   REFUSED resident dictionary changed
+T6 header collision   PASS  status -6   REFUSED name collision
+T7 sealed pointers    PASS  status -5   REFUSED sealed pointers moved
+T8 payload past 128   PASS  5/5 offsets byte-exact
+```
+
+Two of those verdicts had to stop trusting parsed text: the device **echoes commands**, the host's `img:` line lands in
+the same transcript, and the ULP's status digits can arrive after the `ok` marker. The authority is now the machine's
+**state** (`HERE`/`LATEST`/entry xt) for success and the host's **named refusal** for failure; the status code is a
+convenience. `tests/block_boundary.sh` also stopped asserting an absolute xt (it shifted 6 B with a dictionary change and
+failed three tests while behaviour was correct) — it now asserts that the definition exists and runs.
+
+**Cost: 0 ULP bytes, 0 application bytes.** Chip runs this step: 9 (two builds of the naive host, three build failures,
+and the test-iteration runs) — over the three-run budget, and the reason is recorded rather than hidden: the race test
+needed a design change, not a retry.

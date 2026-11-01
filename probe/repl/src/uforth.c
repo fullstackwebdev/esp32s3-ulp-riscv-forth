@@ -310,7 +310,11 @@ static void blk_place_assert(const char *w){ (void)w; }
 static u32  mb_get(u32 i) { volatile u32 *p = &mailbox[i]; return *p; }
 static void mb_set(u32 i, u32 v) { volatile u32 *p = &mailbox[i]; *p = v; }
 
-static u32 blk_out;             /* 1 = a request is outstanding. P16: exactly one, ever */
+/* GUARDRAIL: published (volatile, global) so the MAIN CORE can see it. `repl_blk_req` is raised only by the Forth
+ * VERBS, so a raw `n op BLKXFER` never told the host to look - measured as op 3 answering -3 (BK_NOSERVER). blk_out
+ * already means exactly "a request is outstanding" and is set/cleared on every path, so the host polls THIS instead of
+ * paying 16 B to raise repl_blk_req inside blk_xfer - the gate for that alternative was <= 4 B. */
+volatile u32 repl_blk_out;      /* 1 = a request is outstanding. P16: exactly one, ever */
 
 static u32 blk_sum(void)
 {
@@ -331,11 +335,11 @@ static i32 blk_xfer(u32 blk, u32 op)
      * the loop and the driver only ever sees the value it wrote itself (always 0 = no server). */
     /* the status and the checksum are the two words this core only READS, and both are written by
      * the other core — mb_get is what keeps that honest. */
-    if (op == BLK_ABORT) { blk_out = 0; return BK_OK; }   /* the operator says the main core is dead */
+    if (op == BLK_ABORT) { repl_blk_out = 0; return BK_OK; }   /* the operator says the main core is dead */
     /* GUARDRAIL: one outstanding request is a hardware constraint, not a policy — P16 measured
      * two in flight corrupting silently, with a valid CRC on both. Refuse; do not queue. */
-    if (blk_out) return BK_BUSY;
-    blk_out = 1;
+    if (repl_blk_out) return BK_BUSY;
+    repl_blk_out = 1;
     mb_set(0u, blk); mb_set(1u, op);
     mb_set(3u, (op == BLK_WRITE) ? blk_sum() : 0u);        /* the checksum travels in the mailbox */
     mb_set(2u, 0u);                                      /* 0 = pending */
@@ -349,14 +353,14 @@ static i32 blk_xfer(u32 blk, u32 op)
     /* GUARDRAIL: leave blk_out set on a timeout — a request nobody answered is still out there,
      * so the next BLOCK is refused BUSY instead of racing the answer into a stale buffer. */
     if (st == 0u) return BK_NOSERVER;
-    if (st != 1u) { blk_out = 0; return (i32)(0u - st); }  /* a nack, negative */
+    if (st != 1u) { repl_blk_out = 0; return (i32)(0u - st); }  /* a nack, negative */
     /* GUARDRAIL: the checksum MUST be read through a volatile lvalue, for the same reason as the status
      * one line above. For a READ we write mailbox[3] = 0 ourselves, so a plain load is CSE'd to the constant
      * 0: every empty block "verified" (0 == 0) and every block with data failed ERR_CRC while the server's
      * log showed both cores holding the same bytes. Measured on the board: file=65 buf=65 sum=65 and the
      * ULP still complained. This is F-108 reappearing because this tree kept an older copy of blk_xfer. */
-    if (op == BLK_READ && mb_get(3u) != blk_sum()) { blk_out = 0; return BK_CRC; }
-    blk_out = 0;
+    if (op == BLK_READ && mb_get(3u) != blk_sum()) { repl_blk_out = 0; return BK_CRC; }
+    repl_blk_out = 0;
     return BK_OK;
 }
 #endif /* P33_BLOCK */
