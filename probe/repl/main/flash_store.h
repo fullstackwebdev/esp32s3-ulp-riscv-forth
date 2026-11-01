@@ -35,6 +35,7 @@ const char *fs_strerror(int code);
  * 32 B) and 0 ULP bytes, and they are the only honest way to answer "how long does this sector last". A single total
  * counter would hide a hot sector, which is the failure mode that actually kills a device. */
 uint32_t fs_bc(void);              /* last flash step entered; a hang shows the step it never left */
+uint32_t fs_bc_prev(void);         /* same, from RTC_NOINIT: survives the reset a hang needs to escape */
 uint32_t fs_us(int which);         /* 0 erase, 1 write, 2 superblock */
 uint32_t fs_sector_count(void);
 uint32_t fs_sector_erases(uint32_t sec);

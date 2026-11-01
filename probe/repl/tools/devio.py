@@ -55,6 +55,23 @@ class Dev:
         time.sleep(1.0)
         self.drain(0.5)
 
+    def hard_reset_capture(self, seconds=4.0):
+        """GUARDRAIL: esptool-based reset() closes the port, so the ROM boot log - the only record of why a wedged board
+        restarted - was lost every time. Toggle EN via RTS while HOLDING the port, and read the boot text as it arrives."""
+        import fcntl, struct
+        TIOCM_DTR, TIOCM_RTS = 0x002, 0x004
+        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_DTR))
+        fcntl.ioctl(self.fd, termios.TIOCMBIS, struct.pack("I", TIOCM_RTS))   # RTS -> EN low: reset
+        time.sleep(0.15)
+        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_RTS))
+        buf, end = b"", time.time() + seconds
+        while time.time() < end:
+            r, _, _ = select.select([self.fd], [], [], 0.05)
+            if r:
+                try: buf += os.read(self.fd, 4096)
+                except BlockingIOError: pass
+        return buf.decode(errors="replace")
+
     def close(self):
         if self.fd is not None:
             os.close(self.fd)
@@ -100,7 +117,10 @@ class Dev:
 
     # GUARDRAIL: a refusal from the console (`line too long: ... NOT sent`) carries neither `ok` nor `?`, so it
     # timed out instead of being reported. Every console-side message must be a completion marker.
-    def cmd(self, line, timeout=5.0, allow_error=False, markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:")):
+    def cmd(self, line, timeout=5.0, allow_error=False, # GUARDRAIL: `#i`/`#u` answer with "info:" and return WITHOUT an `ok`, so the default markers never matched and a
+            # harness call waited until timeout while the answer was already in the buffer. Give the harness the real marker.
+            markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:",
+                     "info:")):
         """Send one line, read until the prompt marker (ok) or an error (?), return the transcript."""
         os.write(self.fd, line.encode() + b"\r")
         buf = ""

@@ -12,6 +12,7 @@
 #include "esp_partition.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_attr.h"
 
 #define FS_SECTOR        4096u
 #define FS_BLOCK         128u
@@ -44,6 +45,11 @@ static uint16_t s_erase_psec[FS_MAX_SECTORS];
  * "No reply for 15 s" is consistent with a deadlock, a starved task and a never-returning call alike; the breadcrumb is
  * the only thing that separates them, and it costs 6 words of HP .bss and 0 ULP bytes. */
 static volatile uint32_t s_bc;
+/* GUARDRAIL: .bss breadcrumbs are wiped by the very reset a hang needs, so the last step is ALSO kept in RTC_NOINIT
+ * memory. Without this the answer to "which flash call never returned" dies with the hang - which is exactly what
+ * happened on the first two attempts. */
+RTC_NOINIT_ATTR static uint32_t s_bc_shadow;
+static void bc_set(uint32_t v) { s_bc = v; s_bc_shadow = v; }
 static volatile uint32_t s_us[3];   /* 0 erase, 1 write, 2 superblock erase+write */
 static uint32_t s_nsectors;
 
@@ -113,6 +119,7 @@ int fs_init(void)
 }
 
 uint32_t fs_bc(void)      { return s_bc; }
+uint32_t fs_bc_prev(void) { return s_bc_shadow; }
 uint32_t fs_us(int which) { return (which >= 0 && which < 3) ? s_us[which] : 0u; }
 uint32_t fs_sector_count(void)        { return s_nsectors; }
 uint32_t fs_sector_erases(uint32_t s) { return s < FS_MAX_SECTORS ? s_erase_psec[s] : 0u; }
@@ -163,26 +170,26 @@ int fs_flush(void)
     if (s_cache_dirty && s_cache_sector != 0xFFFFFFFFu) {
         /* GUARDRAIL: erase THEN program, in that order, and count the erase: the whole reason this cache exists is that
          * one erase per sector must cover up to 32 block writes. */
-        s_bc = 1; t0 = esp_timer_get_time();
+        bc_set(1); t0 = esp_timer_get_time();
         if (esp_partition_erase_range(s_part, (size_t)s_cache_sector * FS_SECTOR, FS_SECTOR) != ESP_OK)
             return FS_E_FLUSH;
-        s_us[0] = (uint32_t)(esp_timer_get_time() - t0); s_bc = 2;
+        s_us[0] = (uint32_t)(esp_timer_get_time() - t0); bc_set(2);
         note_erase(s_cache_sector);
         t0 = esp_timer_get_time();
         if (esp_partition_write(s_part, (size_t)s_cache_sector * FS_SECTOR, s_cache, FS_SECTOR) != ESP_OK)
             return FS_E_FLUSH;
-        s_us[1] = (uint32_t)(esp_timer_get_time() - t0); s_bc = 3;
+        s_us[1] = (uint32_t)(esp_timer_get_time() - t0); bc_set(3);
         s_bytes += FS_SECTOR;
         s_cache_dirty = 0;
         s_flushes++;
     }
     if (s_cache_dirty == 0 && s_super_dirty == 0 && s_cache_sector != 0xFFFFFFFFu) { /* nothing to do */ }
     if (s_super_dirty) {
-        s_bc = 4; t0 = esp_timer_get_time();
+        bc_set(4); t0 = esp_timer_get_time();
         if (esp_partition_erase_range(s_part, 0, FS_SECTOR) != ESP_OK) return FS_E_FLUSH;
         note_erase(0);
         if (esp_partition_write(s_part, 0, &s_pending_super, sizeof s_pending_super) != ESP_OK) return FS_E_FLUSH;
-        s_us[2] = (uint32_t)(esp_timer_get_time() - t0); s_bc = 5;
+        s_us[2] = (uint32_t)(esp_timer_get_time() - t0); bc_set(5);
         s_bytes += sizeof s_pending_super;
         s_super = s_pending_super;
         s_super_dirty = 0;
@@ -213,7 +220,7 @@ int fs_write(uint32_t blk, const uint8_t *src)
     if (r != FS_OK) return r;
     memcpy(s_cache + (blk % FS_PER_SECTOR) * FS_BLOCK, src, FS_BLOCK);
     s_cache_dirty = 1;
-    s_bc = 6;
+    bc_set(6);
     /* GUARDRAIL: do NOT touch the superblock here. Bumping its generation on every block write made every flush erase
      * sector 0 in addition to the data sector - double the wear for one commit - and it rewrote a CRC'd header for a
      * generation number that only needs to advance once per flush. */

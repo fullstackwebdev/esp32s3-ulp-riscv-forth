@@ -182,3 +182,22 @@ flash call inside `block_task` that the console/ULP bridge also needs. **Not fix
 (`' WORD .`) and aborts naming the missing word. Writing it cost two dry-run failures on my own *fixtures* — "last line is
 numeric" and "a line of only digits" — because the device prints `52 ok` on one line. The fixtures are now verbatim
 transcripts.
+
+---
+
+## Step 6c-iii: option (c) does NOT fix the hang — the hypothesis is disproved
+
+Flash commits were removed from the block-task write path (the only path the ULP blocks on): a ULP write now marks the RAM
+mirror dirty, and `#f` commits every dirty block before flushing. **The hang reappeared anyway**, at `W @ EXECUTE` on the
+third phase of the capability run. So "flash inside the ULP's critical path" is **not** the cause; the defect is in the
+block-write/execute path itself, independent of the store.
+
+Capability run on option (c) before the hang (device): engine `2 3 + .` = 5 · application space **686 B** · blocks seed+read
+byte-exact (0, 1, 64, 127) · phase source load+execute matches the host `[8320, 540800, 0, 65, 128, 0]` · descriptor v2 with
+entry xt 1282 = live xt. Then the third `W @ EXECUTE` went silent, as before.
+
+**Next probe (one session):** run the same workload against `main` @ `7135d0d` (no flash store at all). If it hangs there
+too, the defect predates the flash work and belongs to the block-write path — which changes what the merge should contain.
+
+Also fixed, harness-side: `#i`/`#u` answer with `info:` and return without an `ok`, so a call waited until timeout while the
+answer was already in the buffer. `info:` is a marker now.

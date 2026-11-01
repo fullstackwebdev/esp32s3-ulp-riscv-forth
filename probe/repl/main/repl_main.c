@@ -129,6 +129,15 @@ static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_
  * quietly living only in RAM - which would look like a working store that forgets everything at reset. */
 static int store_ok;
 
+/* GUARDRAIL: a write that must NOT touch flash still has to be recorded, or the next `#f` silently drops it - the
+ * coherence bug class that made an image's last partial block look corrupt after a reboot. */
+static int blkfile_dirty;   /* declared before use: C needs it above blk_dirty, not below */
+static void blk_dirty(uint32_t blk)
+{
+    (void)blk;
+    blkfile_dirty = 1;
+}
+
 static void blk_commit(uint32_t blk)
 {
     if (!store_ok) return;                       /* already reported at boot; do not spam per block */
@@ -341,6 +350,19 @@ static void seed_poll(void)
                 n = 0;
                 continue;
             }
+            /* GUARDRAIL: when the ULP stops answering but the HP console does not, the only way to name the stall is the
+             * shared window. `#u` dumps every field the bridge exposes, so "silent ULP" becomes a concrete state (pending
+             * command, full output ring, latched block layer) instead of a guess. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'u' && (ln[2] == 0 || ln[2] == ' ')) {
+                printf("info: ulp blk_out %u req %u off %u sz %u | cmd h%u t%u (%u B) | out h%u t%u (%u B) | wakes %u\n",
+                       (unsigned)ulp_repl_blk_out, (unsigned)ulp_repl_blk_req, (unsigned)ulp_repl_blk_off,
+                       (unsigned)ulp_repl_blk_sz, (unsigned)ulp_repl_cmd_head, (unsigned)ulp_repl_cmd_tail,
+                       (unsigned)ulp_repl_cmd_bytes, (unsigned)ulp_repl_out_head, (unsigned)ulp_repl_out_tail,
+                       (unsigned)ulp_repl_out_bytes, (unsigned)ulp_repl_wake_count);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             /* GUARDRAIL: `#i` reports the store's state ON DEMAND. The boot refusal is printed before the serial port is
              * opened by any tool that attaches afterwards, so in practice nobody sees it - measured as gate 3 reporting
              * "no store line". A refusal nobody can read is not a refusal. */
@@ -359,8 +381,9 @@ static void seed_poll(void)
                         if (e > hotn) { hotn = e; hot = k; }
                     }
                     printf(" | hottest sector %u (%u)\n", (unsigned)hot, (unsigned)hotn);
-                    printf("info: bc %u | erase %u us, write %u us, super %u us | reset reason %d\n",
-                           (unsigned)fs_bc(), (unsigned)fs_us(0), (unsigned)fs_us(1), (unsigned)fs_us(2),
+                    printf("info: bc %u (before last reset %u) | erase %u us, write %u us, super %u us | reset reason %d\n",
+                           (unsigned)fs_bc(), (unsigned)fs_bc_prev(),
+                           (unsigned)fs_us(0), (unsigned)fs_us(1), (unsigned)fs_us(2),
                            (int)esp_reset_reason());
                 }
                 else          printf("info: store REFUSED %s\n", fs_strerror(fs_init()));
@@ -371,6 +394,14 @@ static void seed_poll(void)
             /* GUARDRAIL: `#f` flushes the sector cache and reports write amplification; `#x` formats the store. Both are
              * main-core only and cost 0 ULP bytes. `#x` is the recovery path named by the boot refusal. */
             if (n >= 2 && ln[0] == '#' && ln[1] == 'f' && (ln[2] == 0 || ln[2] == ' ')) {
+                /* GUARDRAIL: `#f` commits everything the RAM mirror holds that flash has not seen, then flushes the
+                 * sector cache. Without the commit pass, a block written by the ULP and then flushed would be lost on
+                 * the next boot while the flush still reported success. */
+                if (blkfile_dirty) {
+                    uint32_t b;
+                    for (b = 0; b < BLK_N; b++) { int rr = fs_write(b, blkfile[b]); if (rr != 0) printf("flush: block %u %s\n", (unsigned)b, fs_strerror(rr)); }
+                    blkfile_dirty = 0;
+                }
                 int r = fs_flush();
                 uint32_t bp = 0, se = 0, fl = 0; fs_stats(&bp, &se, &fl);
                 if (r == FS_OK) printf("flush: ok | program+erase %u B, %u sector erase(s), %u flush(es)\n",
@@ -798,7 +829,12 @@ img_done:   ;
                     mb[2] = 4;                   /* nack: checksum mismatch -> BK_CRC (-4) */
                 } else {
                     for (i = 0; i < (int)blk_sz; i++) blkfile[blk][i] = buf[i];
-                    blk_commit(blk);
+                    /* GUARDRAIL: do NOT commit to flash here. This is the one path the ULP BLOCKS ON (its write waits for
+                     * this reply), so calling flash erase+write from this task puts a 20-34 ms flash operation inside the
+                     * ULP's critical path - measured: the ULP then stopped answering its own REPL while the HP console
+                     * stayed alive (intermittent, 2 of 5 attempts). Persistence is explicit: `#f`, `#d`, seeding. The
+                     * cost of this rule is that SAVE alone does not persist, and the claim says so. */
+                    blk_dirty(blk);
                     mb[2] = 1u;
                 }
             }
