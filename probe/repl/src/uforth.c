@@ -41,7 +41,8 @@ typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef int32_t 
 #endif
 
 /* ---- platform hooks (implemented by the host build or ulp_main.c) ---- */
-int  pl_key(void);                       /* blocking read of one character  */
+int  pl_key(void);      /* one character from the raw ring, or -1 when nothing is waiting */
+int  pl_keyq(void);     /* 1 when a keystroke is waiting, 0 when not (KEY? used to read a dead register) */
 void pl_emit(int c);                     /* write one character (may drop)  */
 u32  pl_hw(int op, u32 a, u32 b);        /* 0 gpio_get 1 gpio_set 2 adc 3 ms 4 wake 5 key? */
 /* P29: the layer's fourth hook. P22/P27 charged only three; the 1024 B layer (P26) needs a way to
@@ -1825,6 +1826,10 @@ static void srv_answer(void)
 #endif
 
 int  pl_key(void)        { int c = getchar(); if (c == EOF) exit(0); return c; }
+/* GUARDRAIL: the HOST build needs this too, or the bake fails with "undefined reference to pl_keyq" and leaves a STALE
+ * src/image.h behind - the build then succeeds against a dictionary for a different MEMSZ. Always provide the hook the
+ * engine calls, even when the host's answer is trivial. */
+int  pl_keyq(void)       { return 1; }   /* the host reads stdin lazily; there is always "possibly a key" */
 void pl_emit(int c)      { putchar(c); }
 u32  pl_hw(int op, u32 a, u32 b)
 {

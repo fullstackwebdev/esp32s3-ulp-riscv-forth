@@ -161,7 +161,7 @@
         L_P_KEY:  PUSH(pl_key()); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_KEYQ)
-        L_P_KEYQ: PUSH(pl_hw(5, 0, 0) ? ~0u : 0); goto tail;
+        L_P_KEYQ: PUSH(pl_keyq() ? ~0u : 0); goto tail;   /* GUARDRAIL: pl_hw(5,..) was a stub that always said 0 */
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_EMIT)
         L_P_EMIT: pl_emit(POP()); goto tail;

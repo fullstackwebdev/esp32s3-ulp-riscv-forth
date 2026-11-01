@@ -242,10 +242,42 @@ static void seed_poll(void)
      * (measured as IDX? / Z1? during the load, and as a readback of 87 bytes). Size for the worst case. */
     static char ln[320];
     static int n;
+    /* GUARDRAIL: a terminal PROGRAM needs keystrokes as they happen, not lines. In raw mode every byte goes straight into
+     * the ULP's command ring, where the running program's KEY consumes it - the interpreter is blocked inside that
+     * program, so there is no second reader. `!LINE` (scanned in the byte stream, never forwarded) leaves raw mode; it is
+     * how the host gets its line discipline back without the operator having to press Enter on a magic word. */
+    static int raw_mode;
+    static char rawbuf[5];
+    static int rawn;
     unsigned char c;
     while (uart_read_bytes(CONSOLE_UART, &c, 1, 0) == 1) {
+        if (raw_mode) {
+            /* GUARDRAIL: forward a byte the moment it CANNOT be part of `!LINE`. The first version held five bytes and
+             * only flushed when the buffer filled, so a single keystroke was never delivered - measured: 'j' pressed,
+             * nothing drawn. The prefix test keeps the escape sequence unharmed and makes every other byte immediate. */
+            rawbuf[rawn++] = c;
+            while (rawn > 0) {
+                int is_pref = (rawn <= 5) && !memcmp(rawbuf, "!LINE", (size_t)rawn);
+                if (rawn == 5 && is_pref) { raw_mode = 0; rawn = 0; break; }   /* the escape sequence arrived */
+                if (is_pref) break;                                            /* may still become it */
+                {
+                    uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail;
+                    if (h - tl < CMD_SIZE) { CMD_BYTES[h & CMD_MASK] = (uint8_t)rawbuf[0]; ulp_repl_cmd_head = h + 1u; }
+                }
+                rawn--;
+                memmove(rawbuf, rawbuf + 1, (size_t)rawn);
+            }
+            continue;
+        }
         if (c == '\n' || c == '\r') {
             ln[n] = 0;
+            if (!strcmp(ln, "!RAW")) {
+                raw_mode = 1; rawn = 0;
+                printf("raw: keystrokes go to the program now; type !LINE to get the prompt back\n");
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             if (n > 4 && ln[0] == '#' && ln[1] == 'b' && ln[2] == ' ') {
                 unsigned blk = 0, k = 3, w = 0;
                 int hi = 0, bad = 0;

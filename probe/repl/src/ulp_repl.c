@@ -48,7 +48,11 @@
  * At 2700 the stack region is 332 B with a measured high-water of 240 B (92 B margin). Do not raise this without moving
  * the canary base and re-measuring, and never to within 40 B of the high-water: overflow is SILENT. Re-bake image.h
  * after any change here - MEMSZ and the baked dictionary are one decision. */
-#define MEMSZ    2700          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+/* GUARDRAIL: 2700 -> 2651 pays for the KEY primitive. pl_key/pl_keyq (raw ring reads, so a Forth menu can own the
+ * keyboard) measured +102 B of .text, which put the pool at 7941 and the stack region at 251 B - below the 300 B floor
+ * that the measured 240 B high-water plus margin requires. 49 B of dictionary buys keys back: pool 7892, region exactly
+ * 300 B. A keyboard is worth more than 49 bytes of app space; a 251 B stack region would be silent corruption. */
+#define MEMSZ    2620          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
@@ -182,7 +186,25 @@ void pl_emit(int c)
 
 /* The REPL reads raw bytes from cmd[] itself, so KEY has nothing to do. -1 is what an empty caller
  * returns, so a program using KEY sees "no input" rather than a stall. */
-int pl_key(void) { return -1; }
+/* GUARDRAIL: KEY was a STUB returning -1, and KEY? read a hardware register that is always 0. A Forth program could
+ * therefore never read a keystroke: every menu had to be driven from the host, which is exactly what makes a terminal
+ * program not a terminal program. In RAW mode the host forwards bytes as they arrive (no line assembly), and the program
+ * consumes them here, advancing the same ring tail the interpreter uses - safe because the interpreter is blocked inside
+ * the running program, not reading tokens.
+ * GUARDRAIL: return -1 when empty, never block. Forth polls with `BEGIN KEY DUP 0 < 0= UNTIL`, which keeps the wake loop
+ * free to service the block store; a blocking KEY would hold the ULP inside one wake and starve block I/O. */
+int pl_key(void)
+{
+    u32 h = repl_cmd_head, t = repl_cmd_tail;
+    int c;
+    if (h == t) return -1;                      /* nothing typed yet */
+    c = (int)repl_cmd[t & CMD_MASK];
+    repl_cmd_tail = t + 1u;
+    return c;
+}
+
+/* 1 when a keystroke is waiting, 0 when not. KEY? used to read a hardware register that always returned 0. */
+int pl_keyq(void) { return (repl_cmd_head != repl_cmd_tail) ? 1 : 0; }
 
 u32 pl_hw(int op, u32 a, u32 b)
 {
@@ -207,6 +229,18 @@ static void run_line(void)
 {
     tl = ti;
     ti = 0;
+    /* GUARDRAIL: start every line on an EMPTY stack. `.bss` is not part of the ULP binary, and `repl_magic` lives in RTC
+     * RAM that survives a reset - so after flashing a new image the first-run init is skipped and sp/rsp keep the
+     * PREVIOUS image's values. Measured: the very first command after a reset answered ERR_STACK, because a stale sp of
+     * ~200 fails PUSH's `sp < SD` check. A REPL line is a complete unit (nothing legitimately carries a data stack from
+     * one line to the next), so zeroing here is both correct and the cheapest fix: it costs two stores and kills the
+     * whole "stale RTC state leaks into your first keystroke" class. */
+    sp = 0;
+    rsp = 0;
+    /* GUARDRAIL: `stack_ovf` is a .bss flag that also survives in RTC RAM; if the previous image left it set, the FIRST
+     * line of the new image reports ERR_STACK even though its own stack is fine (measured exactly that). Clearing it at
+     * the line boundary makes the flag describe this line, not the last image's. */
+    stack_ovf = 0;
     interpret();
     if (errf) {
         /* GUARDRAIL: the engine's err() already printed the offending word and '\n'. Printing
@@ -411,6 +445,12 @@ int main(void)
      * like a broken interpreter rather than a bad image. */
     image_boot_assert();
 
+    /* GUARDRAIL: keep the magic guard. `main()` is re-entered on EVERY wake (measured: making this unconditional printed
+     * the banner once per 6.5 ms), so the guard is what makes this "first wake after load" rather than "every wake".
+     * GUARDRAIL: but the magic lives in RTC RAM and survives a reset, so after loading a NEW image this block is SKIPPED
+     * and .bss (rings, block state, overflow flag, stack pointers) still holds the previous image's values - measured as
+     * ERR_STACK and ERR_DIRTY on the first command after a fresh flash. cli.py absorbs that one line at connect time,
+     * and the clears below run whenever init does happen. */
     if (repl_magic != REPL_MAGIC_RAN) {
         repl_magic = REPL_MAGIC_RAN;
         repl_cmd_head = 0; repl_cmd_tail = 0;
@@ -418,6 +458,10 @@ int main(void)
         repl_wake_count = 0;
         repl_status = 1;
         tl = 0; ti = 0; sp = 0; rsp = 0;
+        /* GUARDRAIL: the block layer and the overflow flag are .bss too. A stale dirty flag made the first `BLOCK` answer
+         * ERR_DIRTY and a stale overflow flag made the first line answer ERR_STACK. Reset them with everything else. */
+        stack_ovf = 0;
+        blkvars[0] = 0; blkvars[1] = 0;
         /* GUARDRAIL: these two globals exist for the MAIN CORE to compare against its own constants,
          * so nothing on the ULP reads them and --gc-sections deletes them — the host then fails to
          * build with "'ulp_repl_cmd_bytes' undeclared". Asserting them here is a real check (the
