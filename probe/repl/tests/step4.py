@@ -71,6 +71,12 @@ def build_and_adopt(d, p, desc, blocks, execute=True):
     for k in range(len(blocks)):
         d.cmd(f"{8+k} LOAD", timeout=10.0)
     cs, ce = d.num("bh @ ."), d.num("HERE .")
+    # GUARDRAIL: a phase is ~500 B of code. Measured failure this catches: after a prior source LOAD the phase LOADs
+    # answer TW?/IDX? (CREATE never runs), the dump is 10 B, the loader adopts the stub and EXECUTE hangs with NO error
+    # anywhere. A tiny image is not a phase - refuse it by name instead of adopting it and hanging three steps later.
+    if ce - cs < 200:
+        raise RuntimeError("phase code is only %d B, expected ~500: a LOAD failed - refusing to dump a stub" % (ce - cs))
+
     hs, he = d.num("LATEST ."), d.num("bl @ .")
     entry = d.num("' RUNPH1 .")
     d.cmd(f"#d {desc} {cs} {ce} {hs} {he} {entry}", timeout=20.0)

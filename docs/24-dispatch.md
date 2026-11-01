@@ -50,3 +50,44 @@ cover this change**. The safety net is therefore:
 4. **`BLOCK` always re-fetches**, and the dirty check only refuses a *different* block, so a same-block re-read without
    `SAVE` returns the stored bytes (recorded as `block-refetch`: wrote 200, read 32). Deliberate gold, so a change to it
    is visible.
+
+---
+
+## Open questions, resolved (branch `error-path`)
+
+### 1. "An image cycle after an error hangs" — WRONG, and it was my battery
+Measured: `' W .` answers **786 before and after** an undefined-word error, so a rewind does **not** remove words defined
+since boot, and `NOPE` → image cycle → `EXECUTE` runs correctly (`[8320, 540800]`). Four independent trials (no prelude,
+`DROP`, `NOPE`, empty `LOAD`) all pass. The battery hang had a different cause, found in #2.
+
+### 2. `LOAD` then a phase compile — REAL, reproduced 2/2
+After a source `LOAD` that compiles a word, then `SEAL`/`2 OVL`, the phase `LOAD`s answer **`7TW?` `TW?` `IDX?`** — `CREATE
+tw` never runs — so `HERE` advances 10 B instead of ~516, the dump is a **10 B stub**, the loader adopts it, and `EXECUTE`
+hangs with no error anywhere. Clean run for comparison: `HERE` 786 → 1 302 across the same eight blocks.
+
+Two things were done, neither of which hides it:
+- **`step4.build_and_adopt` now refuses a stub**: `ce - cs < 200` raises `"phase code is only N B, expected ~500"`.
+- The **engine cause is still open**: a prior block-source compile poisons the next one. Tracked here, not fixed.
+
+### 3. "A 60-char line splits mid-line" — WRONG, it was my capture
+Measured with real definitions: **59, 60 and 63-char lines all compile** (`PAD59`=111, `PAD60`=222, `PAD63`=333) and a
+64-char line is refused whole (`line too long: 64 bytes, the ring holds 63`). The limit is exactly as documented; the
+"55 + 5 bytes" split was the sentinel reader, not the machine.
+
+### 4. `BLOCK` always re-fetches — confirmed, kept as gold
+Same-block re-read without `SAVE` returns the stored bytes (wrote 200, read 32). The dirty check only refuses a
+*different* block. Recorded in the battery as `block-refetch`, which now **seeds its own block** — the original entry
+read 255 on a freshly erased store and reported a false regression, i.e. it was testing store history rather than the
+engine.
+
+---
+
+## The reclaim ceiling is the STACK REGION, not the pool budget
+
+Growing `MEMSZ` moves the image end **up** towards the fixed stack top `0x1FF0`, so every byte added to the dictionary is
+a byte taken from the stack. Measured: `MEMSZ` 2 700 → 2 744 (+44 B) pushed the image end past the canary base `0x1EAC`;
+the stack paint then overwrote `.bss`, `#k` reported **316 B of 324 used**, and the battery fell to 15/17. Reverted.
+
+`MEMSZ` 2 700 is therefore the practical maximum with this layout: stack region **332 B**, measured high-water **240 B**
+(92 B margin). `flash_safe.sh`'s reserve is now **300 B** (240 measured + 25 %) instead of a pre-measurement 336 B, and it
+prints the measured figure so the number cannot drift away from evidence.

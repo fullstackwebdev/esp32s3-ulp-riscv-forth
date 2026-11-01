@@ -30,7 +30,10 @@ LINES = [
     # Documents the layer's real semantics: BLOCK ALWAYS re-fetches, and the dirty check only refuses a DIFFERENT block.
     # So a same-block re-read without SAVE silently returns the stored bytes (measured: wrote 200, read 32 = the blank
     # fill). Recorded deliberately as gold, so a future change that alters it is visible.
-    ("block-refetch", ["0 BLOCK 0 + 200 SWAP C! UPDATE 0 BLOCK 0 + C@ ."]),
+    # GUARDRAIL: seed the block to a known fill FIRST. Recorded on a store where block 0 happened to be space-filled, the
+    # entry then read 255 on a freshly erased store and the battery reported a false regression - the gold was testing
+    # store history, not the engine. A battery entry must bring its own state.
+    ("block-refetch", ["#seed0", "0 BLOCK 0 + 200 SWAP C! UPDATE 0 BLOCK 0 + C@ ."]),
     ("colon-def",   [": SQ DUP * ;", "9 SQ ."]),
     ("begin-until", [": CD 0 BEGIN 1 + DUP 5 = UNTIL ;", "CD ."]),
     ("begin-while", [": CW 0 BEGIN DUP 5 < WHILE 1 + REPEAT ;", "CW ."]),
@@ -116,6 +119,9 @@ def run(d):
     # d.seed_many([(9, ": T 7 . ;".ljust(128))])
     # got["load"] = entry(d, 50, ["9 LOAD", "T ."])
     for i, (name, lines) in enumerate(LINES):
+        if lines and lines[0] == "#seed0":
+            d.seed_many([(0, " " * 128)])
+            lines = lines[1:]
         got[name] = entry(d, i, lines)
     # a block LOAD, seeded through the HP path, run BEFORE the error entries: after a rewind it answers `T?`
     return got
