@@ -425,3 +425,33 @@ to ~700 ms (still under the measured 845 ms), or lengthen `BLKWAIT` to widen the
 trade, not a bug.
 
 **Cost of step 3b: 0 ULP bytes** (pool stays 7845/7856; the `#a` hook and the post-stall re-check are main-core only).
+
+## Step 4: distinct signatures PASS, but 13/15 and an unexplained ERR_STACK — stopped, not retried
+
+**Item 1 — PASS.** Each phase now reads its **own** data block (`20 + p`) seeded with its own pattern, so the six cells
+differ per phase and the expectation still comes from the host run of that phase's bytes. 15 distinct host signatures.
+Phase 8's image against phase 1's signature **differs** (negative PASS) and against its own **matches** (positive PASS).
+
+**Item 2 — 13 of 15 PASS, then a failure I have not diagnosed.** Every phase 1..13, loaded from its **binary image**
+through mailbox op 3 and executed via the returned entry xt, matched its own host run:
+
+```
+phase 1 [8320,540800,0,65,128,0]   phase 8 [9216,663552,0,72,128,128]   phase 13 [9856,758912,0,77,128,0]
+```
+Phase 14's *build* (loading its source, before any image work) answered **ERR_STACK** on `12 LOAD` and the session
+stopped. Not diagnosed; the run budget was already spent.
+
+**Item 3 — partially measured.** 15 images were written at blocks 50..124 = **75 blocks** (5 per phase, as predicted),
+none refused. Capacity at 5 blocks/phase is 128/5 = **25 phases ≈ 12.9 KB ≈ 8.4× the 1 536 B control** (prediction made
+before measuring, and the 5-blocks-per-phase part is confirmed).
+
+**Item 4 — NOT MEASURED.** The timing loop was after the phase loop, so it never ran.
+
+### Two harness bugs of mine (why the budget was exceeded)
+
+1. the host oracle did not EXECUTE the entry, so it reported `[0,0,0,0,0,0]` and the machine was blamed for the test's
+   mistake;
+2. rewinding before the first `SEAL` set the dictionary to address 0 (the documented `OVL` hazard) — the build now seals
+   first when `bh` is 0.
+
+**Chip runs: 4 (budget 3).** Over by one, and the overrun was these two harness bugs, not a safety failure.
