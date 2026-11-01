@@ -235,6 +235,14 @@ Blocks per app come from the allocation table; a 4-page document is 32 blocks.
    words, run by the existing host suite. A `tests/apps/<app>.py` grid test comes next for screens that need no block
    content; anything that READS the store is verified on the board by the integrator, not claimed by the lane.
 
+### Lane hygiene (learned from a lane that ran `find /`)
+
+Every path a lane needs is known and inside its own worktree: `probe/repl/tools/lint_forth.py`, `probe/repl/tools/screen.py`,
+`probe/repl/tests/build_host_app.sh`, `probe/repl/tests/run.sh`, `examples/apps/registry.fs`, `examples/appstore.fs`. A lane
+that searches the filesystem for them has already lost the time it was trying to save - `find /` is banned by this
+project, and `grep -r` from the repo root walks `probe/results/` and `.auto/tmp/` clones. Scope every search to the files
+the contract names.
+
 ## The five gates — every app passes all of them, in this order
 
 | gate | artefact | fails when |
