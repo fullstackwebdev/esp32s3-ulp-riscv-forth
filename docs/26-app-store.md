@@ -14,6 +14,31 @@ A phase is **replaced** on every adopt, so a phase may not own state. State live
 and resumes. "Always on" is therefore not a feature an app has to be careful about — it is the only thing the machine can
 do, and the tests assert it (enter → move → leave → return → the position cell and the drawn bytes).
 
+## Thin resident, fat phases (learned from lane R, measured)
+
+The first version of this contract assumed "resident ~700 B → window ~1 000 B" and then put the **display vocabulary**
+(`ESC`/`CSI`/`M`/`SP`/`AT`/`INV`/`OFF`/`CLR`/`HOME`/`.N`/`DIGIT`), `CARD` and the title bar in the **resident launcher**.
+Lane R measured what that costs on the board:
+
+```
+app space (HERE 786 .. LATEST 2152)                      1 366 B   MEMSZ cannot grow: pool 7 847 / 7 856
+registry + appstore (dispatcher + display vocab + CARD)   831 B   -> window 535 B
+the calculator phase                                      695 B   (would need 1 526 of 1 366)
+```
+
+Every phase has to draw, so a fat launcher makes a thin window — exactly backwards. The rule is therefore:
+
+> **Resident = the dispatcher (`CHAIN`/`NXT`/`RW`/`NOOP`/`UNLATCH`/`PICKX`/`SWITCH`/`GO`) plus the registry cells.
+> Nothing else. Any word two phases both need is DUPLICATED in both phases.**
+
+A phase is replaced on every adopt, so it has to be self-contained anyway — and that removes a whole class of problem: two
+apps can never collide in the dictionary, and no lane has to negotiate a shared vocabulary. The price is ~120–160 B of
+repeated drawing words per phase, charged to the **store** (16 KB), not to the window. RAM is what limits features; the
+store is what limits the number of phases, and it has far more room.
+
+Measured consequences to hold everyone to: **window ≈ 1 100 B** with this launcher, so a phase's *own* budget is the
+window minus its vocabulary. A phase that does not fit gets its features split across phases — not deleted.
+
 ## Screen geometry (ANSI TUI — **70 columns, the launcher's own constant**)
 
 **The machine never asks the terminal how big it is.** There is no `ioctl`/`COLUMNS` anywhere in `cli.py` or the tests, so
