@@ -24,6 +24,12 @@ import sys
 
 # (name, pops, pushes). Control-flow words are listed so a body can use them, handled specially below.
 PRIMS = {
+    # GUARDRAIL: the words the launcher needs that the first table missed - EXECUTE (1,0), BLKXFER (2,2), KEY?/LOAD.
+    # A missing entry reads as "undefined word" in perfectly good code, which is the fastest way to make a linter hated.
+    "EXECUTE": (1, 0), "OVL": (1, 0), "BLKXFER": (2, 2), "KEY?": (0, 1), "LOAD": (1, 0), "SAVE": (0, 0), "UPDATE": (0, 0),
+    # GUARDRAIL: machine variables are WORDS that push an address: `W @` is 1 push, not 0. Listing them as unknown
+    # made a real launcher look like it used an undefined word.
+    "HERE": (0, 1), "LATEST": (0, 1), "bh": (0, 1), "bl": (0, 1), "VH": (0, 1), "VL": (0, 1), "SEAL": (0, 0), "SD": (0, 1),
     "!": (2, 0), "*": (2, 1), "+": (2, 1), "-": (2, 1), "<": (2, 1), "=": (2, 1), "<>": (2, 1),
     "0=": (1, 1), "1+": (1, 1), "1-": (1, 1), "@": (1, 1), "AND": (2, 1), "OR": (2, 1), "XOR": (2, 1),
     "INVERT": (1, 1), "LSHIFT": (2, 1), "RSHIFT": (2, 1), "U<": (2, 1), "U/MOD": (2, 2),
@@ -76,7 +82,21 @@ def declared(body):
     return len(left), len(right)
 
 
-def lint_definitions(src):
+def collect_vocab(src):
+    """Vocabulary a resident file exports: `CREATE`/`CONSTANT` names and every `: name ( in -- out )` effect.
+
+    GUARDRAIL: a program image is compiled against the RESIDENT dictionary but is a separate file, so linting it alone
+    reports every resident word as undefined. That is a false positive on the one layout the machine actually ships.
+    """
+    v = {}
+    for m in re.finditer(r"(?:CREATE|CONSTANT)\s+(\S+)", src):
+        v[m.group(1)] = (0, 1)
+    for m in re.finditer(r":\s+(\S+)(.*?);", src, re.S):
+        v[m.group(1)] = declared(m.group(2)) or (0, 0)
+    return v
+
+
+def lint_definitions(src, base=None):
     """Yield findings for a source file. R1 runs over raw lines; R2/R3/R4 run per definition."""
     findings = []
     # GUARDRAIL: R1 must scan OUTSIDE parentheses and `."` strings. The earlier regex missed a comment that followed
@@ -102,6 +122,8 @@ def lint_definitions(src):
             continue
         i += 1
     vocab = dict(PRIMS)
+    if base:
+        vocab.update(base)
     # GUARDRAIL: a CREATE'd or CONSTANT word PUSHES its address/value - (0, 1), not (0, 0). Modelling it as "pushes
     # nothing" made every later `SEL @` look like an underflow, which is a false positive on perfectly good code.
     for m in re.finditer(r"(?:CREATE|CONSTANT)\s+(\S+)", src):
@@ -116,19 +138,55 @@ def lint_definitions(src):
         bad = False
         import os as _os
         if _os.environ.get('LINTDBG'): print(f'  [dbg] {name}: start depth={depth} pops={pops_in} pushes={pushes_out}')
-        for tk in tokens(body):
+        # GUARDRAIL: `0 UNTIL` never loops back, so everything after that loop is dead and the definition's end depth
+        # is unreachable. A demo that runs until `q` returns through EXIT, so its leftover loop counter is not a leak -
+        # the rule is "the end depth must balance IF the end can be reached".
+        toks = tokens(body)
+        infinite = any(toks[i - 1] == "0" and toks[i] == "UNTIL" for i in range(1, len(toks)))
+        skip = 0
+        for tk in toks:
+            if skip:                # inside a dead arm: only track nesting, touch neither depth nor vocab
+                if tk in ("IF", "BEGIN"): skip += 1
+                elif tk in ("THEN", "ELSE", "UNTIL", "REPEAT"):
+                    skip -= 1
+                    if skip == 0:
+                        if tk == "THEN" and frames:
+                            fr = frames.pop()
+                            if fr.get("if"): depth = fr["z0"]
+                        elif tk == "ELSE" and frames:
+                            depth = frames[-1]["z0"]
+                continue
+            if tk == "EXIT":      # after EXIT the rest of the arm is dead: skip to ELSE/THEN, keep the join depth
+                if frames and frames[-1].get("if"):
+                    skip = 1
+                    continue
+                bad = True; break
             if tk in CONTROL:
                 if tk == "IF":
                     depth -= 1
                     if depth < 0:
                         findings.append((lineno, "R3 underflow", f"{name}: IF with nothing on the stack")); bad = True; break
-                    frames.append({"entry": depth, "exit": None, "if": True})
+                    # GUARDRAIL: IF saves the JOIN depth (after popping the flag). Both arms must end there, and the
+                    # fall-through path certainly does - the then-arm ends with EXIT, whose dead code must not decide
+                    # the depth. Without this, `DUP 113 = IF ... EXIT THEN` looked like it left nothing.
+                    # GUARDRAIL: record BOTH the join depth (z0, for the dead-arm path) and each arm's end. A well-formed
+                    # IF/ELSE/THEN leaves the same depth on both arms; `.N` legitimately consumes `n` in each arm, so
+                    # forcing `depth = z0` at THEN reported a leak in perfect code. z0 is only the answer when the
+                    # then-arm ends in EXIT, because then the fall-through is the path that runs.
+                    frames.append({"entry": depth, "exit": None, "if": True, "z0": depth,
+                                   "then_end": None, "has_else": False})
                 elif tk == "ELSE":
                     if not frames or not frames[-1].get("if"):
                         findings.append((lineno, "R3 underflow", f"{name}: ELSE without IF")); bad = True; break
-                    depth = frames[-1]["entry"]          # both arms start from the same depth
+                    frames[-1]["then_end"] = depth       # remember where the then-arm ended
+                    frames[-1]["has_else"] = True
+                    depth = frames[-1]["z0"]             # the else-arm starts from the join depth
                 elif tk == "THEN":
-                    if frames: frames.pop()
+                    if frames:
+                        fr = frames.pop()
+                        if fr.get("if") and fr["has_else"] and depth != fr["then_end"]:
+                            findings.append((lineno, "R6 if/else", f"{name}: arms leave {fr['then_end']} vs {depth} item(s)"))
+                            bad = True; break
                 elif tk == "BEGIN":
                     frames.append({"entry": depth, "exit": None})
                 elif tk == "WHILE":
@@ -178,7 +236,7 @@ def lint_definitions(src):
                 break
             depth += p_out
         if _os.environ.get('LINTDBG'): print(f'  [dbg] {name}: end depth={depth} bad={bad}')
-        if not bad and depth != pushes_out:
+        if not bad and not infinite and depth != pushes_out:
             findings.append((lineno, "R4 leak",
                              f"{name}: leaves {depth} item(s) but declares {pushes_out} - add `( ... -- ... )` or fix the body"))
         vocab[name] = (pops_in, pushes_out)
@@ -225,13 +283,20 @@ def selftest():
     return 0 if ok else 1
 
 
-def main(argv):
+def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be collected BEFORE the target is linted.
     if "--selftest" in argv:
         return selftest()
     if not argv:
         print(__doc__); return 2
-    src = open(argv[0]).read()
-    findings = lint_definitions(src)
+    base, rest = {}, []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--use":
+            base.update(collect_vocab(open(argv[i + 1]).read())); i += 2
+        else:
+            rest.append(argv[i]); i += 1
+    src = open(rest[0]).read()
+    findings = lint_definitions(src, base)
     for ln, rule, msg in findings:
         print(f"  {argv[0]}:{ln}: {rule}: {msg}")
     print(f"  {len(findings)} finding(s)" if findings else "  clean")

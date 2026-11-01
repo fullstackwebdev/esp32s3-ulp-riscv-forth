@@ -34,8 +34,16 @@ def safe_after(toks):
     safe = []
     in_def = False
     expect_name = False
+    # GUARDRAIL: `CREATE SEL 0 ,` is ONE unit, and the splitter cut between `0` and `,` - block 80 then ended with a
+    # half-built CREATE and block 81 began with a comma that popped whatever was on the stack. The device reported
+    # ERR_STACK while compiling the LAUNCHER, blocks away from anything that looked wrong. A CREATE is not finished
+    # until its `,`, so no boundary is safe until then.
+    in_create = False
     for t in toks:
-        if t in NAMEPARSERS and t != ":":
+        if t == "CREATE":              # before NAMEPARSERS: CREATE is in that set, and the generic branch ate it
+            in_create = True
+            expect_name = True
+        elif t in NAMEPARSERS and t != ":":
             expect_name = True
         elif t == ":":
             in_def = True
@@ -43,9 +51,12 @@ def safe_after(toks):
         elif t == ";":
             in_def = False
             expect_name = False
+        elif t == ",":
+            in_create = False
+            expect_name = False
         else:
             expect_name = False
-        safe.append(not in_def and not expect_name)
+        safe.append(not in_def and not expect_name and not in_create)
     return safe
 
 

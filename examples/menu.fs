@@ -1,0 +1,40 @@
+: SP 32 EMIT ;
+: ESC ( -- ) 27 EMIT ;
+: CSI ( -- ) 91 EMIT ;
+: M ( -- ) 109 EMIT ;
+: OFF ( -- ) ESC CSI 48 EMIT M ;
+: INV ( -- ) ESC CSI 55 EMIT M ;
+: COL ( n -- ) ESC CSI 51 EMIT 48 + EMIT M ;
+: ALT ( -- ) ESC CSI 63 EMIT 49 EMIT 48 EMIT 52 EMIT 57 EMIT 104 EMIT ;
+: NORM ( -- ) ESC CSI 63 EMIT 49 EMIT 48 EMIT 52 EMIT 57 EMIT 108 EMIT ;
+: HIDE ( -- ) ESC CSI 63 EMIT 50 EMIT 53 EMIT 108 EMIT ;
+: SHOW ( -- ) ESC CSI 63 EMIT 50 EMIT 53 EMIT 104 EMIT ;
+: CLR ( -- ) ESC CSI 50 EMIT 74 EMIT ;
+: HOME ( -- ) ESC CSI 72 EMIT ;
+: DIGIT ( n -- ) 48 + EMIT ;
+: .N ( n -- ) DUP 10 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;
+: AT ( r c -- ) SWAP ESC CSI .N 59 EMIT .N 72 EMIT ;
+: FILL ( -- ) 0 BEGIN DUP 70 < WHILE SP 1+ REPEAT DROP ;
+: SENT ( -- ) 0 EMIT ;
+CREATE SEL 0 ,
+: MARK ( i -- ) SEL @ = IF 1 COL ." > " ELSE SP SP THEN ;
+: TOGGLE ( -- ) SEL @ IF 0 ELSE 1 THEN SEL ! ;
+: RW ( -- ) bh @ VH ! bl @ VL ! ;
+: SWITCH ( desc -- ) RW 3 BLKXFER DROP @ EXECUTE ;
+50 CONSTANT IMGB
+60 CONSTANT IMGS
+: HDR0 ( -- ) CLR HOME 1 1 AT INV FILL ;
+: TTL ( -- ) 1 3 AT INV ." ULP FORTH  PROGRAM LIBRARY" OFF ;
+: I0 ( -- ) 5 2 AT 0 MARK ." colour bars" ;
+: I1 ( -- ) 6 2 AT 1 MARK ." spinner" ;
+: ITEMS ( -- ) I0 I1 ;
+: FOOT0 ( -- ) 9 2 AT ." j/k move   Enter run   q quit" SENT ;
+: MENU ( -- ) HDR0 TTL ITEMS FOOT0 ;
+: K0 ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
+: PICK ( -- ) SEL @ IF IMGS ELSE IMGB THEN SWITCH ;
+: QS ( -- ) NORM SHOW ;
+: KQ ( c -- c f ) DUP 113 = ;
+: KTGL ( c -- f ) DUP 106 = OVER 107 = OR IF DROP TOGGLE 1 ELSE DROP 0 THEN ;
+: JK ( c -- c ) DUP KTGL DROP ;
+: KE ( c -- ) 13 = IF PICK THEN ;
+: RUNP ( -- ) ALT HIDE BEGIN MENU K0 KQ IF DROP QS EXIT THEN JK KE 0 UNTIL ;

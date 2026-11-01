@@ -1,0 +1,3 @@
+: TICK ( n -- n ) DUP 5 2 AT .N SP 200 MS 1+ ;
+: HDRS ( -- ) CLR HOME 3 2 AT ." SPIN" SENT ;
+: RUNS ( -- ) HDRS 0 BEGIN TICK KEY 113 = IF DROP EXIT THEN 0 UNTIL ;

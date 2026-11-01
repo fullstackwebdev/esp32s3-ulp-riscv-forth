@@ -249,7 +249,7 @@ static void seed_poll(void)
     static int raw_mode;
     static char rawbuf[5];
     static int rawn;
-    static int raw_skip_cr;   /* the CR that ends the !RAW line is not a keystroke */
+    static TickType_t raw_skip_until;   /* the CR that ends the !RAW line is not a keystroke */
     static uint8_t keyq[8];   /* raw bytes waiting for the program to drain the keybox */
     static uint32_t keyq_head, keyq_tail;
     unsigned char c;
@@ -266,7 +266,13 @@ static void seed_poll(void)
             /* GUARDRAIL: swallow the CR that terminates the `!RAW` line the operator/host just sent. It arrives AFTER the
              * line was consumed and would be delivered as key 13 (Enter) - measured: the app started, received the CR
              * immediately, treated it as "quit" and exited before the first keystroke could be drawn. */
-            if (raw_skip_cr) { raw_skip_cr = 0; if (c == '\r' || c == '\n') continue; }
+            /* GUARDRAIL: this used to swallow "the next CR", but the CR that ends `!RAW` is consumed by the LINE parser,
+             * so the flag stayed armed and ate the operator's FIRST keypress whenever it was Enter - measured: pressing
+             * Enter on a menu did nothing at all, and only the following key worked. The terminator may only be skipped
+             * inside the same dispatch, so the window is 50 ms of ticks: no human presses a key that fast. */
+            if (c == '\r' || c == '\n') {
+                if (raw_skip_until && xTaskGetTickCount() < raw_skip_until) { raw_skip_until = 0; continue; }
+            }
             rawbuf[rawn++] = c;
             while (rawn > 0) {
                 int is_pref = (rawn <= 5) && !memcmp(rawbuf, "!LINE", (size_t)rawn);
@@ -288,7 +294,8 @@ static void seed_poll(void)
         if (c == '\n' || c == '\r') {
             ln[n] = 0;
             if (!strcmp(ln, "!RAW")) {
-                raw_mode = 1; rawn = 0; raw_skip_cr = 1; keyq_head = keyq_tail = 0;
+                raw_mode = 1; rawn = 0; keyq_head = keyq_tail = 0;
+                raw_skip_until = xTaskGetTickCount() + pdMS_TO_TICKS(50);
                 /* GUARDRAIL: no message here. The switch happens while a full-screen program owns the terminal, so a
                  * line of text lands in the middle of its screen (measured: "raw: keystrokes go to the program now"
                  * printed across the app's title bar). The mode is documented instead of announced; !LINE still works. */
