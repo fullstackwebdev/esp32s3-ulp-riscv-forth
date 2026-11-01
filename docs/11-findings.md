@@ -691,16 +691,24 @@ literal `n + @`/`n + !` with `n % 4 != 0` is a finding, with the trap in the mes
 **Lesson:** the host engine is not a model of the chip's *alignment*. Any test that passes on the host and hangs on the
 board should suspect an unaligned access before anything else.
 
-## F-137 · A full-screen phase overruns the 128 B output ring and loses the tail (open)
-With F-136 fixed the device draws the title, the inbox heading and both messages - then **stops**. The footer is missing
-on the chip and present on the host. `FT` alone prints correctly at the REPL, and the frame ends with `0 EMIT` (`SENT`), so
-the footer is not being suppressed by the phase: the tail of the frame is being lost on the way out.
+## F-137 · CORRECTED: the frame is complete; the shelf's `NL` was LF without CR
 
-A full screen is ~600 B (bar 70 + 8 rows x 70 + footer) and the ULP's output ring is 128 B, drained to UART by the main
-core at 115200 (~52 ms for that frame). So a phase that draws a whole screen in one burst asks the ring to hold more than
-it can, and the bytes that do not fit are lost.
+The first version of this finding said the chip lost the head of a ~1 KB frame through the 128 B output ring. **That was
+wrong, and the raw capture says so:** one shelf frame arrives as **1 231 bytes**, beginning `ESC[2J ESC[1;1H ESC[7m APP
+STORE` and ending with the footer `ESC[20;1H j/k h/l Enter`. Nothing is lost.
 
-**Status: open, named, with the arithmetic.** Next step is to find out whether the ULP drops or blocks when the ring is
-full (`src/ulp_repl.c`, the emit path), then either pace the drawing (a phase draws row by row, and the ring drains between
-rows) or make a full-screen draw cheap (draw only what changed). Do not "fix" it by growing the ring without measuring the
-32 KB that is left.
+What actually broke the picture was in the shelf: `: NL 10 EMIT ;` — **LF without CR**. Every card row therefore began at
+the column the previous row ended on (70), so the terminal wrapped and the next row was drawn over the one above it. The
+operator's screen showed exactly that: borders split across lines, `rw/cl` merged into `0/0`. On a real terminal LF moves
+down and keeps the column; only CR returns to column 1, and mail's `NL` had always been `13 EMIT 10 EMIT`.
+
+**Fixed:** the shelf's `NL` is `13 EMIT 10 EMIT`, and the host frame now renders with **zero** harness warnings where it
+previously warned `write past the screen at row 11 col 81`.
+
+**Lesson:** a "the ring loses bytes" theory should have been checked against the raw stream before it became a finding. The
+stream was one `open(...).read()` away, and it disproved the theory. The harness's own warning (`write past the screen at
+row 11 col 81`) was the clue that the defect was in the drawing, not the transport.
+
+**Still open on the device:** with `NL` fixed the chip's stream contains an `ESC 0` sequence the grid reader does not know,
+and the phase does not return on `q`. Both are named; the next step is to find which word emits a bare `ESC 0` (the `OFF`
+path is `ESC [ 0 m`, not `ESC 0`) and whether the `q` is being consumed before the key loop reads it.
