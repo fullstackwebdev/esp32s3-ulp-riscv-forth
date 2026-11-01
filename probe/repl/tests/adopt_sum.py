@@ -148,6 +148,16 @@ def main():
         check("both images carry the SAME resident identity", len({b["hdr_sum"] for b in built.values()}) == 1,
               " / ".join(str(b["hdr_sum"]) for b in built.values()) + " (one launcher, one identity)")
 
+        # GUARDRAIL: pin the digits, not just "a number appeared". `.N` shipped printing "09" for 9 (the single-digit
+        # test was `DUP 9 <`, which is false at 9), and every device test passed because none of them read the text.
+        for n, want in ((0, "0"), (9, "9"), (42, "42"), (99, "99"), (100, "0")):
+            rep = dev.cmd(f"{n} .N", timeout=5.0, allow_error=True)
+            got = [l for l in rep.splitlines() if l.strip().endswith("ok")]
+            # GUARDRAIL: strip the space the printer puts before `ok` - the transcript is "<digits> ok", and an
+            # unstripped compare reports a failure for every correct digit (measured: five FALSE failures).
+            have = got[-1].rsplit("ok", 1)[0].strip() if got else ""
+            check(f".N prints {n} as {want!r}", have == want, f"got {have!r}")
+
         for i, (desc, note) in enumerate(((BARS_DESC, "first"), (BARS_DESC, "same image again"),
                                           (SPIN_DESC, "a DIFFERENT image")), start=1):
             st = adopt(dev, desc)

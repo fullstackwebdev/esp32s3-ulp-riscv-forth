@@ -305,6 +305,7 @@ rule that makes it work: *if it does not fit, the question is too big.*
 | 43 | "MS sleeps for its argument" | it returns the wake count: twenty `200 MS` in 0.05 s (F-125) | lint R9 |
 | 44 | "a DTR/RTS pulse resets the board in ~50 ms" | on USB-Serial-JTAG it does nothing: HERE 794 stayed 794. Only esptool's hard reset worked (F-126) | `devio.Dev.pulse_reset` verifies |
 | 45 | "the linter knows the machine's vocabulary" | it listed 8 words the machine does not have, incl. `MOD`; the chip answered `MOD?` for code the linter called clean | `tests/lint_vocab.py` |
+| 46 | "`MS` cannot sleep — that needs the wake timer" (my claim this morning) | it needed `rdcycle` and 38 B, not the wake machinery: `100 MS` = +100 ms, slope x1.00 | `src/ulp_repl.c`, `tests/ms_clock.py` |
 | 19 | P24 "6 pages / 6 faults per pass", P26 "3 pages / 0 faults" | **These were occupancy counts, not traces.** Re-traced: P24 is **7 pages / 13 faults per pass**, P26 is **2 pages / 0 faults**. P26's claim survives; P24's method did not | P25 |
 
 ---
@@ -1951,3 +1952,38 @@ back: **21.7 s → 2.9 s**. While measuring it I also found a stale `cli.py` fro
 `/dev/ttyACM1`, which `cli.connect` can now name instead of retrying for 36 s.
 
 Device: 51/51 across five files (`tests/device.sh`). Host suite: exit 0.
+
+**J-104 · `MS` sleeps now, for 38 bytes, and the first thing it exposed was my own off-by-one.**
+Permission given, so the engine got a clock. `L_P_MS` popped its argument and returned the wake count; `pl_hw(3)` in
+`src/ulp_repl.c` now busy-waits:
+
+```c
+#define CYC_PER_MS 19000u              /* P05 measured 19.0 MHz +/- 1.5 % on this board */
+while (ms--) { t0 = cyc_now(); while ((cyc_now() - t0) < CYC_PER_MS) { } }
+```
+
+`rdcycle`, not the RTC timer: one instruction against a latch-and-read dance that would have eaten most of the 53 B of
+pool headroom left. And a per-millisecond loop rather than `a * 19000`, which overflows u32 above 226 050 and would turn
+a bad argument into a *quiet* short wait — the fail-safe this project bans.
+
+Measured (`tests/ms_clock.py`, baseline subtracted): `0 MS` = 0 ms, `100 MS` = +100 ms, `300 MS` = +301 ms, slope
+**x1.00**. Pool: 7 839 → **7 877** of 7 892 (gate refuses over).
+
+So the spinner can spin again — `FRAME STEP 250 MS KEY …`, 3.7 frames/s, 158 B/s — and it is allowed to because the
+bounded counter and the clamped `DIGIT` mean the worst case is a *fast* spinner, not message codes. That is defence in
+the right place: the display cannot emit a code byte even if every layer above it misbehaves.
+
+Two rules moved rather than being left alone:
+
+* **R9 retired.** "MS does not sleep" was true and measured, and is now false. A rule that outlives its fact is
+  folklore, so the check is gone, the fixture became an R8 case, and the reason is written in the docstring.
+* **R8 narrowed.** "`KEY` never tested against -1" now also requires *no pacing*. The measured runaway needed both
+  faults; a loop that waits 250 ms per pass and ignores -1 is ordinary terminal code, and firing on it would teach the
+  operator to ignore R8.
+
+Then the new digit assertions caught a bug I had just written: `.N` printed **`09` for 9**, because the single-digit test
+was `DUP 9 <` — false at 9. Every device test had passed with it: they asserted that *a number* appeared, never *which*
+number. `adopt_sum.py` now pins `0, 9, 42, 99, 100 → 0`. First run of that assertion produced five FALSE failures
+because the transcript is `"9 ok"` and I compared against `"9 "` — which is its own lesson, applied in the same commit.
+
+Device: 61 checks across six files. Host suite: exit 0. Linter: 7 rules, 8/8 selftest catches, all four examples clean.

@@ -113,10 +113,16 @@ def main():
         hits, high = loud_errors(idle_spin)
         check("k + Enter -> the OTHER program runs", b"SPIN" in spin and b"ERR_" not in spin,
               f"{t2:.0f} ms; menu redrawn {MENU in moved}")
-        check("spinner is quiet when nobody types", not hits and not high,
-              f"{len(idle_spin)} B in 2 s idle" + (f", noise {hits[:4]} {high[:6]}" if (hits or high) else ""))
+        # GUARDRAIL: this used to require ZERO bytes, which was right while the spinner was key-paced and is wrong now
+        # that it self-advances on `MS`. The user-visible property is the RATE: 250 ms per frame is ~5/s, so 2 s of
+        # idle is a handful of frames. A pace of 267/s (what a no-op MS produced) sends 16 KB in the same window, so a
+        # byte cap catches the regression while still allowing the animation to work.
+        rate = len(idle_spin) / 2.0
+        check("spinner paces itself (no flood)", not hits and not high and 0 < len(idle_spin) < 3000,
+              f"{len(idle_spin)} B in 2 s idle ({rate:.0f} B/s)"
+              + (f", noise {hits[:4]} {high[:6]}" if (hits or high) else ""))
 
-        # A key-paced demo must answer a key with a new frame - otherwise "quiet" could just mean "dead".
+        # A demo must answer a key with a new frame - otherwise "it draws" could just mean "it redraws the same thing".
         frames = []
         for _ in range(3):
             os.write(master, b"j")

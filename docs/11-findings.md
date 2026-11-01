@@ -462,16 +462,37 @@ printer must either prove its range or clamp: `DIGIT` is now `15 AND 48 + EMIT` 
 stays silent on `ESC` (27) and `SENT` (0) and fires on arithmetic feeding `EMIT` — plus `tests/tui_cli.py`, which now
 requires **zero bytes** from an idle full-screen program and names any byte `>= 0x80`.
 
-## F-125 · `MS` does not sleep, and two demos were paced by it (OPEN — engine, not yet permitted)
-`L_P_MS` is `pl_hw(3, POP(), 0)` and `pl_hw` op 3 returns the wake count (`src/p31_cases.inc`, `src/ulp_p39.c`), so
-`MS` pops its argument and returns immediately. Measured on the chip: twenty `200 MS` completed in **0.05 s**, and a
-spinner intended to draw one frame per 200 ms drew **~267 frames/s**.
+## F-125 · `MS` did not sleep for two years of code that assumed it did (FIXED, measured)
+`L_P_MS` was `pl_hw(3, POP(), 0)` and `pl_hw` op 3 returned the wake count (`src/p31_cases.inc`,
+`src/ulp_p39.c`, `src/ulp_repl.c`), so `MS` popped its argument and returned at once. Measured on the chip: twenty
+`200 MS` in **0.05 s**, and a spinner written as "draw, wait 200 ms, draw" drew **~267 frames/s**.
 
-Nothing in the `.fs` layer can sleep — the machine has no idle primitive — so the demos are now **key-paced** (one frame
-per press, using the resident `K0`). A real `MS` needs the wake timer in the engine; that is a `.c` change and is
-recorded here rather than made quietly.
+Nothing in the `.fs` layer can sleep, so the demos were made key-paced and the defect was recorded rather than
+patched. With permission, `MS` now busy-waits on `rdcycle`:
 
-**Guarded by** linter rule **R9 ms stub**, which refuses `MS` as a pacing word and quotes the measurement.
+```c
+#define CYC_PER_MS 19000u                     /* P05 measured this board at 19.0 MHz +/- 1.5 % */
+if (op == 3) { while (ms--) { t0 = cyc_now(); while ((cyc_now() - t0) < CYC_PER_MS) { } } return 0; }
+```
+
+Measured after (`tests/ms_clock.py`, round-trip baseline subtracted): `0 MS` = **0 ms**, `100 MS` = **+100 ms**,
+`300 MS` = **+301 ms**, and the two-point slope **x1.00** — a clock, not a constant. Cost: **38 B of the 8 192 B pool**
+(7 839 → 7 877, gate at 7 892).
+
+Two decisions worth keeping:
+* **`rdcycle`, not the RTC timer.** One instruction versus a latch-and-read dance (~20 B) out of a 15 B budget, for a
+  resolution a busy-wait cannot use. The constant is the *measured* clock, not a Kconfig claim.
+* **Per-millisecond loop, not `a * 19000`.** The multiply overflows u32 above 226 050 ms and would silently shorten the
+  wait — a fail-safe that turns a bad argument into a quiet success.
+
+`MS` is still a **spin**: nothing else runs during it (no key, no block request) because the machine has one execution
+context. A true sleep is the wake timer, which is a different mechanism. The `demo_spin` now uses it as intended:
+`FRAME STEP 250 MS KEY …`, measured at 3.7 frames/s and 158 B/s of console traffic.
+
+**Guarded by** `tests/ms_clock.py` (5 checks: baseline, two points, slope, and the REPL still answers) and
+`tests/tui_cli.py`'s rate assertion — 2 s of idle spinner must stay under 3 000 bytes, which a no-op `MS` fails by
+5x. Linter **R9** (`MS does not sleep`) was **retired**, not left as folklore: it was right about the machine it
+measured and would be a lie about this one.
 
 ## F-126 · A reset that reports success and does nothing costs more than a slow reset
 On this board (ESP32-S3, native USB-Serial-JTAG) the RTS/DTR modem bits are emulated registers, not a physical EN line.

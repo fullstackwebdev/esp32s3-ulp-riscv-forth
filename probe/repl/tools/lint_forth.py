@@ -15,12 +15,14 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
                 >= 0x80 is the console's MESSAGE-CODE space (src/msg_codes.h), so a "digit" built with
                 `48 +` stops being a digit at 897 and prints other people's messages: measured on the
                 device, `900 .N` answered `ERR_BUSY` and `1000 .N` answered `ERR_ULPCODE 0x94`.
-  R8 key -1     KEY returns -1 for "no key". A body that reads KEY and never tests -1 treats "nothing"
-                as a keystroke, so its loop runs flat out: measured as a spinner drawing 267 frames/s
-                (and printing 16 KB in 4 s) instead of one frame per press.
-  R9 ms stub    MS does not sleep on this machine. Measured: 20 x `200 MS` completed in 0.05 s, because
-                L_P_MS is `pl_hw(3, POP(), 0)` and pl_hw op 3 returns the wake count (src/p31_cases.inc,
-                src/ulp_p39.c). Pacing a demo with MS paces nothing.
+  R8 key -1     KEY returns -1 for "no key". A body that reads KEY, never tests -1 and has no other
+                pacing treats "nothing" as a keystroke, so its loop runs flat out: measured as a spinner
+                drawing 267 frames/s (16 KB in 4 s) instead of one frame per press.
+  R9 (RETIRED)  `MS does not sleep` was earned when the primitive returned the wake count (measured: twenty
+                `200 MS` in 0.05 s). MS now busy-waits on rdcycle (tests/ms_clock.py: 100 MS = +100 ms,
+                300 MS = +301 ms), so the rule's premise is gone and it was removed instead of left as
+                folklore. `MS` still SPINS - nothing else runs during it - but that is a property, not a bug:
+                a paced loop that ignores -1 for 250 ms is normal terminal code (examples/demo_spin.fs).
 
 Stack effects come from a table for the machine's own words, plus `( in -- out )` declarations for the
 program's words. A definition without a declaration is assumed ( -- ), which is what most of them are; a
@@ -244,10 +246,15 @@ def lint_definitions(src, base=None):
         # reads it without ever testing -1 treats "nothing" as a keystroke: measured as a spinner drawing 267 frames/s
         # and printing 16 KB in 4 s, whose counter then walked into the message-code space. A filter counts as a test:
         # `KEY 0 >` separates -1 from a real byte just as well as `KEY -1 =`.
-        if "KEY" in toks and "-1" not in toks and not any(
-                toks[i] == "0" and toks[i + 1] in (">", "<") for i in range(len(toks) - 1)):
+        # GUARDRAIL: the "and no pacing" clause is not a loophole, it is the measurement. The runaway happened because
+        # -1 counted as a keystroke AND nothing bounded the loop; a loop that waits 250 ms per pass with `MS` cannot
+        # flood even though it too ignores -1 (examples/demo_spin.fs). Firing on that one would teach the operator to
+        # ignore R8, which is how a linter dies.
+        if ("KEY" in toks and "-1" not in toks and "MS" not in toks
+                and not any(toks[i] == "0" and toks[i + 1] in (">", "<") for i in range(len(toks) - 1))):
             findings.append((lineno, "R8 key -1",
-                             f"{name}: reads KEY but never tests -1 (no key), so it treats `nothing` as a keystroke"))
+                             f"{name}: reads KEY, never tests -1, and has no pacing - `nothing` counts as a keystroke,"
+                             " so this loop runs flat out"))
         infinite = any(toks[i - 1] == "0" and toks[i] == "UNTIL" for i in range(1, len(toks)))
         skip = 0
         for tk in toks:
@@ -361,14 +368,9 @@ def lint_definitions(src, base=None):
                                      ", not a provable 0..127 - bytes >= 0x80 are the console's message codes"))
                     bad = True
                     break
-            elif tk == "MS":
-                # GUARDRAIL: R9. MS is `pl_hw(3, POP(), 0)` and pl_hw op 3 returns the wake count - it does not
-                # sleep. Measured: 20 x `200 MS` in 0.05 s. A demo paced by MS runs flat out and floods the console.
-                findings.append((lineno, "R9 ms stub",
-                                 f"{name}: `MS` does not sleep on this machine (measured 20 x 200 MS in 0.05 s); "
-                                 "pace with a key wait instead, or accept a flat-out loop"))
-                bad = True
-                break
+            # GUARDRAIL: R9 (`MS` does not sleep) lived here and is RETIRED, not silently dropped: the primitive now
+            # busy-waits on rdcycle, so keeping the rule would make it a lie about the machine it runs on. The fixture
+            # below still measures the thing that mattered - see tests/ms_clock.py.
             else:
                 if xfer(tk, rs) is None:
                     for _ in range(p_out):
@@ -408,7 +410,8 @@ BUGS = {
    ("""\\ poll: drop the -1 marker
 : K0 ( -- ) ;
 """, "R1 comment"),
- # The three below are today's spinner flood, and each one is a separate cause of it.
+ # The two below are today's spinner flood, and each one is a separate cause of it. (A third rule, R9, said "MS does
+# not sleep"; it was retired when MS got a clock, and the paced-fixture line in GOOD keeps that pattern covered.)
  "unbounded EMIT (our ERR_ULPCODE flood)":
    (""": DIGIT ( n -- ) 48 + EMIT ;
 : N2 ( n -- ) DIGIT ;
@@ -416,16 +419,14 @@ BUGS = {
  "KEY without the -1 test (our flat-out spinner)":
    (""": RUNS ( -- ) BEGIN KEY DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
 """, "R8 key -1"),
- "MS used as a sleep (our pacing bug)":
-   (""": TICK ( n -- n ) 200 MS 1+ ;
-""", "R9 ms stub"),
 }
 # The corrected versions of every bug above, in one source: it must lint SILENT, or the rules are just noise.
 GOOD = """: WAIT ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
 : JK ( c -- ) DUP 106 = IF DROP WAIT DROP EXIT THEN DUP 107 = IF DROP WAIT DROP EXIT THEN DROP ;
 : DIGIT ( n -- ) 15 AND 48 + EMIT ;
-: .N ( n -- ) 100 /MOD DROP DUP 9 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;
+: .N ( n -- ) 100 /MOD DROP DUP 10 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;
 : RUNS ( -- ) BEGIN WAIT DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
+: PACE ( -- ) BEGIN 0 . 250 MS KEY DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
 """
 
 def selftest():

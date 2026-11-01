@@ -39,8 +39,9 @@ build**; most of the connect time is a real hard reset. `j`/`k` pick a program, 
 `q` comes back to the menu, and `q` on the menu returns you to the REPL. Any program can be re-entered any number of
 times; the images live in the block store and survive a reset.
 
-Both demos are **key-paced**: the bars redraw and the spinner steps one frame per key press, and both are silent when
-you are not typing. `q` leaves either one.
+The bars redraw on each key press. The spinner **runs by itself** at about four frames per second — that is `MS 250`
+doing its job — and both leave on `q`. `MS` is a busy-wait on this machine: nothing else happens during it, so keep
+sleeps short.
 
 What makes it work: the code that *performs* the switch sits below the seal, so replacing everything above it never
 replaces the caller. What it cost to learn: see `docs/25-program-library.md`.
@@ -212,7 +213,7 @@ python3 probe/repl/tools/lint_forth.py --selftest      # proves each rule fires 
 | R5 loop leak | a loop body that is not balanced per iteration | `BEGIN KEY DUP 0 < 0= UNTIL` kept every `-1`, thousands per second |
 | R7 byte range | an `EMIT` whose argument is not provably a byte `0..127` | `: DIGIT 48 + EMIT ;` — at n=897 that emits `0x81`, which the console reads as a **message code**: the spinner printed `ERR_BUSY`, then `ERR_ULPCODE` |
 | R8 key -1 | a `KEY` that is never tested against `-1` ("no key") | `KEY DUP 113 =` treated "nothing" as a keystroke, so the demo ran at ~267 frames/s instead of once per press |
-| R9 ms stub | `MS` used to pace anything | `MS` does not sleep on this machine (20 × `200 MS` measured at 0.05 s); it returns the wake count |
+| ~~R9 ms stub~~ | **retired**: it said "`MS` does not sleep", which was measured true (20 × `200 MS` in 0.05 s) and is now false — `MS` busy-waits on the core clock (`100 MS` = +100 ms, `300 MS` = +301 ms). The rule was removed rather than kept as folklore. | — |
 
 Declare stack effects and the linter can prove things: `: WAIT ( -- c ) … ;`. A definition without a declaration is
 assumed `( -- )`, which is what most are. R7 needs that proof: `AND`/`/MOD` bound a value, arithmetic alone does not,

@@ -222,10 +222,42 @@ int pl_key(void)
 
 int pl_keyq(void) { return (repl_keybox != 0xFFFFFFFFu) ? 1 : 0; }
 
+/* MS: wait a real number of milliseconds. This used to be `return repl_wake_count;` - a stub that returned at once,
+ * measured as twenty `200 MS` in 0.05 s, which is why a demo "paced" by it ran at ~267 frames/s and walked its counter
+ * into the console's message-code space (F-124, F-125).
+ *
+ * GUARDRAIL: the clock is `rdcycle`, not the RTC timer. `rdcycle` is one instruction, is already the harness's time
+ * source (p39_cyc_start), and needs no register latch; the RTC timer would cost the latch dance (~20 B) out of the
+ * 53 B of pool headroom this image has left, for a resolution a busy-wait cannot use.
+ * GUARDRAIL: the constant is 19 000 cycles/ms because P05 MEASURED the core at 19.0 MHz +/- 1.5 % on this board. It is
+ * not derived from a Kconfig number, because the ULP's clock has never been the number the config file claims.
+ * GUARDRAIL: the wait is per-millisecond, `while (a--)` around a 19 000-cycle gate. `a * 19000` would overflow u32 for
+ * a > 226 050 and silently shorten the wait - a fail-safe that turns a bad argument into a quiet success. The loop
+ * cannot overflow, and `a` = 0 waits for nothing, which is the honest reading of `0 MS`.
+ * GUARDRAIL: this is a SPIN, and it must be documented as one: during it the ULP services nothing - no key, no block
+ * request - because the machine has one execution context. Keep sleeps short; a wait longer than BLKWAIT (~845 ms)
+ * would starve a block request that is already outstanding. A true sleep needs the wake timer, which is a different
+ * mechanism (WAKE hands the wake back to the scheduler, this does not). */
+#define CYC_PER_MS 19000u
+
+static inline u32 cyc_now(void)
+{
+    u32 c;
+    __asm__ volatile ("rdcycle %0" : "=r"(c));
+    return c;
+}
+
 u32 pl_hw(int op, u32 a, u32 b)
 {
-    (void)a; (void)b;
-    if (op == 3) return repl_wake_count;     /* ms, via the wake clock */
+    (void)b;
+    if (op == 3) {
+        u32 ms = a;
+        while (ms--) {
+            const u32 t0 = cyc_now();
+            while ((u32)(cyc_now() - t0) < CYC_PER_MS) { }
+        }
+        return 0;
+    }
     return 0;
 }
 

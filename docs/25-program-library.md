@@ -141,19 +141,24 @@ on, `ERR_ULPCODE` for every frame, with the byte incrementing. Two bugs made it 
 2. **`MS` does not sleep.** Measured: twenty `200 MS` in **0.05 s**. `L_P_MS` is `pl_hw(3, POP(), 0)` and `pl_hw` op 3
    returns the wake count (`src/p31_cases.inc`, `src/ulp_p39.c`), so the pacing did nothing at all.
 
-**Fixes, all in `.fs`** (the engine is untouched): `DIGIT` clamps its input (`15 AND 48 + EMIT`), `.N` proves its
-range first (`100 /MOD DROP DUP 9 < …`), and both demos wait with the resident `K0` (which drops `-1`) instead of
-calling `KEY` themselves. The spinner is now key-paced: one frame per press, bounded counter, silent when idle.
+**Fixes in `.fs`:** `DIGIT` clamps its input (`15 AND 48 + EMIT`), `.N` proves its range first (`100 /MOD DROP
+DUP 10 < …`), and the bars demo waits with the resident `K0` (which drops `-1`) instead of calling `KEY` itself.
 
-**The `.c` question, left open on purpose:** `MS` should sleep. Making it do so means the wake timer (RTC) in the
-engine, which is a separate decision and needs the operator's permission — so it is written down here as an open engine
-defect, not patched quietly.
+**And one in `.c`, with permission:** `MS` now busy-waits on `rdcycle` instead of returning the wake count (F-125).
+Measured after: `100 MS` = +100 ms, `300 MS` = +301 ms, slope x1.00, for **38 B** of the 8 192 B pool. So the spinner is
+a *spinner* again — `FRAME STEP 250 MS KEY …`, 3.7 frames/s, 158 B/s — and the property that matters is the **rate**:
+even if `MS` broke tomorrow, the counter is bounded and the digits provably legal, so the worst case is a fast spinner,
+not a flood of message codes.
 
 ### What the tests did not catch, and now do
 `read_until(b"SPIN")` returns the instant the title appears, so the old `tui_cli.py` certified a program whose first
-frame was fine and whose second was `ERR_ULPCODE`. It now reads for a **fixed window after the first frame**, then reads
-again with an idle screen, and requires: no `ERR_*`, no byte `>= 0x80`, **zero bytes while nobody types**, and that a
-key produces a new frame (so "quiet" cannot mean "dead").
+frame was fine and whose second was `ERR_ULPCODE`. It now reads for a **fixed window after the first frame**, then
+judges an idle screen by **rate** (2 s of spinner must be a handful of frames and under 3 000 bytes — a no-op `MS` sends
+16 KB), with no `ERR_*` and no byte `>= 0x80` anywhere.
+
+`tests/adopt_sum.py` also pins the **digits**: `0 .N` → `0`, `9 .N` → `9`, `99 .N` → `99`, `100 .N` → `0`. That check
+exists because the first version of the fix printed `09` for 9 (`DUP 9 <` is false at 9) and **every device test passed
+anyway** — none of them read the text.
 
 ## The linter earned its keep
 

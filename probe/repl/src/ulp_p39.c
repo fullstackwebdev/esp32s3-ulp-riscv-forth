@@ -88,6 +88,10 @@ int pl_key(void) { return -1; }
 u32 pl_hw(int op, u32 a, u32 b)
 {
     (void)a; (void)b;
+    /* GUARDRAIL: op 3 (MS) is a REAL busy-wait in the shipping image (src/ulp_repl.c, rdcycle, 19 000 cycles/ms). This
+     * P39 probe keeps the old stub on purpose - it interprets one constant line and no test here uses MS - but do not
+     * copy this file's hook back into ulp_repl.c: a stub that returns the wake count looks like a sleep to every caller
+     * and is how a demo ran at 267 frames/s (F-124, F-125). */
     if (op == 3) return p39_wake_count;      /* ms: the wake clock is the only clock here */
     return 0;
 }
