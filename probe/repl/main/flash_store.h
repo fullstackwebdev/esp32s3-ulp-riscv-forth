@@ -31,5 +31,10 @@ uint32_t fs_block_count(void);
 uint32_t fs_block_size(void);
 void     fs_stats(uint32_t *bytes_programmed, uint32_t *sectors_erased, uint32_t *flushes);
 const char *fs_strerror(int code);
+/* GUARDRAIL: wear is a MEASUREMENT, not an estimate. Per-sector erase counters cost 2 B each in HP .bss (16 sectors =
+ * 32 B) and 0 ULP bytes, and they are the only honest way to answer "how long does this sector last". A single total
+ * counter would hide a hot sector, which is the failure mode that actually kills a device. */
+uint32_t fs_sector_count(void);
+uint32_t fs_sector_erases(uint32_t sec);
 
 #endif

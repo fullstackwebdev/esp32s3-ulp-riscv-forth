@@ -37,6 +37,15 @@ static int s_cache_dirty;
 static fs_super_t s_pending_super;
 static uint8_t s_super_dirty;
 static uint32_t s_bytes, s_erases, s_flushes;
+#define FS_MAX_SECTORS 16u
+static uint16_t s_erase_psec[FS_MAX_SECTORS];
+static uint32_t s_nsectors;
+
+static void note_erase(uint32_t sec)
+{
+    s_erases++;
+    if (sec < FS_MAX_SECTORS) s_erase_psec[sec]++;
+}
 
 static uint32_t crc32_bytes(const void *p, size_t n)
 {
@@ -91,16 +100,21 @@ int fs_init(void)
     if (s_super.block_size != FS_BLOCK || s_super.block_count == 0 || s_super.block_count > max_blocks) {
         s_state = FS_E_BAD_GEOMETRY; return s_state;
     }
+    s_nsectors = s_part->size / FS_SECTOR;
+    if (s_nsectors > FS_MAX_SECTORS) s_nsectors = FS_MAX_SECTORS;
     s_state = FS_OK;
     return FS_OK;
 }
+
+uint32_t fs_sector_count(void)        { return s_nsectors; }
+uint32_t fs_sector_erases(uint32_t s) { return s < FS_MAX_SECTORS ? s_erase_psec[s] : 0u; }
 
 int fs_format(void)
 {
     if (!s_part) return FS_E_NO_PARTITION;
     if (fs_flush() != FS_OK) return FS_E_FLUSH;
     if (esp_partition_erase_range(s_part, 0, s_part->size) != ESP_OK) return FS_E_IO;
-    s_erases++;
+    for (uint32_t k = 0; k < FS_MAX_SECTORS; k++) note_erase(k);
     fs_super_t s = { FS_MAGIC, FS_VERSION, FS_BLOCK, (s_part->size - FS_SECTOR) / FS_BLOCK, 1u, 0u };
     s.crc = super_crc(&s);
     if (esp_partition_write(s_part, 0, &s, sizeof s) != ESP_OK) return FS_E_IO;
@@ -142,16 +156,17 @@ int fs_flush(void)
          * one erase per sector must cover up to 32 block writes. */
         if (esp_partition_erase_range(s_part, (size_t)s_cache_sector * FS_SECTOR, FS_SECTOR) != ESP_OK)
             return FS_E_FLUSH;
-        s_erases++;
+        note_erase(s_cache_sector);
         if (esp_partition_write(s_part, (size_t)s_cache_sector * FS_SECTOR, s_cache, FS_SECTOR) != ESP_OK)
             return FS_E_FLUSH;
         s_bytes += FS_SECTOR;
         s_cache_dirty = 0;
         s_flushes++;
     }
+    if (s_cache_dirty == 0 && s_super_dirty == 0 && s_cache_sector != 0xFFFFFFFFu) { /* nothing to do */ }
     if (s_super_dirty) {
         if (esp_partition_erase_range(s_part, 0, FS_SECTOR) != ESP_OK) return FS_E_FLUSH;
-        s_erases++;
+        note_erase(0);
         if (esp_partition_write(s_part, 0, &s_pending_super, sizeof s_pending_super) != ESP_OK) return FS_E_FLUSH;
         s_bytes += sizeof s_pending_super;
         s_super = s_pending_super;
@@ -183,9 +198,8 @@ int fs_write(uint32_t blk, const uint8_t *src)
     if (r != FS_OK) return r;
     memcpy(s_cache + (blk % FS_PER_SECTOR) * FS_BLOCK, src, FS_BLOCK);
     s_cache_dirty = 1;
-    s_pending_super = s_super;
-    s_pending_super.generation++;
-    s_pending_super.crc = super_crc(&s_pending_super);
-    s_super_dirty = 1;
+    /* GUARDRAIL: do NOT touch the superblock here. Bumping its generation on every block write made every flush erase
+     * sector 0 in addition to the data sector - double the wear for one commit - and it rewrote a CRC'd header for a
+     * generation number that only needs to advance once per flush. */
     return FS_OK;
 }

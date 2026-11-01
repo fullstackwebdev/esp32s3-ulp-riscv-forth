@@ -345,9 +345,20 @@ static void seed_poll(void)
              * "no store line". A refusal nobody can read is not a refusal. */
             if (n >= 2 && ln[0] == '#' && ln[1] == 'i' && (ln[2] == 0 || ln[2] == ' ')) {
                 uint32_t bp = 0, se = 0, fl = 0; fs_stats(&bp, &se, &fl);
-                if (store_ok) printf("info: store ok, %u blocks x %u B | programmed %u B, %u erase(s), %u flush(es)\n",
-                                     (unsigned)fs_block_count(), (unsigned)fs_block_size(),
-                                     (unsigned)bp, (unsigned)se, (unsigned)fl);
+                if (store_ok) {
+                    printf("info: store ok, %u blocks x %u B | programmed %u B, %u erase(s), %u flush(es)\n",
+                           (unsigned)fs_block_count(), (unsigned)fs_block_size(),
+                           (unsigned)bp, (unsigned)se, (unsigned)fl);
+                    /* per-sector erases: the hot sector is the one that dies first, so it must be visible */
+                    uint32_t k, hot = 0, hotn = 0;
+                    printf("info: erases/sector");
+                    for (k = 0; k < fs_sector_count(); k++) {
+                        uint32_t e = fs_sector_erases(k);
+                        printf(" %u:%u", (unsigned)k, (unsigned)e);
+                        if (e > hotn) { hotn = e; hot = k; }
+                    }
+                    printf(" | hottest sector %u (%u)\n", (unsigned)hot, (unsigned)hotn);
+                }
                 else          printf("info: store REFUSED %s\n", fs_strerror(fs_init()));
                 fflush(stdout);
                 n = 0;

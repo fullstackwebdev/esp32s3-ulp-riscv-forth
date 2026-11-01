@@ -127,3 +127,34 @@ demand, and `#f`/`#x` keep their roles (amplification, recovery).
 - **`blkfile[]` (32 KB RAM mirror) stays.** Removing it makes the size limit real rather than mirrored, but it touches 16
   call sites and changes the failure model — the operator has asked to discuss it before any change.
 - Sleep not enabled, no ULP bytes added (pool 7845/7856 throughout).
+
+---
+
+## Step 6 close-out: BLOCKED on a hang introduced by flash commits (not merged)
+
+The wear counters landed (per-sector, `#i` prints `erases/sector 0:n 1:n … | hottest`), and one design bug was fixed on
+the way: the superblock generation was bumped on **every block write**, so every flush erased sector 0 as well as the data
+sector — double wear for one commit. It is now bumped **once per flush**.
+
+**Blocker (device, reproducible twice):** the first phase execution after a flash commit is wired into the block-write
+path **never answers**. `W @ EXECUTE` returns **no output at all** — not an error, not a timeout code, nothing, for 15 s.
+It appears only with the flash store in the write path; the same sequence passed 15/15 in step 5 with the RAM store.
+
+Most likely cause, stated as a hypothesis and not a conclusion: `esp_partition_erase_range`/`write` from `block_task`
+disables the flash cache while the console task and the ULP bridge continue to run, so the machine stalls. The fix is a
+design decision (single flash-owner task, or bracket every flash op and keep the write path out of the block server), not
+a patch to try twice.
+
+**Consequences:** item 3 (erase counts per phase switch and per SAVE) is **NOT MEASURED**; item 4 (`capabilities.py`) is
+**NOT RUN on this branch**; the merge is **NOT DONE**, because the brief's gate requires both.
+
+**Chip sessions: 3 (budget 3).** Session 1 was lost to my own harness bug (test never defined `W`), 2 and 3 both hit the
+hang. Reported, not retried.
+
+### Decisions still waiting
+
+1. Which task owns flash. Options: (a) all flash work in `block_task` with the console and seed paths posting to it,
+   (b) flash work in a dedicated task, (c) keep flash writes out of the block server entirely (commit only from the
+   console, `#f`), which preserves the current hazard-free path but loses "SAVE persists".
+2. After that: wear numbers, `capabilities.py`, then merge with the exact wording *"a paged program and its images survive
+   reset; size is still bounded at 16 KB."*
