@@ -93,7 +93,13 @@ PRIMS = {
     "[']": (0, 1),
     "UNLOOP": (0, 0), '."': (0, 0),
 }
-CONTROL = {"IF", "ELSE", "THEN", "BEGIN", "UNTIL", "WHILE", "REPEAT", "AGAIN", "DO", "LOOP", "+LOOP", "EXIT"}
+# GUARDRAIL: `DO`/`LOOP`/`+LOOP` are NOT in this machine - src/p31_prims.inc defines BEGIN/WHILE/REPEAT, BEGIN/UNTIL,
+# BEGIN/AGAIN and `I`, and nothing else (checked against the prim list, not against memory). They sat in this set anyway,
+# so the linter certified a calculator loop that the engine refused to compile at line 11 - a linter that accepts a word
+# the machine lacks is the failure this whole tool exists to prevent (its own docstring says so about MOD). Anything
+# removed here has to come back only with a prim in that file. The loop-counter word `I` is real but has no DO to pair
+# with, so a counted loop is BEGIN/WHILE/REPEAT with a cell or an unrolled body.
+CONTROL = {"IF", "ELSE", "THEN", "BEGIN", "UNTIL", "WHILE", "REPEAT", "AGAIN", "EXIT"}
 
 
 def tokens(text):

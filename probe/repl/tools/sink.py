@@ -76,6 +76,9 @@ CORPUS = [
     # compiles a RUN-time parse, so the safety path parsed input instead of running NOOP, and nothing caught it. The
     # corpus now holds both directions: `[']` is the good form (06_tick above) and a bare `'` in a body is R12.
     ("bad_r12.fs",   "a bare tick inside a definition",          "R12 tick",      None),
+    # GUARDRAIL: DO/LOOP sat in the linter's CONTROL set while the machine has no such prim, so the calculator's row
+    # fill compiled on the linter and was refused by the engine at line 11. The corpus now states the words are absent.
+    ("bad_loop.fs",  "DO/LOOP, which this machine does not have", "R2 order",     None),
     # The App Store contract (docs/26): a phase is REPLACED on every adopt and must name its way back to the shelf.
     # Both files here FAIL device use by construction - the first would lose its cell on the next adopt, the second
     # can only be left by a reset - so they are lint-only, like the rest of the bad_* entries.

@@ -36,8 +36,20 @@ apps can never collide in the dictionary, and no lane has to negotiate a shared 
 repeated drawing words per phase, charged to the **store** (16 KB), not to the window. RAM is what limits features; the
 store is what limits the number of phases, and it has far more room.
 
-Measured consequences to hold everyone to: **window ≈ 1 100 B** with this launcher, so a phase's *own* budget is the
-window minus its vocabulary. A phase that does not fit gets its features split across phases — not deleted.
+Measured with this launcher (host engine at device geometry, `F-135`):
+
+```
+resident: dispatcher 158 B + registry cells ~177 B     335 B
+window:   1 366 - 335                               1 031 B
+of which  the phase's own display vocabulary         ~175 B   (ESC ESC CSI AT .N ... - paid per phase)
+          strings and layout                          ~90 B
+leaves    for the app's logic                        ~760 B
+```
+
+So a phase's *own* budget is ~760 B of logic, not 1 031 B, and **that is the number to design an app against before writing
+it**. A phase that does not fit gets its features split across phases — not deleted. `cli.py --library` refuses an
+over-window image, but it can only do that once the program compiles far enough to be measured, which is too late to
+design with.
 
 ## Screen geometry (ANSI TUI — **70 columns, the launcher's own constant**)
 

@@ -63,6 +63,29 @@ def frame(fd, cap=10.0):
     return read_until(fd, SENT, cap)
 
 
+def read_quiet(fd, quiet=0.25, cap=10.0):
+    """Read until the line has been QUIET for `quiet` seconds, or `cap` passes.
+
+    GUARDRAIL: this is the device half of the reader, and it deliberately does NOT stop at the SENT sentinel even though
+    every drawn frame ends with one: a frame missing its sentinel (a program that died mid-draw) would then read until the
+    cap and look identical to a slow one. Quiet-or-cap is honest about both. The gridded screen tool uses this; the
+    frame-counting tests use `frame()`.
+    """
+    buf = b""
+    end = last = time.time()
+    end += cap
+    while time.time() < end:
+        r, _, _ = select.select([fd], [], [], 0.02)
+        if r:
+            c = os.read(fd, 8192)
+            if c:
+                buf += c
+                last = time.time()
+        elif time.time() - last > quiet:
+            break
+    return buf
+
+
 def drain(fd, cap=0.3):
     """Throw away whatever is pending (a program that draws while nobody is listening leaves a frame in the pipe)."""
     return dwell(fd, cap)

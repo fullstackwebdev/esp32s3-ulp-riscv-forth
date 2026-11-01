@@ -648,3 +648,29 @@ Verified to fail without the fix (`a chain into an UNDESCRIBED block returns` �
 
 **Lesson:** the same symbol can be two different words in this machine — `'` and `[']` differ by *when* they parse. If a
 guarantee's code path never runs in a test, the guarantee is a comment.
+
+## F-135 · A phase's own drawing vocabulary costs ~175 B of the window, and the first real app did not fit
+Measured on the host engine at device geometry, with the thin-resident launcher (`examples/appstore.fs` = the dispatcher
+verbatim, `examples/apps/registry.fs` = the cells):
+
+```
+resident (dispatcher 158 B + registry/cells ~177 B)      335 B   -> window 1 366 - 335 = 1 031 B
+calculator phase, before its last five words            1 004 B   (920 code + 84 headers)
+those five words (KN KX INI STEP RUN1)                   ~180 B   -> 1 184 B, i.e. 153 B over the window
+```
+
+The phase was refused part-way with `KX?`/`CLR?` and **no error on the line that failed**: when the header area meets the
+code area, `mkhdr` cannot record the name, so the definition is simply absent and the *next* use reports `NAME?`. `HERE`
+1984 vs `LATEST` 2011 (27 B apart) was the only visible sign. That silence is worth a rule of its own: a compile that
+cannot record a header must fail by name.
+
+**What the 1 031 B consists of:** ~175 B of display vocabulary that every phase must carry (`ESC CSI AT .N` and friends —
+the price of the thin-resident decision, charged per phase), ~90 B of strings, and the calculator's own ~800 B of logic.
+Cutting features to fit is what the contract forbids; the answer it prescribes is a second phase.
+
+**Status: open, named, with a number.** `examples/apps/calc/calc1.wip.fs` is deliberately *not* a `.fs` phase, is not in
+`cli.py`'s `LIBRARY`, and is not tested — nothing claims it works. Wave 2 splits the calculator into two phases (input +
+result, then the tape/history view) and proves the multi-phase app, which is the case the whole store budget was sized for.
+
+**Lesson:** measure the *phase* budget before writing the phase, not after. `cli.py --library` now refuses an over-window
+image, but only once the program compiles far enough to be measured — so the budget has to be arithmetic done first.

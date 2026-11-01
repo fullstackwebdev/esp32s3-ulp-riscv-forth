@@ -44,6 +44,7 @@ import contextlib
 import fcntl
 import os
 import pathlib
+import frames
 import select
 import subprocess
 import sys
@@ -281,7 +282,7 @@ def check_blocks(program, first_block):
                            f"the block server refuses anything above 127 with BK_RANGE")
 
 
-def run_host(program, entry, keys, binary=HOST_APP, timeout=60.0):
+def run_host(program, entry, keys, preludes=(), binary=HOST_APP, timeout=60.0):
     """Build the byte stream the way the chip produces it: run the engine, capture stdout, expand the message codes."""
     binary = pathlib.Path(binary)
     if not binary.exists():
@@ -294,7 +295,12 @@ def run_host(program, entry, keys, binary=HOST_APP, timeout=60.0):
     with tempfile.TemporaryDirectory(prefix="screen.") as tmp:
         driver = pathlib.Path(tmp) / "entry.fs"
         driver.write_text(entry + "\n")
-        cmd = [str(binary), str(program), str(driver)]
+        # GUARDRAIL: a PHASE cannot compile on its own - it reads the registry cells and calls the dispatcher, both of
+        # which the board has resident before the phase is uploaded. Without preludes the host refused the calculator at
+        # its first `CALC_ST` (line 15) while the board compiled it happily, i.e. the harness could not run the thing it
+        # exists to check. `host_app`'s argv order IS the compile order, so preludes go first, in the same order the
+        # device uploads them.
+        cmd = [str(binary)] + [str(p) for p in preludes] + [str(program), str(driver)]
         try:
             out = subprocess.run(cmd, input=keys, capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -372,19 +378,10 @@ def read_bytes(dev, quiet=0.30, cap=8.0):
     stop condition: a frame that is missing its sentinel (a program that died mid-frame) would then read until the cap
     and look identical to a slow one. Quiet + cap is honest about both.
     """
-    buf = b""
-    end = last = time.time()
-    end += cap
-    while time.time() < end:
-        r, _, _ = select.select([dev.fd], [], [], 0.02)
-        if r:
-            c = os.read(dev.fd, 8192)
-            if c:
-                buf += c
-                last = time.time()
-        elif time.time() - last > quiet:
-            break
-    return buf
+    # GUARDRAIL: the read is NOT re-implemented here. `frames.read_quiet` is the one implementation (quiet-or-cap, and
+    # it says why it ignores the SENT sentinel on this path). The App Store originally grew a second terminal driver
+    # beside it - two readers is how "works in one tool, not the other" starts.
+    return frames.read_quiet(dev.fd, quiet=quiet, cap=cap)
 
 
 # GUARDRAIL: MSG_OK is ` ok\n` (src/msg_codes.h) and the console prints it when the LINE that started the program
@@ -424,7 +421,7 @@ def leave_device(dev, returned=False):
               file=sys.stderr)
 
 
-def run_device(program, entry, keys, first_block=64, port=PORT):
+def run_device(program, entry, keys, first_block=64, port=PORT, preludes=()):
     """Drive the program on the board, under the board lock, and return the raw byte stream of its DRAWING."""
     sys.path.insert(0, str(REPO))
     import cli                                              # noqa: E402 - cli.py inserts probe/tools on import
@@ -494,7 +491,11 @@ def run_device(program, entry, keys, first_block=64, port=PORT):
 
 # ---------------------------------------------------------------- CLI ------------------------------------------------------
 def main(argv):
-    ap = argparse.ArgumentParser(description="drive one program and turn its output into a 24x80 grid")
+    ap = argparse.ArgumentParser(description="drive one program and turn its output into an 70x24 grid")
+    # GUARDRAIL: repeatable and order-preserving. A phase needs the registry cells and the dispatcher before it, so
+    # `--prelude registry.fs --prelude appstore.fs` must land in exactly that order on both backends.
+    ap.add_argument("--prelude", action="append", default=[], type=pathlib.Path,
+                    help="a resident file loaded BEFORE the program (repeatable, order kept)")
     ap.add_argument("program", metavar="PROGRAM", help="the .fs source (a phase defines one word and does not run it)")
     ap.add_argument("--host", metavar="BIN", default=None, help="run on the host engine at device geometry")
     ap.add_argument("--device", action="store_true", help=f"run on the board ({PORT}, under the board lock)")
@@ -522,9 +523,9 @@ def main(argv):
     check_blocks(program, a.block)
 
     if a.host:
-        stream = run_host(program, entry, keys, binary=a.host, timeout=a.timeout)
+        stream = run_host(program, entry, keys, preludes=a.prelude, binary=a.host, timeout=a.timeout)
     else:
-        stream = run_device(program, entry, keys, first_block=a.block, port=a.port)
+        stream = run_device(program, entry, keys, first_block=a.block, port=a.port, preludes=a.prelude)
     term = Terminal()
     term.feed(stream)
     for w in dict.fromkeys(term.warnings):                  # dedupe, keep order: a repeated warning is noise

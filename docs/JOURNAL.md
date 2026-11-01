@@ -2195,3 +2195,37 @@ so a single baked program of 1 366 B; (3) the build switches that remove the HP 
 Every number in the table is quoted from the artefact that asserts it (`tests/blocks_noserver.fs` and its `.expected`,
 decoded byte for byte: `ERR_NO_SERVER -3`, then `5` from `2 3 + .`, then `ERR_BUSY -2`), so the document cannot drift from
 the machine without the host suite going red first.
+
+**J-113 · Wave 1 of the App Store: the contract, two harness/code lanes merged, and the finding that stops the slice.**
+Three lanes ran in parallel worktrees; two delivered, the third measured something that mattered more than the app.
+
+*Lane C (contract code).* `cli.py` now refuses an over-window image and a phase set past 128 blocks, prints a per-phase
+budget table from real descriptor sizes, and `--geometry` prints the compiler-side constants (memory 2 604, header top
+2 476 = transfer offset, block 128, rings, pool budget) so they can be diffed against the board's own `#u`/`#i`. The linter
+gained R16 (a phase may not own state) and R18 (a phase must name a return path), with fixtures and two corpus entries.
+
+*Lane H (harness).* `tools/screen.py` turns a run into a 70x24 cell grid and diffs a golden; `tests/parity.py` runs one
+program on the host binary and on the board and diffs every cell (a skip is never success); `tests/build_host_app.sh`
+derives every constant from the sources and refuses by name if one cannot be read.
+
+*Three things I had to correct, all mine.* (1) The screen width was invented as 80x24; the launcher's own `FILL` is
+**70 columns**, so cards are 22x7 in two bands. (2) The harness was a second terminal driver beside the one in
+`tests/tui_cli.py`; the reader now lives once in `tools/frames.py` and screen.py adds only the grid. (3) The contract put
+the display vocabulary in the resident launcher; measured, that is 831 B of a 1 366 B budget and the window fell to
+535 B. Resident is now the dispatcher plus the registry (measured **335 B**), every phase carries its own drawing words,
+and the window is **1 031 B** (`F-135`).
+
+*The finding.* A phase's own display vocabulary costs ~175 B, strings ~90 B, leaving ~760 B of logic. The calculator as
+written (digits, four operators, equals, tape with j/k, always-on through registry cells) needs ~1 184 B and does not fit;
+it was refused mid-compile with `KX?` and **no error on the failing line** - when the header area meets the code area the
+name is simply not recorded, and the next use reports `NAME?` (`HERE` 1984 vs `LATEST` 2011). The file is parked as
+`calc1.wip.fs`, not in `LIBRARY`, not tested: nothing claims it works. Wave 2 splits it into two phases, which is the case
+the 16 KB store was sized for.
+
+*Also fixed on the way:* `DO`/`LOOP` were in the linter's CONTROL set while `src/p31_prims.inc` has no such prim, so the
+linter certified a calculator loop the engine refused at line 11 - removed, and `bad_loop.fs` is now a corpus entry. And
+the App Store window floor (1 000 B) was being applied to the *shipping menu launcher* (254 B, correct for its own
+design), which turned `programs.py` and `tui_cli.py` red; there are two floors now, `MIN_WINDOW` for any launcher and
+`APP_WINDOW` for the App Store build.
+
+State: host suite 25 PASS / 0 FAIL, device 7 files + a 16-entry corpus green, linter selftest PASS.
