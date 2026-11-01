@@ -162,6 +162,45 @@ core creates the block task, so a caller could previously act while `blocksrv` d
   the same `NAME?` a missing word produces: `: P1` was **refused** while `: PHASE1` compiled. With ~60 resident words
   that is ~2–3 % per name, and a paged design multiplies the number of names — so this grows teeth as phases multiply.
 
+## What works with the HP switched off (measured, three cases)
+
+The launcher, the store and the doorway all live on the **main core** (HP). The ULP only ever holds a 128 B transfer
+window plus its own dictionary. So "HP off" is not one situation, and the honest answer differs by case.
+
+**1 · Block server absent or wedged, HP otherwise alive — the machine keeps working.** Everything resident is in the
+ULP's own RAM (dictionary from 786, headers to ~2 476): arithmetic, control flow, colours, `MS`, `KEY`, the display.
+Only the block layer notices:
+
+```
+5 BLOCK .     -> ERR_NO_SERVER -3     the request waits out BLKWAIT (~845 ms), ONCE
+2 3 + .       -> 5                    the machine is still perfectly usable
+0 BLOCK .     -> ERR_BUSY -2          the latch was left set on purpose
+```
+
+The latch staying set is a **deliberate** consequence, not a bug: a late answer must not be raced into the next
+request's buffer, so the next block call is refused until the operator says the server is dead with `0 2 BLKXFER`
+(BLK_ABORT) or resets. That sequence is what `tests/blocks_noserver.fs` asserts, and it runs in its own process — one
+wedged request would poison every later test in the same session.
+
+**2 · HP not running at all — no console.** The HP owns the UART and both rings, so there is no prompt, no `cli.py`, no
+`#d`, no store. The ULP still runs its baked prelude and program. That is ULP-only operation, not an interactive
+machine, and the budget is the resident one: **1 366 B** of app space and a single program — no adopts, no chaining.
+
+**3 · Build switches, which are the supported way to remove the HP from the picture.**
+
+| switch | where | what turning it on does |
+|---|---|---|
+| `BISECT_NO_FLASH_WRITE` | `main/repl_main.c` | every commit becomes a no-op: RAM cache only, so nothing written survives power |
+| `P33_NOPAGE` | `src/uforth.c` | no paging at all |
+| `CANARY` | `main/repl_main.c` | the stack paint; keep it (its base is now the pool budget — `F-131`) |
+
+**What you cannot do without the HP:** adopt/chain (each phase needs the 128 B window filled), `LOAD`/`SAVE`, `#d`
+descriptors, and anything beyond the store's **128 blocks ≈ 16 KB**.
+
+**Why this is a safe degradation now:** before the level-test handshake, "no server" was not a refusal at all — the
+launcher dropped the status and re-executed whatever was in the window, which is the 41 Hz re-entry we chased. A missing
+server is now **one named refusal in ~845 ms**, and `PICKX` stops the chain there instead of running stale bytes.
+
 ## The guard that fired on ordinary use (fixed, measured)
 
 `docs/25` first recorded this as an open defect:

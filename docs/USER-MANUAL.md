@@ -163,6 +163,16 @@ about it: it names the damage at boot).
 | `line too long` | over 63 characters; split it |
 | screen looks cut off | the output ring dropped bytes; ask for less at once |
 | silence | no board on the port, or the port is in use by another program |
+| `ERR_NO_SERVER` | the block server on the main core is not running (or not answering). The request waited ~845 ms. Everything else still works; only blocks are gone |
+| `ERR_BUSY` **after** an `ERR_NO_SERVER` | expected, not a second fault: the latch is left set on purpose so a late answer cannot land in the next request's buffer. Send `0 2 BLKXFER` to clear it, or reset |
+
+### If the block server is gone
+
+The interpreter, arithmetic, control flow, colours and `KEY` all live in the coprocessor's own RAM, so they keep
+working with the main core's block server absent: you get **one** `ERR_NO_SERVER` (after ~845 ms) and then `ERR_BUSY`
+until you clear the latch with `0 2 BLKXFER`. What stops working is everything that needs the store: `BLOCK`/`LOAD`,
+`SAVE`, `#d` descriptors, and adopting a phase of a chained program. Without the main core running at all there is no
+console either — it owns the serial port — and the machine is a single resident program of ~1 366 B.
 
 ## 8. Cheat sheet
 

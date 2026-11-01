@@ -2182,3 +2182,16 @@ Also added, both from the same "was that ever tested?" pass: `dispatcher.py` ass
 per-adopt line is off by default and follows `#v` both ways (the 8 ms/hop threshold could NOT have caught that one: 24
 hops x 4.8 ms is still 115 ms). `dispatcher.py` is 14 checks; the suite is 7 device files + a 15-entry corpus + the host
 suite, all green.
+
+**J-112 · The "HP off" behaviour is documented, because it was only in my head.** The operator asked what happens with
+the main core disabled, and the answer existed as three separate facts in three code paths. It is now a named section in
+`docs/25` ("What works with the HP switched off"), two rows plus a short paragraph in the user manual, and a pointer from
+`docs/22`: (1) block server absent but HP alive - everything resident keeps working (dictionary 786 to headers ~2 476),
+one `ERR_NO_SERVER` after `BLKWAIT` ~845 ms, then `ERR_BUSY` for every later block call until `0 2 BLKXFER`, which is a
+deliberate latch, not a second fault; (2) HP not running at all - no console, since the HP owns the UART and both rings,
+so a single baked program of 1 366 B; (3) the build switches that remove the HP from the picture on purpose
+(`BISECT_NO_FLASH_WRITE`, `P33_NOPAGE`, and `CANARY`, which is a keep).
+
+Every number in the table is quoted from the artefact that asserts it (`tests/blocks_noserver.fs` and its `.expected`,
+decoded byte for byte: `ERR_NO_SERVER -3`, then `5` from `2 3 + .`, then `ERR_BUSY -2`), so the document cannot drift from
+the machine without the host suite going red first.
