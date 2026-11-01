@@ -2,9 +2,10 @@
 # GUARDRAIL: the ULP source must live in src/ next to uforth.c — ulp_p39.c includes "uforth.c" and
 # the .inc files by quoted include, which resolves relative to ulp_p39.c's own directory. Adding
 # include dirs here instead would let the ULP pick up a *different* uforth.c than the host build.
-set(COMPONENT_SRCS "repl_main.c")
+set(COMPONENT_SRCS "repl_main.c"
+            "flash_store.c")
 set(COMPONENT_ADD_INCLUDEDIRS "")
-set(COMPONENT_REQUIRES ulp soc esp_timer esp_hw_support driver esp_system)
+set(COMPONENT_REQUIRES ulp soc esp_timer esp_hw_support driver esp_system spi_flash esp_partition)
 
 register_component()
 

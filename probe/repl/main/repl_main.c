@@ -31,6 +31,7 @@
 #include "esp_task_wdt.h"
 #include "ulp_riscv.h"
 #include "ulp_main.h"
+#include "flash_store.h"
 
 static void seed_poll(void);   /* defined after blkfile[]; called from the UART pump */
 
@@ -121,6 +122,35 @@ static int blk_out_prev;      /* edge detector for the ULP's outstanding-request
  * Failure mode is a named nack, never silent corruption. */
 static uint32_t edge_ms;
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
+/* GUARDRAIL: blkfile is now a CACHE of the flash store, not the store. Placing it in flash is what makes a paged program
+ * survive reset; keeping the array keeps the 16 existing direct indexes correct, but every WRITE must be committed or the
+ * data dies with the power. `store_ok` is false when the superblock failed validation, so writes fail by NAME instead of
+ * quietly living only in RAM - which would look like a working store that forgets everything at reset. */
+static int store_ok;
+
+static void blk_commit(uint32_t blk)
+{
+    if (!store_ok) return;                       /* already reported at boot; do not spam per block */
+    int r = fs_write(blk, blkfile[blk]);
+    if (r != FS_OK) printf("store: WRITE FAILED block %u: %s\n", (unsigned)blk, fs_strerror(r));
+}
+
+static void store_boot(void)
+{
+    int r = fs_init();
+    if (r != FS_OK) {
+        printf("store: REFUSED %s\n", fs_strerror(r));
+        store_ok = 0;
+        return;
+    }
+    store_ok = 1;
+    for (uint32_t b = 0; b < BLK_N && b < fs_block_count(); b++) {
+        int rr = fs_read(b, blkfile[b]);
+        if (rr != FS_OK) { printf("store: READ FAILED block %u: %s\n", (unsigned)b, fs_strerror(rr)); store_ok = 0; return; }
+    }
+    printf("store: flash %u blocks x %u B (%u blocks/sector cache)\n",
+           (unsigned)fs_block_count(), (unsigned)fs_block_size(), 32u);
+}
 /* ---- ULP stack high-water probe (row 10 of the A/B) ---------------------------------------------------------
  * The ULP stack grows down from ulp___stack_top (0x50001ff0) into .bss, so an overflow corrupts engine state
  * instead of faulting - that is how a 336 B chain silently broke block I/O earlier. The main core can WRITE RTC
@@ -208,7 +238,7 @@ static void seed_poll(void)
                     else if (blk < BLK_N) blkfile[blk][w >> 1] = (uint8_t)((hi << 4) | v);
                     w++; k++;
                 }
-                if (!bad && blk < BLK_N) printf("seed: block %u <- %u bytes\n", blk, w / 2u);
+                if (!bad && blk < BLK_N) { blk_commit(blk); printf("seed: block %u <- %u bytes\n", blk, w / 2u); }
                 else                     printf("seed: REJECTED (bad hex, or block >= %d)\n", BLK_N);
                 fflush(stdout);
                 n = 0;
@@ -288,6 +318,7 @@ static void seed_poll(void)
                             d2[13] = (uint8_t)rs; d2[14] = (uint8_t)(rs >> 8);
                         }
                     }
+                    for (i2 = v[0]; i2 <= blk && i2 < BLK_N; i2++) blk_commit(i2);   /* last block is partial */
                     printf("dump: code %u + hdr %u = %u B, descriptor packed -> %u blocks from block %u, sum %u\n",
                            (unsigned)(v[2] - v[1]), (unsigned)(v[4] - v[3]), payload,
                            (20u + payload + 127u) / 128u, v[0], sum);
@@ -305,6 +336,26 @@ static void seed_poll(void)
                 while (ln[k] >= '0' && ln[k] <= '9') ms = ms * 10u + (unsigned)(ln[k++] - '0');
                 apply_stall_ms = ms;
                 printf("stall: op-3 critical section will sleep %u ms after the age check\n", ms);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#f` flushes the sector cache and reports write amplification; `#x` formats the store. Both are
+             * main-core only and cost 0 ULP bytes. `#x` is the recovery path named by the boot refusal. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'f' && (ln[2] == 0 || ln[2] == ' ')) {
+                int r = fs_flush();
+                uint32_t bp = 0, se = 0, fl = 0; fs_stats(&bp, &se, &fl);
+                if (r == FS_OK) printf("flush: ok | program+erase %u B, %u sector erase(s), %u flush(es)\n",
+                                       (unsigned)bp, (unsigned)se, (unsigned)fl);
+                else            printf("flush: FAILED %s\n", fs_strerror(r));
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'x' && (ln[2] == 0 || ln[2] == ' ')) {
+                int r = fs_format();
+                if (r == FS_OK) { store_ok = 1; memset(blkfile, ' ', sizeof blkfile); printf("format: ok, store empty\n"); }
+                else            printf("format: FAILED %s\n", fs_strerror(r));
                 fflush(stdout);
                 n = 0;
                 continue;
@@ -338,6 +389,7 @@ static void seed_poll(void)
                     printf("poke: REJECTED (want: #p <blk> <off> <val>)\n");
                 else {
                     blkfile[v3[0]][v3[1]] = (uint8_t)v3[2];
+                    blk_commit(v3[0]);
                     printf("poke: block %u off %u = %u\n", v3[0], v3[1], v3[2]);
                 }
                 fflush(stdout);
@@ -371,6 +423,7 @@ static void seed_poll(void)
                     printf("poke: REJECTED (want: #p <blk> <off> <val>)\n");
                 else {
                     blkfile[v3[0]][v3[1]] = (uint8_t)v3[2];
+                    blk_commit(v3[0]);
                     printf("poke: block %u off %u = %u\n", v3[0], v3[1], v3[2]);
                 }
                 fflush(stdout);
@@ -717,6 +770,7 @@ img_done:   ;
                     mb[2] = 4;                   /* nack: checksum mismatch -> BK_CRC (-4) */
                 } else {
                     for (i = 0; i < (int)blk_sz; i++) blkfile[blk][i] = buf[i];
+                    blk_commit(blk);
                     mb[2] = 1u;
                 }
             }
@@ -771,6 +825,9 @@ void app_main(void)
     printf("type Forth at the prompt; 'picocom -b %d /dev/ttyACM1'\n", CONSOLE_BAUD);
     fflush(stdout);
 
+    /* GUARDRAIL: boot the store BEFORE the ULP is started, so the first block request is answered from a validated
+     * store rather than from a zeroed RAM array. A refusal here is named and printed; the console's `#x` formats. */
+    store_boot();
     ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
 
     /* Loud before anything else: if these disagree, every byte the user types is written to the wrong
