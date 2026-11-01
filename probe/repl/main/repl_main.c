@@ -116,6 +116,13 @@ static uint32_t blk_sz;      /* transfer size, published by the ULP */
 static uint32_t stall_ms;
 static uint32_t apply_stall_ms;   /* test-only: stall INSIDE the op-3 critical section, after the age check */
 static int blk_out_prev;      /* edge detector for the ULP's outstanding-request flag */
+/* GUARDRAIL: `#u` showed the ULP silent while the HP console answered, which cannot distinguish "the ULP never asked"
+ * from "the HP never answered". This ring records the last 16 requests this task actually SERVICED (op, blk, ms since
+ * boot). It lives in .bss, NOT RTC memory: RTC slow RAM is fully owned by the ULP pool (adding 192 B there overflowed
+ * rtc_slow_seg by 188 B), and `#u` is answerable DURING the hang because the HP console stays alive - measured. */
+static uint32_t req_log[16][3];   /* op, blk, ms */
+static uint32_t req_idx;
+static uint32_t req_total;
 /* GUARDRAIL: when this task first SAW the request. The ULP's wait (BLKWAIT 2 000 000 iterations) is ~845 ms MEASURED
  * on hardware, and on a timeout the ULP deliberately leaves blk_out set - so the flag alone cannot distinguish "still
  * waiting" from "gave up". A destructive op (image load) must therefore be applied only inside a conservative fraction
@@ -138,11 +145,21 @@ static void blk_dirty(uint32_t blk)
     blkfile_dirty = 1;
 }
 
+/* GUARDRAIL: BISECT_NO_FLASH_WRITE removes every flash write after boot while keeping the store, the boot load and the
+ * block layer identical. main (no store) passes 15/15 and this branch hangs at phase 1-3, and taking the commit out of the
+ * ULP-blocked path did not help - so this isolates "any flash write" from everything else. Never ship with it defined. */
+#define BISECT_NO_FLASH_WRITE 1
+
 static void blk_commit(uint32_t blk)
 {
-    if (!store_ok) return;                       /* already reported at boot; do not spam per block */
+    blkfile_dirty = 1;                 /* recorded, so `#f` would still commit it in a real build */
+#if defined(BISECT_NO_FLASH_WRITE)
+    (void)blk;
+#else
+    if (!store_ok) return;             /* already reported at boot; do not spam per block */
     int r = fs_write(blk, blkfile[blk]);
     if (r != FS_OK) printf("store: WRITE FAILED block %u: %s\n", (unsigned)blk, fs_strerror(r));
+#endif
 }
 
 static void store_boot(void)
@@ -354,6 +371,16 @@ static void seed_poll(void)
              * shared window. `#u` dumps every field the bridge exposes, so "silent ULP" becomes a concrete state (pending
              * command, full output ring, latched block layer) instead of a guess. */
             if (n >= 2 && ln[0] == '#' && ln[1] == 'u' && (ln[2] == 0 || ln[2] == ' ')) {
+                {
+                    uint32_t i3, k3 = req_idx < 16u ? 0u : req_idx & 15u;
+                    printf("info: last %u serviced requests (op blk ms):", (unsigned)(req_idx < 16u ? req_idx : 16u));
+                    for (i3 = 0; i3 < (req_idx < 16u ? req_idx : 16u); i3++) {
+                        uint32_t e = (k3 + i3) & 15u;
+                        printf(" %u/%u/%u", (unsigned)req_log[e][0], (unsigned)req_log[e][1], (unsigned)req_log[e][2]);
+                    }
+                    printf(" | total %u\n", (unsigned)req_total);
+                    fflush(stdout);
+                }
                 printf("info: ulp blk_out %u req %u off %u sz %u | cmd h%u t%u (%u B) | out h%u t%u (%u B) | wakes %u\n",
                        (unsigned)ulp_repl_blk_out, (unsigned)ulp_repl_blk_req, (unsigned)ulp_repl_blk_off,
                        (unsigned)ulp_repl_blk_sz, (unsigned)ulp_repl_cmd_head, (unsigned)ulp_repl_cmd_tail,
@@ -686,7 +713,10 @@ static void block_task(void *arg)
             seen++;
 #endif
             volatile uint32_t *mb = (volatile uint32_t *)(ULP_RAM_BASE + ulp_repl_mb_addr);
-            (void)0;
+            req_log[req_idx & 15u][0] = mb[1];
+            req_log[req_idx & 15u][1] = mb[0];
+            req_log[req_idx & 15u][2] = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            req_idx++; req_total++;
             volatile uint8_t  *buf = (volatile uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr + ulp_repl_blk_off);
             uint32_t blk = mb[0], op = mb[1];
             if (blk >= BLK_N) {

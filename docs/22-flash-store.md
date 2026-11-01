@@ -201,3 +201,22 @@ too, the defect predates the flash work and belongs to the block-write path — 
 
 Also fixed, harness-side: `#i`/`#u` answer with `info:` and return without an `ok`, so a call waited until timeout while the
 answer was already in the buffer. `info:` is a marker now.
+
+---
+
+## Step 6d: the trigger is a flash WRITE, isolated by three device runs
+
+| build | 15-phase workload | verdict |
+|---|---|---|
+| `main` @ `7135d0d`, no store at all | **15/15**, every phase executes | the defect is not in paging |
+| flash branch, store present, **writes disabled** (`BISECT_NO_FLASH_WRITE`) | **15/15 twice** | the store, the boot read pass and the mirror are innocent |
+| flash branch, writes enabled | hangs at phase 1–3, four times | **a flash write is the trigger** |
+
+With the trigger narrowed to "a flash erase/program", the mechanism is still unexplained, and the observation that has to
+be explained is the split: **HP console answers `#i`/`#u` while the ULP has gone silent**. A request log (last 16 serviced
+requests: op, block, ms) is now in `.bss` and printed by `#u`; it would not fit in RTC memory — adding 192 B overflowed
+`rtc_slow_seg` by 188 B, because the ULP pool owns that region.
+
+**Branch is in a bisect configuration and must not ship** (`#define BISECT_NO_FLASH_WRITE 1`). Step 6d's next session:
+re-enable writes, catch a hang, read the request log. Then the fix is expected to be the task split already proposed —
+flash in a task that neither the ULP nor the console waits on.
