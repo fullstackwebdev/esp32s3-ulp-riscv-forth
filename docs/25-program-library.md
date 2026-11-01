@@ -89,6 +89,14 @@ That last line is the real trade and the reason overlays were banked at a 690 B 
 compete for the same RAM.** Chaining still wins where the program is bigger than the menu — which is the case that
 motivated this.
 
+### What the linter learned from this (two rules and one check)
+
+| rule | catches | earned by |
+|---|---|---|
+| **R10 block start** | a *block* that begins with a word needing the stack | the `CONSTANT` split above — a block is a line and every line starts empty |
+| **R11 fit** | a definition that cannot fit one 92 B block | two phases written at 94 and 96 B, found only once the chip was flashing |
+| `cli.check_chains()` | a phase whose `N CHAIN` literal disagrees with the descriptor map in `LIBRARY` | the map was edited twice while this feature was written; a stale chain jumps to an unrelated image and says nothing |
+
 ### Still open (named, not hidden)
 A **fourth** hop stalls: with a 4th image chained after the 3rd, the machine adopted 60, 62, 64 and then re-entered
 phase 3's body at ~41 Hz with `blk_out` latched, `V_LOADB` 0 and 64 B of unread commands in the ring. A three-phase

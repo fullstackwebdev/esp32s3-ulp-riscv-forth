@@ -18,6 +18,13 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
   R8 key -1     KEY returns -1 for "no key". A body that reads KEY, never tests -1 and has no other
                 pacing treats "nothing" as a keystroke, so its loop runs flat out: measured as a spinner
                 drawing 267 frames/s (16 KB in 4 s) instead of one frame per press.
+  R10 block start  a block may not BEGIN with a word that consumes the stack. A block is a LINE and every line
+                starts with an empty stack (`run_line()` does `sp = 0`), so anything the previous block pushed is
+                gone. Measured: `fsplit` cut `: SWITCH ... ; 40` | `CONSTANT IMGP ...`, and the device answered
+                `block 87: ERR_STACK` plus five `NAME?` lines naming words that were fine.
+  R11 fit       a definition that cannot fit one 92 B block. The splitter refuses it at UPLOAD time - a board round
+                trip to learn something a parser can see. Measured: two demo phases were written at 94 and 96 B and
+                only failed when the chip was already flashing.
   R9 (RETIRED)  `MS does not sleep` was earned when the primitive returned the wake count (measured: twenty
                 `200 MS` in 0.05 s). MS now busy-waits on rdcycle (tests/ms_clock.py: 100 MS = +100 ms,
                 300 MS = +301 ms), so the rule's premise is gone and it was removed instead of left as
@@ -388,6 +395,49 @@ def lint_definitions(src, base=None):
 
 # (source, the ONE rule it exists to prove). Naming the rule matters: the first version only asserted "something
 # fired", so a fixture with an unrelated leak counted as a catch, and three of these bugs were never actually proven.
+def check_blocks(src, base=None, blocks=None):
+    """R10 + R11: checks that are about the BLOCK SPLIT, not about a definition."""
+    from fsplit import split_defs
+    findings = []
+    if blocks is None:
+        try:
+            blocks = split_defs(src, 92)
+        except SystemExit as e:
+            return [(1, "R11 fit", str(e))]
+    vocab = dict(PRIMS)
+    # GUARDRAIL: the DEFINITION-time effects of the words that build the dictionary. `CONSTANT` pops the value it is
+    # named with, and `,` pops the cell it appends - modelling them as (0,0) made R10 blind to the exact cut that bit
+    # us (`... ; 40` | `CONSTANT IMGP ...`), which the selftest caught immediately.
+    vocab.setdefault("CONSTANT", (1, 0))
+    vocab.setdefault(",", (1, 0))
+    vocab.setdefault("VARIABLE", (0, 0))
+    if base:
+        vocab.update(base)
+    for m in re.finditer(r"(?:CREATE|CONSTANT)\s+(\S+)", src):
+        vocab[m.group(1)] = (0, 1)
+    for m in re.finditer(r":\s+(\S+)(.*?);", src, re.S):
+        vocab[m.group(1)] = declared(m.group(2)) or (0, 0)
+    for i, blk in enumerate(blocks, start=1):
+        toks = tokens(blk)
+        if not toks:
+            continue
+        first = toks[0]
+        if first in (";", ",", "THEN", "ELSE", "UNTIL", "REPEAT", "AGAIN") or first in CONTROL:
+            # GUARDRAIL: a cut landed on a token that cannot start anything. That is a splitter defect, and the chip's
+            # symptom is an error naming a word several blocks away - `block 87: ERR_STACK`, then `HDR0?`, `IMGS?`.
+            findings.append((i, "R10 block start",
+                             f"block {i} begins with `{first}`, which cannot start a block"))
+            continue
+        if is_num(first):
+            continue
+        p_in, _ = vocab.get(first, (0, 0))
+        if p_in > 0:
+            findings.append((i, "R10 block start",
+                             f"block {i} begins with `{first}`, which needs {p_in} item(s) from the stack - a block is a "
+                             "line, and every line starts empty (run_line: sp = 0)"))
+    return findings
+
+
 BUGS = {
  "missing DUP (our JK bug)":
    (""": JK DUP 106 = IF DROP NEXT EXIT THEN 107 = IF PREV EXIT THEN DROP ;
@@ -406,6 +456,8 @@ BUGS = {
  "poll loop leak (our K0 bug)":
    (""": K0 ( -- c ) BEGIN KEY DUP -1 = 0= UNTIL ;
 """, "R5 loop leak"),
+ "value crossing a block boundary (our CONSTANT split)":
+   ("""KIND_BLOCKS""", "R10 block start"),
  "comment compiles as words":
    ("""\\ poll: drop the -1 marker
 : K0 ( -- ) ;
@@ -429,10 +481,20 @@ GOOD = """: WAIT ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
 : PACE ( -- ) BEGIN 0 . 250 MS KEY DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
 """
 
+# A split that puts a value on the far side of a boundary: the fixture is the BLOCK LIST, because the splitter now
+# refuses to produce this one (tools/fsplit.py selftest asserts that). R10 is the belt to that braces: it catches a
+# regression in the splitter, or a hand-made multi-block upload.
+KIND_BLOCKS = [": SWITCH ( desc -- ) NXT ! ; 40", "CONSTANT IMGP : HDR0 ( -- ) CLR HOME ;"]
+GOOD_BLOCKS = ": A 1 ; 40 CONSTANT X : B 2 + . ;"
+
+
 def selftest():
     ok = True
     for name, (src, rule) in BUGS.items():
-        f = lint_definitions(src)
+        if src == "KIND_BLOCKS":
+            f = check_blocks("", blocks=KIND_BLOCKS)
+        else:
+            f = lint_definitions(src) + check_blocks(src)
         hit = any(r == rule for _, r, _ in f)
         ok = ok and hit
         print(f"  {'caught' if hit else 'MISSED'}  {name:44} {rule}"
@@ -440,6 +502,13 @@ def selftest():
     f = lint_definitions(GOOD)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  good source (must be silent)      {f[:1] if f else ''}")
+    f = check_blocks(GOOD_BLOCKS)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  good blocks (must be silent)      {f[:1] if f else ''}")
+    # R11: a definition too long for one block is a lint finding, not a flash-time surprise
+    f = check_blocks(": LONG " + " ".join(["1"] * 60) + " ;")
+    ok = ok and any(r == "R11 fit" for _, r, _ in f)
+    print(f"  {'caught' if f else 'MISSED'}  over-long definition (our 94/96 B demos)  R11 fit")
     print(f"  selftest: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 
@@ -457,7 +526,9 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
         else:
             rest.append(argv[i]); i += 1
     src = open(rest[0]).read()
-    findings = lint_definitions(src, base)
+    # GUARDRAIL: the block checks need the splitter, and a file that cannot be split must fail HERE rather than at the
+    # first upload - the chip already has a compiled dictionary when it reports it.
+    findings = lint_definitions(src, base) + check_blocks(src, base)
     for ln, rule, msg in findings:
         print(f"  {argv[0]}:{ln}: {rule}: {msg}")
     print(f"  {len(findings)} finding(s)" if findings else "  clean")

@@ -221,6 +221,8 @@ python3 probe/repl/tools/lint_forth.py --selftest      # proves each rule fires 
 | R5 loop leak | a loop body that is not balanced per iteration | `BEGIN KEY DUP 0 < 0= UNTIL` kept every `-1`, thousands per second |
 | R7 byte range | an `EMIT` whose argument is not provably a byte `0..127` | `: DIGIT 48 + EMIT ;` — at n=897 that emits `0x81`, which the console reads as a **message code**: the spinner printed `ERR_BUSY`, then `ERR_ULPCODE` |
 | R8 key -1 | a `KEY` that is never tested against `-1` ("no key") | `KEY DUP 113 =` treated "nothing" as a keystroke, so the demo ran at ~267 frames/s instead of once per press |
+| R10 block start | a *block* that begins with a word needing the stack | `fsplit` cut `... ; 40` \| `CONSTANT IMGP ...`; the chip said `block 87: ERR_STACK` and five `NAME?` lines naming fine words. A block is a LINE and every line starts empty |
+| R11 fit | a definition too long for one 92 B block | two demo phases written at 94/96 B, discovered at flash time — now a lint finding, no board needed |
 | ~~R9 ms stub~~ | **retired**: it said "`MS` does not sleep", which was measured true (20 × `200 MS` in 0.05 s) and is now false — `MS` busy-waits on the core clock (`100 MS` = +100 ms, `300 MS` = +301 ms). The rule was removed rather than kept as folklore. | — |
 
 Declare stack effects and the linter can prove things: `: WAIT ( -- c ) … ;`. A definition without a declaration is

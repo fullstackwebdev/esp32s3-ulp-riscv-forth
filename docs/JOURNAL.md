@@ -2079,3 +2079,20 @@ Two bugs paid for on the way:
 then re-entered phase 3's body at ~41 Hz with `blk_out 1 req 0` latched, `V_LOADB 0` and 64 B of unread commands in the
 ring. Three phases are solid, the shipped library is three phases, and the next question is in docs/25: is the third
 adopt refused silently, or does the block layer latch on the third rewind?
+
+**J-108 · The linter learned two rules and a check from the chaining work.**
+R10 (`block start`) and R11 (`fit`) came out of two failures in the same hour: a split that put `40` on the far side of
+a block boundary (`block 87: ERR_STACK`, then five `NAME?` lines naming words that were fine), and definitions written
+at 94/96 B that only failed once the chip was already flashing. R11 is the cheaper of the two — it runs the splitter
+that would have refused the upload, so the finding arrives with no board attached.
+
+The third is not a lint rule at all: `cli.check_chains()`. A phase names its successor as a *literal* (`62 CHAIN`)
+while the descriptor map lives in `cli.py`, so the same number exists twice and a stale one is silent — the phase jumps
+to whatever image is in that block. The map moved twice today and both times the phases had to be re-pointed by hand.
+The check runs before the machine is touched (source only), treats an absent `CHAIN` as `0` on the last phase, and
+refuses the build by name.
+
+Two of the three needed the selftest to be honest: R10's fixture is a *hand-made bad split*, because the splitter now
+refuses to produce one — the rule is the belt to that braces (a regression in `fsplit`, or a hand-written multi-block
+upload). And R10 was blind at first because `CONSTANT`/`,` were not in its vocabulary: a rule that cannot see the word
+it is named after is a rule that reports nothing.

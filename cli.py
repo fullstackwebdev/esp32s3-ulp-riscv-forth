@@ -15,6 +15,7 @@ Anything else is sent to the chip as Forth. Ctrl-C always gives your terminal ba
 """
 import argparse
 import os
+import re
 import pathlib
 import select
 import sys
@@ -170,6 +171,31 @@ LIBRARY = (
 )
 
 
+def check_chains(root):
+    """Every phase's `N CHAIN` literal must match the descriptor map in LIBRARY.
+
+    GUARDRAIL: a phase names its successor as a LITERAL (`62 CHAIN`) while the descriptor map lives in this file, so a
+    stale chain is silent: the phase jumps to a block holding a different image (or an empty one) and the only symptom
+    is the wrong thing drawn. Cheap to check, and it needs no board - the map was edited twice while this feature was
+    written and the phases had to be re-pointed by hand each time.
+    """
+    for program, phases in LIBRARY:
+        for i, (path, desc, _entry) in enumerate(phases):
+            src = (root / path).read_text()
+            want = phases[i + 1][1] if i + 1 < len(phases) else 0
+            m = re.search(r"(\d+)\s+CHAIN\b", src)
+            got = int(m.group(1)) if m else None
+            # GUARDRAIL: the LAST phase of a program may omit `CHAIN` altogether - the dispatcher cleared NXT before
+            # EXECUTE, so "say nothing" and "chain to 0" mean the same thing. Treating absent as a mismatch refused
+            # every single-phase program (measured on demo_bars.fs).
+            if got is None and want == 0:
+                continue
+            if got != want:
+                say(f"  {path}: chains to {got!r}, the map says {want} - fix the phase or LIBRARY", YL)
+                return False
+    return True
+
+
 def library(dev, root):
     """Build the program library: a resident launcher, then each demo as a behaviour image.
 
@@ -185,6 +211,8 @@ def library(dev, root):
     rewinds AND arms a block as the interpreter's source, so inside a running word it queues a block to be COMPILED
     instead of returning to the seal. It happened to work from the console and is wrong everywhere else.
     """
+    if not check_chains(root):
+        return None
     here = dev.num("HERE .")
     if here > 900:
         # GUARDRAIL: a library built onto a non-fresh dictionary fails later as `ERR_DICT` in the middle of an upload,
