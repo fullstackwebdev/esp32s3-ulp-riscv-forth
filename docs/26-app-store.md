@@ -288,12 +288,20 @@ all against the 1 037 B window, descriptors 8 / 16 / 32 / 48 / 56, content seede
 frame's HEAD is lost (the visible result is a screen shifted up by several rows). That is `F-137`, still open. The same
 build renders correctly on the host, which is the demo to show today:
 
+The one command to run is:
+
 ```
 cd probe/repl
-python3 tools/screen.py ../../examples/apps/shelf/shelf1.fs \
-    --prelude ../../examples/apps/registry.fs --prelude ../../examples/appstore.fs \
-    --content mail --host artifacts/host_app --entry RUNSHELF --keys 'jj' --grid
+./demo.py                 the shelf (two selection states) and the mail app, drawn by the host engine
+./demo.py --device        build it on the board and open the shelf there
 ```
+
+**The grid is 70 columns, so the terminal must be at least 72.** Below that every row wraps and a wrapped card row
+interleaves with the row beneath it - which reads as "the demo is broken" rather than "the window is narrow" (measured
+from the operator's own paste: `rw/cl` merged into `0/0`, borders split across lines). `demo.py` checks the width, says so,
+and cuts rows at the right edge with a `›` marker instead of letting the terminal wrap silently; `--no-crop` keeps the full
+rows for piping.
+
 
 ## Wave 2 status (measured, 2026-11-01)
 
