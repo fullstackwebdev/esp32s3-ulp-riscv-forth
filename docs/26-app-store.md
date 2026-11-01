@@ -167,8 +167,12 @@ Rules that follow: a phase lives in the range of its *descriptor* (that is what 
 reused by every upload and must never hold anything a phase needs at run time; content ranges never move, because page N is
 `START + N*8` arithmetic.
 
-**One phase per app where possible.** A view switch driven by a cell (`APP_PG`, a cursor) costs a few bytes; a second
-descriptor costs 8 blocks. Views belong in cells; new *capabilities* belong in phases.
+**One phase per app, and a view is not a capability.** The store is exactly full at 7 descriptors, so a second phase is
+never free: it costs 8 blocks that have no home. A *view* (inbox vs message, page vs search results) is a cell and a
+branch; a *capability* that needs its own compiled code and must survive a switch is a phase. Two lanes hit this in the
+same way - mail asked for a viewer phase and gopher for a search phase - and both answers were the same: drive the view
+from a registry cell. The one deliberate exception is the calculator, which the table funds with two descriptors because
+splitting it is the thing that proves a multi-phase app works.
 
 ## Registry cells (below the seal; `registry.fs`)
 
