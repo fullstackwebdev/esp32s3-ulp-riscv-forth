@@ -56,6 +56,17 @@ def dwell(fd, cap):
     return buf
 
 
+def frame(fd, cap=10.0):
+    """Read exactly ONE drawn frame: every frame ends with the SENT sentinel (a 0x00 byte).
+
+    GUARDRAIL: reading until the TITLE desynchronises the stream. "PROGRAM LIBRARY" appears before the rows, so the
+    rows stay in the pipe and land in the NEXT read - measured as "0 red rows" in a frame that had one, immediately
+    followed by "2 red rows" in a frame that had one. A reader that cannot say where a frame ends cannot count anything
+    inside it.
+    """
+    return read_until(fd, b"\x00", cap)
+
+
 def loud_errors(buf):
     """Anything the console should never print while a demo is idle."""
     hits = re.findall(rb"ERR_[A-Z_]+", buf)
@@ -76,15 +87,30 @@ def main():
                             cwd=str(ROOT), stdin=slave, stdout=slave, stderr=slave, close_fds=True)
     os.close(slave)
     try:
-        out = read_until(master, MENU, CAP)
+        out = frame(master, CAP)
         check("--library builds and shows the menu", MENU in out,
               f"{'found' if MENU in out else 'NOT found'} in {len(out)} B")
         for liar in (b"ERR_", b"RUN?", b"Traceback"):
             check(f"no {liar.decode()} on the way up", liar not in out, "" if liar not in out else f"in {out[-160:]!r}")
 
+        # GUARDRAIL: assert the DRAWING, not the title, and read a FRAME THAT WAS DRAWN IN THIS STEP. The first version
+        # of this check read `dwell(0)` after the menu frame had already been consumed, so it inspected 0 bytes and
+        # "failed" on working code - a test that measures nothing is the same class of bug as one that asserts a title.
+        # Here each key press produces a full redraw, so the red count is about the row that IS selected.
+        os.write(master, b"j")
+        mov = frame(master)
+        reds_j = mov.count(b"\x1b[31m")
+        check("menu paints exactly one red row", reds_j == 1, f"{reds_j} red run(s) after `j`")
+        # The operator's report: "I hit j and it turns red, then it stays red" - the selected row was painted and
+        # nothing reset the colour, so the OLD row stayed red too. Move back and count: still exactly one.
+        os.write(master, b"k")
+        mov2 = frame(master)
+        reds_k = mov2.count(b"\x1b[31m")
+        check("moving back un-reds the old row", reds_k == 1, f"{reds_k} red run(s) after `j` then `k`")
+
         t0 = time.time()
         os.write(master, b"\r")
-        bars = read_until(master, b"BARS", 10.0)
+        bars = frame(master)
         t1 = (time.time() - t0) * 1000
         # GUARDRAIL: drain the rest of the FIRST frame before judging idleness - measured 845 B of bars still in flight
         # when the title matched, which reads as "it is looping" when it is one frame arriving. The second window is the
@@ -92,19 +118,26 @@ def main():
         dwell(master, 0.8)
         idle_bars = dwell(master, 1.0)
         hits, high = loud_errors(idle_bars)
+        colours = len(set(re.findall(rb"\x1b\[3(\d)m", bars)))
         check("Enter -> colour bars", b"BARS" in bars and b"ERR_" not in bars, f"{t1:.0f} ms")
+        check("eight bars, eight colours, real blocks",
+              bars.count(b"#") >= 40 and colours >= 8,
+              f"{bars.count(b'#')} '#', {colours} distinct colours")
         check("bars is quiet when nobody types", not hits and not high,
               f"{len(idle_bars)} B in 1.5 s idle" + (f", noise {hits} {high}" if (hits or high) else ""))
 
         os.write(master, b"q")
-        back = read_until(master, MENU, 10.0)
+        back = frame(master)
         check("q -> back to the menu", MENU in back and b"ERR_" not in back)
+        reds_back = back.count(b"\x1b[31m")
+        check("the menu comes back un-coloured", reds_back == 1,
+              f"{reds_back} red run(s) - the bars demo must restore the default colour")
 
         os.write(master, b"k")
-        moved = read_until(master, MENU, 10.0)
+        moved = frame(master)
         t0 = time.time()
         os.write(master, b"\r")
-        spin = read_until(master, b"SPIN", 10.0)
+        spin = frame(master)
         t2 = (time.time() - t0) * 1000
         # GUARDRAIL: this is the check that was missing for the whole feature (docs/25). `read_until(SPIN)` returns the
         # moment the title appears, so it certified a program whose FIRST frame was fine and whose second was
@@ -122,6 +155,10 @@ def main():
               f"{len(idle_spin)} B in 2 s idle ({rate:.0f} B/s)"
               + (f", noise {hits[:4]} {high[:6]}" if (hits or high) else ""))
 
+        # GUARDRAIL: the spinner must SPIN. It used to be a counter plus a growing row of '*' - a progress bar that
+        # counted to 10 and reset, which is what the operator reported. Assert at least two different glyphs from |/ - \.
+        glyphs = {b"|", b"/", b"-", b"\\"} & {bytes([c]) for c in idle_spin}
+        check("the spinner glyph rotates", len(glyphs) >= 2, f"{sorted(glyphs)} seen")
         # A demo must answer a key with a new frame - otherwise "it draws" could just mean "it redraws the same thing".
         frames = []
         for _ in range(3):
@@ -133,21 +170,24 @@ def main():
         check("no noise from keying either", not hits and not high, f"{hits[:4]} {high[:6]}" if (hits or high) else "")
 
         os.write(master, b"q")
-        read_until(master, MENU, 10.0)
+        frame(master)
         os.write(master, b"q")                          # q on the menu: leave the launcher
-        repl = read_until(master, b"Forth REPL", 10.0)
-        check("q on the menu returns to the REPL", b"Forth REPL" in repl)
-
-        os.write(master, b"2 3 + .\r")
-        got = read_until(master, b"5 ok", 10.0)
-        check("the REPL still answers", b"5 ok" in got, "2 3 + . -> 5 ok")
-
-        os.write(master, b".quit\r")
         try:
-            proc.wait(timeout=10.0)
-            check("cli.py exits cleanly", proc.returncode == 0, f"exit {proc.returncode}")
+            proc.wait(timeout=15.0)
+            check("`q` on the menu ends the run", proc.returncode == 0, f"exit {proc.returncode}")
         except subprocess.TimeoutExpired:
-            check("cli.py exits cleanly", False, "still running after .quit")
+            check("`q` on the menu ends the run", False, "still running after `q`")
+
+        # GUARDRAIL: `--library` must RELEASE the port. It used to fall into the REPL, which left a live process holding
+        # /dev/ttyACM1 for as long as the terminal stayed open, so the operator's next run paid a 9 s reset attempt and
+        # then refused. The proof is that a second invocation works and answers, so this starts one: `--repl` reads
+        # stdin, so a pipe is enough.
+        second = subprocess.run([sys.executable, str(ROOT / "cli.py"), "--repl"], input=b"2 3 + .\n.quit\n",
+                                cwd=str(ROOT), capture_output=True, timeout=90)
+        out = second.stdout
+        check("the port is free for the next run", b"already open by" not in out and second.returncode == 0,
+              f"exit {second.returncode}")
+        check("and the machine still answers", b"5 ok" in out, "2 3 + . -> 5 ok")
     finally:
         if proc.poll() is None:
             proc.send_signal(signal.SIGINT)

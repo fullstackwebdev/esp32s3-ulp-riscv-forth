@@ -17,7 +17,7 @@
 : FILL ( -- ) 0 BEGIN DUP 70 < WHILE SP 1+ REPEAT DROP ;
 : SENT ( -- ) 0 EMIT ;
 CREATE SEL 0 ,
-: MARK ( i -- ) SEL @ = IF 1 COL ." > " ELSE SP SP THEN ;
+: MARK ( i -- ) OFF SEL @ = IF 1 COL ." > " ELSE SP SP THEN ;
 : TOGGLE ( -- ) SEL @ IF 0 ELSE 1 THEN SEL ! ;
 : RW ( -- ) bh @ VH ! bl @ VL ! ;
 : SWITCH ( desc -- ) RW 3 BLKXFER DROP @ EXECUTE ;
@@ -28,7 +28,7 @@ CREATE SEL 0 ,
 : I0 ( -- ) 5 2 AT 0 MARK ." colour bars" ;
 : I1 ( -- ) 6 2 AT 1 MARK ." spinner" ;
 : ITEMS ( -- ) I0 I1 ;
-: FOOT0 ( -- ) 9 2 AT ." j/k move   Enter run   q quit" SENT ;
+: FOOT0 ( -- ) OFF 9 2 AT ." j/k move   Enter run   q quit" SENT ;
 : MENU ( -- ) HDR0 TTL ITEMS FOOT0 ;
 : K0 ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
 : PICK ( -- ) SEL @ IF IMGS ELSE IMGB THEN SWITCH ;

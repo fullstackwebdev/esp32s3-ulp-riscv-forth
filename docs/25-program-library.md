@@ -37,6 +37,27 @@ bars image 156 B of code (4 blocks at 50), spinner 92 B (2 blocks at 60).
 | menu → a *different* program after a switch | **works, 42 ms** | `tests/programs.py` "Enter → spinner (2nd program)" |
 | the shipped command | 10/10 | `tests/tui_cli.py`, driven through a pty as the operator runs it |
 
+## Three presentation defects, and the test that asserted titles instead of pixels
+
+Reported by the operator, all real, all in `.fs`:
+
+| what was seen | what the code did | why no test caught it |
+|---|---|---|
+| "it just says Bar" | `: BAR ( i -- ) DUP 1+ COL 5 2 AT …` — **every** bar at the same cell (5;2), and `FILLN` filled with **spaces**: eight invisible overwrites of one cell | the test asserted `b"BARS" in frame` — the title |
+| "it counts to 10, then a progress bar `******`, then resets" | that *was* the spinner: a counter plus `P` stars, which reads as a progress bar | the test asserted `b"SPIN" in frame` |
+| "I hit `j` and it turns red, then it stays red" | `MARK` emitted `1 COL` for the selected row and **nothing reset the colour**, so every row ever selected stayed red | nothing counted colour runs |
+
+**The root cause is the same in all three: the tests asserted that a *title* appeared, not that anything was drawn.**
+`read_until(b"SPIN")` returns at the title, so it certified a frame whose rest was broken — the same weakness that let
+`ERR_ULPCODE` through (above). The tests now read **whole frames by their sentinel** and count content:
+
+* every frame ends with `SENT` (a `0x00` byte) and the reader stops there — reading until a *title* desynchronises the
+  stream, which was measured as "0 red rows" in a frame that had one, immediately followed by "2 red rows" in a frame
+  that had one. `SENT` therefore belongs at the **end** of a frame; both demos had it after the title;
+* menu: exactly **one** `\x1b[31m` per redraw, before and after moving — that is the operator's bug, in one assertion;
+* bars: **144** `#` and **8** distinct colour codes;
+* spinner: at least two of `| / - \` seen while idle.
+
 ## The guard that fired on ordinary use (fixed, measured)
 
 `docs/25` first recorded this as an open defect:

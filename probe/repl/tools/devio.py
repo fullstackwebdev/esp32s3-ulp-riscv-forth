@@ -37,9 +37,16 @@ class Dev:
 
     # ---- lifecycle ------------------------------------------------------------------------------------------
     def reset(self, settle=2.0):
+        """Hard reset through esptool, then WAIT FOR THE MACHINE TO ANSWER instead of sleeping a guessed number.
+
+        GUARDRAIL: the old body was `sleep(settle)` + `sleep(1.0)` + `drain(0.5)` - 2.7 s of pure waiting on top of
+        esptool, and it was still a guess: too short on a slow boot and pure waste on a fast one. Measured, `./cli.py
+        --library` spent 6.9 s in connect of which ~2.7 s was these sleeps. A readiness probe (ask `HERE .` until it
+        answers) costs 40 ms per answer and returns the moment the board is up; the fixed sleep is only a floor.
+        """
         subprocess.run(["python3", "-m", "esptool", "--port", self.port, "--after", "hard_reset", "chip_id"],
                        capture_output=True)
-        time.sleep(settle)
+        time.sleep(min(settle, 0.25))            # a floor: the probe below decides, not a number
         if self.fd is not None:
             self.close()
         self.fd = os.open(self.port, os.O_RDWR | os.O_NOCTTY)
@@ -52,8 +59,17 @@ class Dev:
         t[6][termios.VMIN] = 0
         t[6][termios.VTIME] = 0
         termios.tcsetattr(self.fd, termios.TCSANOW, t)
-        time.sleep(1.0)
-        self.drain(0.5)
+        self.drain(0.05, 0.3)                    # boot chatter, but do not pay 0.5 s for it
+        # GUARDRAIL: fail LOUDLY if the board never answers: a reset that silently returns leaves every caller reading
+        # boot text as if it were a reply, which is the class of bug the freshness check in cli.connect exists for.
+        end = time.time() + 5.0
+        while time.time() < end:
+            try:
+                self.num("HERE .", timeout=0.5)
+                return
+            except Exception:
+                time.sleep(0.05)
+        raise Timeout(f"{self.port} did not answer after a hard reset within 5 s")
 
     def pulse_reset(self, settle=0.9):
         """Reset the board by pulsing EN on the RTS line, holding the port open. VERIFIED: if the pulse did not reset the
@@ -92,7 +108,7 @@ class Dev:
         # GUARDRAIL: verify, then fall back. A fresh boot reports the baked HERE (786 here); anything at or above 900 means
         # the machine never restarted (see the class-level note above for the measurement). No answer is also a failure.
         try:
-            here = self.num("HERE .", timeout=1.5)
+            here = self.num("HERE .", timeout=0.6)
         except Exception:
             here = None
         if here is None or here >= 900:
@@ -171,11 +187,17 @@ class Dev:
 
     # GUARDRAIL: a refusal from the console (`line too long: ... NOT sent`) carries neither `ok` nor `?`, so it
     # timed out instead of being reported. Every console-side message must be a completion marker.
-    def cmd(self, line, timeout=5.0, allow_error=False, # GUARDRAIL: `#i`/`#u` answer with "info:" and return WITHOUT an `ok`, so the default markers never matched and a
+    def cmd(self, line, timeout=5.0, allow_error=False, settle=0.02, # GUARDRAIL: `#i`/`#u` answer with "info:" and return WITHOUT an `ok`, so the default markers never matched and a
             # harness call waited until timeout while the answer was already in the buffer. Give the harness the real marker.
             markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:",
-                     "info:", "mem:", "cmp:", "stack:")):
-        """Send one line, read until the prompt marker (ok) or an error (?), return the transcript."""
+                     "info:", "mem:", "cmp:", "stack:", "seed:", "dump:")):
+        """Send one line, read until the prompt marker (ok) or an error (?), return the transcript.
+
+        GUARDRAIL: `settle` is the quiet window after the marker, and it costs 20 ms on EVERY command - 34 blocks of
+        `LOAD` in a library build is 0.7 s of waiting for a second line that a LOAD never sends. Callers that know the
+        reply is exactly one line (a compile, a seed ack) pass a small value; everything else keeps the default so a
+        two-line answer is not truncated. Measured: a bare round trip is 40 ms, so this window is a third of a LOAD.
+        """
         os.write(self.fd, line.encode() + b"\r")
         buf = ""
         end = time.time() + timeout
@@ -195,7 +217,7 @@ class Dev:
                         pass
                 if any(m in buf for m in markers):
                     # one short settle read so a second line of output is not lost
-                    buf += self.drain(0.02, 0.5)
+                    buf += self.drain(settle, 0.5)
                     if "?" in buf and not allow_error:
                         # an error marker may legitimately be the expected result; let callers decide
                         return buf

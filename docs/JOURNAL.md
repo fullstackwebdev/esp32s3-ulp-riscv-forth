@@ -1987,3 +1987,36 @@ number. `adopt_sum.py` now pins `0, 9, 42, 99, 100 → 0`. First run of that ass
 because the transcript is `"9 ok"` and I compared against `"9 "` — which is its own lesson, applied in the same commit.
 
 Device: 61 checks across six files. Host suite: exit 0. Linter: 7 rules, 8/8 selftest catches, all four examples clean.
+
+**J-105 · "It just says Bar", "it counts to 10", "it stays red" — three .fs bugs and a test suite that read titles.**
+The operator ran it and reported exactly what a test cannot: nothing was drawn. All three were in `.fs`:
+
+* **Bars drew nothing.** `BAR` put every bar at `5 2 AT` and filled with **spaces** — eight invisible overwrites of one
+  cell. Now each bar is its own row with `#` blocks, `(i+1)*4` wide, in colour `i+1`, 144 `#` in the frame.
+* **The spinner was a progress bar.** It printed a counter and `P` stars, which counts to 10 and resets. Now it rotates
+  `| / - \` via `4 /MOD` and two tiny glyph words, with the phase number beside it.
+* **The red row stayed red.** `MARK` painted the selected row and never reset the colour, so every row ever selected
+  stayed red for the rest of the session. `OFF` now starts every row, and `FOOT0`/`BARS` restore the default too.
+
+Why the suite was green: **it asserted titles.** `read_until(b"SPIN")` stops at the title, and the bar test looked for
+the word `BARS`. So the tests now read whole frames by their sentinel and count pixels — one red run per redraw (before
+and after moving), 144 `#` and 8 colours for the bars, at least two glyphs for the spinner. Fixing that surfaced two
+test bugs of my own: `dwell(0)` inspected zero bytes and "failed" on working code, and reading until a *title* leaves
+the rest of the frame in the pipe, which showed as "0 red" then "2 red" for one red per frame. A frame terminator
+belongs at the END of a frame; both demos had `SENT` right after the title.
+
+**Then the slowness.** `./cli.py --library` was 11.3 s, and 9 of it was not the build:
+
+* the "is the port held?" check sat *after* `pulse_reset`, so a stale `cli.py` from an earlier run cost ~9 s of resets
+  before the message that named it — moved to the first line of `connect()`;
+* `connect()` pulsed RTS (a no-op on USB-Serial-JTAG, F-126) and then fell back to esptool on every run — now it goes
+  straight to the reset that works;
+* `Dev.reset` slept a guessed `settle + 1.0 + 0.5` = 2.7 s after esptool. It now asks `HERE .` until the machine
+  answers: the board decides, not a number. **connect 6.9 s → 2.3 s.**
+* and `--library` fell into the REPL when the app exited, so a *live process* kept holding `/dev/ttyACM1` and the next
+  run had to be refused. It now exits (`--repl` stays), and the test proves it by starting a second instance and getting
+  `2 3 + .` → `5 ok`.
+
+Plus `dev.cmd(settle=…)` so a `LOAD` - which answers with exactly one line - does not pay the 20 ms second-line window:
+**build 4.8 s → 4.1 s, total 11.3 s → 6.6 s**, with per-block progress so the wait is visible. The remaining ~4 s is 34
+blocks on a 19 MHz chip at one USB round trip each; that is the design's floor, not a bug.

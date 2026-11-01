@@ -72,9 +72,19 @@ def port_holders(port):
 
 def connect(port, settle):
     from devio import Dev
+    # GUARDRAIL: ask who holds the port BEFORE any reset. This check used to sit after `pulse_reset`, which - now that a
+    # pulse is verified and falls back - spent ~9 s resetting a port it could never reach, and only then named the other
+    # process. Measured: a stale `cli.py` from a previous run made every later run pay 9 s and then refuse.
+    holders = port_holders(port)
+    if holders:
+        say(f"  {port} is already open by: {holders}", YL)
+        say("  close that program (or kill it) and run this again.", YL)
+        return None
     try:
         dev = Dev(port=port)
-        dev.pulse_reset(settle=settle)   # ~50 ms instead of ~2.5 s of esptool
+        # GUARDRAIL: go straight to the esptool reset. On this board the DTR/RTS pulse is a no-op (USB-Serial-JTAG
+        # emulates the modem bits, F-126), so paying for a pulse first bought 1.3 s and a fallback every single run.
+        dev.reset(settle=0.25)
     except Exception:
         say(f"no board on {port}.", YL)
         say("  * cable in?  * Linux: sudo usermod -aG dialout $USER (log out, in)", YL)
@@ -88,29 +98,15 @@ def connect(port, settle):
     # dictionary runs out mid-upload and the operator sees a wall of ERR_DICT from block 70 on, which looks like the app
     # being too big. Assert a FRESH machine (baked HERE ~786 and >900 B free), and fall back to esptool's slower reset.
     #
-    # GUARDRAIL: this loop used to burn 21-36 s and then blame the board. Two causes, both now named:
-    #   * a 5 s timeout per probe. A live ULP answers `HERE .` in 40 ms, so 5 s only hides a dead one: the probe is 1.5 s
-    #     now and four attempts cost seconds instead of half a minute;
-    #   * a stale `cli.py` from a crashed harness still holding the tty. Then NOBODY answers, every attempt times out,
-    #     and the operator is told to unplug the cable. Check for a holder FIRST, and when nothing answers say "no
-    #     answer" rather than "not fresh" - measured: 36 s of the wrong sentence.
-    holders = port_holders(port)
-    if holders:
-        say(f"  {port} is already open by: {holders}", YL)
-        say("  close that program (or kill it) and run this again.", YL)
-        dev.close()
-        return None
+    # GUARDRAIL: this loop used to burn 21-36 s and then blame the board. The holder check is above (a held port is a
+    # different fact from a non-fresh dictionary, with a different fix), the probe timeout is 1.5 s because a live ULP
+    # answers `HERE .` in 40 ms - a longer timeout only hides a dead one - and `!LINE` goes first, because a previous
+    # session may leave the board in raw mode where a probe is read as a keystroke.
     fresh, answered, here, free = False, False, 0, 0
     for attempt in range(4):
         if attempt:
             say(f"  retrying reset ({attempt + 1}/4)...", DM)
-        if attempt < 2:
-            dev.pulse_reset(settle)
-        else:
-            dev.reset(settle=1.2)
-        # GUARDRAIL: `!LINE` first. A previous session may leave the board in raw mode, where every byte goes to the
-        # running program and a probe is read as a keystroke - so the probe times out on a machine that is alive.
-        # `!LINE` is a host op and works from raw mode (measured).
+            dev.reset(settle=0.3)
         try:
             dev.cmd("!LINE", timeout=1.5, allow_error=True)
             here = dev.num("HERE .", timeout=1.5)
@@ -148,12 +144,15 @@ def upload(dev, path, first_block):
         raise RuntimeError(f"block(s) {missing} did not acknowledge - is the cable loose?")
     bad = {}
     for i in range(len(bs)):
-        rep = dev.cmd(f"{first_block + i} LOAD", timeout=25.0, allow_error=True)
+        # GUARDRAIL: `settle=0.004` because a LOAD answers with exactly one line. The 20 ms default per block was 0.7 s
+        # of the build's 4.8 s, spent waiting for a second line that never comes.
+        rep = dev.cmd(f"{first_block + i} LOAD", timeout=25.0, allow_error=True, settle=0.004)
         errs = [l.strip() for l in rep.splitlines() if l.strip().endswith("?") or "ERR_" in l]
         if errs:
             bad[first_block + i] = errs[0]
-        if (i + 1) % 10 == 0:
-            sys.stdout.write(f"\r  compiling {i + 1}/{len(bs)} blocks"); sys.stdout.flush()
+        # GUARDRAIL: report EVERY block, not every tenth. Seven seconds of silence is what "really slow" feels like, and
+        # the operator cannot tell a slow build from a wedged board - measured complaint, twice.
+        sys.stdout.write(f"\r  compiling {i + 1}/{len(bs)} blocks"); sys.stdout.flush()
     sys.stdout.write("\r" + " " * 40 + "\r")
     say(f"  {path}: {len(bs)} blocks, {time.time() - t0:.1f} s", DM)
     for blk, err in bad.items():
@@ -332,6 +331,8 @@ def main():
                     help="after loading, hand the terminal to the program (default word: RUN)")
     ap.add_argument("--library", action="store_true",
                     help="build the program library (resident launcher + demo images) and run the menu")
+    ap.add_argument("--repl", action="store_true",
+                    help="after --library's app exits, stay in the REPL instead of leaving (it holds the port)")
     ap.add_argument("--block", type=int, default=64, metavar="N", help="first block to use (default 64)")
     ap.add_argument("--port", default=os.environ.get("PORT", "/dev/ttyACM1"))
     ap.add_argument("--settle", type=float, default=1.0, help="seconds to wait after reset (default 1.0)")
@@ -365,6 +366,12 @@ def main():
             return 1
         if a.term is not None:
             term(dev, a.term)
+            # GUARDRAIL: `--library` RUNS the library; when the app exits, the run is over. Dropping into the REPL left a
+            # live process holding /dev/ttyACM1 for as long as the terminal stayed open, so the NEXT `./cli.py --library`
+            # had to be told "already open by pid ...". Measured: the operator's second run paid a 9 s reset attempt and
+            # then refused. Staying is available, explicitly: `--repl`.
+            if a.library and not a.repl:
+                return 0
         repl(dev, blk)
         return 0
     except KeyboardInterrupt:

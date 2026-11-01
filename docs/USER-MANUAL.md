@@ -34,14 +34,17 @@ There is also a bigger, faster chip in the same package doing errands for it: it
 ```
 
 That compiles a **resident launcher** (25 blocks, sealed at 1 686) and two programs as images above the seal — colour
-bars, 156 B, and a spinner, 180 B — then hands the terminal to the menu. It takes about **3 s to connect and 4 s to
-build**; most of the connect time is a real hard reset. `j`/`k` pick a program, **Enter runs it** (38–43 ms, measured),
-`q` comes back to the menu, and `q` on the menu returns you to the REPL. Any program can be re-entered any number of
-times; the images live in the block store and survive a reset.
+bars, 162 B, and a spinner, 222 B — then hands the terminal to the menu. The menu appears **~6.5 s after launch**:
+2.3 s is a real hardware reset plus the freshness check, and 4.3 s is 34 blocks compiled on a 19 MHz chip one round trip
+at a time (the build prints `compiling N/34 blocks` so it never looks wedged). `j`/`k` pick a program, **Enter runs
+it** (35–43 ms, measured), `q` comes back to the menu, and **`q` on the menu ends the run** and gives your port back —
+`--repl` stays in the REPL instead. Any program can be re-entered any number of times; the images live in the block
+store and survive a reset.
 
-The bars redraw on each key press. The spinner **runs by itself** at about four frames per second — that is `MS 250`
-doing its job — and both leave on `q`. `MS` is a busy-wait on this machine: nothing else happens during it, so keep
-sleeps short.
+The bars draw eight rows of blocks, each in its own colour, and redraw on every key press. The spinner **rotates**
+`| / - \` at about four frames per second (that is `MS 250` doing its job) with its phase number beside it. Both leave
+on `q`, and the menu paints exactly one row red — the selected one. `MS` is a busy-wait on this machine: nothing else
+happens during it, so keep sleeps short.
 
 What makes it work: the code that *performs* the switch sits below the seal, so replacing everything above it never
 replaces the caller. What it cost to learn: see `docs/25-program-library.md`.
