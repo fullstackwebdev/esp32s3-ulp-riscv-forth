@@ -455,3 +455,32 @@ before measuring, and the 5-blocks-per-phase part is confirmed).
    first when `bh` is 0.
 
 **Chip runs: 4 (budget 3).** Over by one, and the overrun was these two harness bugs, not a safety failure.
+
+## Step 4b: the ERR_STACK is CUMULATIVE, not phase 14 — and the run budget stopped there
+
+**Item 2 — PASS (host dry run, no chip run).** 15/15 distinct oracles; the harness's stack-health probe answered `3`
+after each of 14 source-load cycles on the host engine. Three parsing bugs of mine were fixed first (probe appended to
+the phase output; no newline before/after it) — all on the host, at zero chip cost.
+
+**Item 1 — the failure is cumulative.**
+- Sentinel over 14 cycles with a health probe after each: **cycles 1..13 all healthy** (`adopted=True`, probe `3`), and
+  the **14th cycle's source load** answered `ERR_STACK` on `12 LOAD` — before any dump or adoption for that cycle.
+- **Phase 14 alone on a freshly reset board: PASS** — `adopted=True`, cells `[9984, 778752, 0, 78, 128, 0]`, equal to
+  its host run.
+
+So phase 14's *content* is not the problem: something accumulates across cycles. The suite's own healthy-probe data rules
+out a per-cycle stack imbalance in the commands the harness issues (every probe answered 3 for 13 cycles), which leaves
+per-cycle state in the store/dictionary/return stack. **Not diagnosed** — the three-run budget was spent on the
+discriminator, which is the right thing to have bought, but it is not an answer.
+
+**Items 3 and 4 — NOT MEASURED.** Both sit after the 15-phase loop that stops at cycle 14, so there is no per-phase
+completion count and no 200-load timing. The 400 ms bound is untouched, as instructed.
+
+**Proposed next probes (cheapest first), for approval:**
+1. run the loop twice with the dump/adopt step removed (source loads only) — if it survives 15, the fault is in the
+   dump/adopt path; if it stops at 14 again, it is the load path;
+2. run it twice with a full overlay reset (`0 2 BLKXFER`, `2 OVL`) after each cycle — if that fixes it, the residue is
+   the block layer's, not the dictionary's;
+3. expose `sp`/`rsp` in a cell so a probe can report stack depth directly instead of inferring it from a later failure.
+
+**Chip runs: 3 (budget 3).** Stopped, not retried.
