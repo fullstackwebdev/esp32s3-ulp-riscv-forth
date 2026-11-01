@@ -70,16 +70,14 @@ extern const uint8_t bin_end[]   asm("_binary_ulp_main_bin_end");
 static void console_task(void *arg)
 {
     (void)arg;
-    uint8_t buf[64];
+    /* GUARDRAIL: no read buffer here. The UART is drained one byte at a time by seed_poll(), which owns both
+     * disciplines, and a 64-byte `buf` sat here unused for exactly that reason - the compiler named it every build.
+     * The old form read a burst into `buf` and `break`ed when the ring filled, which had already taken those bytes
+     * out of the UART FIFO: measured as an 88-character definition arriving mangled (`ARITH?`, then `DUP?`) with the
+     * tail silently lost. The whole-line refusal that replaced it lives in seed_poll ("line too long ... NOT sent").
+     * A warning that is always there is how a real dead variable gets ignored later. */
 
     for (;;) {
-        /* GUARDRAIL: read AT MOST what the ring can hold, and never read more than that into `buf`.
-         * The old form read up to 64 bytes and then `break`ed when the ring filled — but those bytes had
-         * already been taken out of the UART FIFO, so everything after the break was SILENTLY LOST. The
-         * comment claimed "drop nothing"; the code dropped the tail of every burst longer than the free
-         * space. Measured on the device: an 88-character definition arrived mangled (`ARITH?`, then `DUP?`)
-         * and the benchmark lines — the longest being 88 chars — could not be typed at all.
-         * Sizing the read to the free space makes the ring the only limit, which is what the ring is for. */
         /* the UART is read by seed_poll(), which forwards non-seed lines into the ring */
         seed_poll();   /* fast block seeding, host-side (see seed_poll) */
 
@@ -232,11 +230,49 @@ static uint32_t canary_used(void)
     return (low < STACK_TOP - CANARY_BASE) ? (STACK_TOP - CANARY_BASE - low) : 0u;
 }
 
-/* GUARDRAIL: this lives AFTER blkfile[] and BLK_N because it writes them; the first placement sat above the
- * store's declaration and failed with "'BLK_N' undeclared", which reads like a missing include.
- * Line format:  #b <block> <hex bytes>   - intercepted here, never forwarded to the ULP. */
+/* ---- the resident IDENTITY sum, written once ---------------------------------------------------------------
+ * An image carries absolute addresses and calls resident words by xt, so an adopt is only safe onto the dictionary
+ * it was built on. This sum is that check, and its range is the whole point:
+ *
+ *   [V_SEAL, blk_off)   the resident HEADER area, and NOTHING else.
+ *
+ * Header entries are 3 bytes, `imm1 | xt11 | hash12` (P54), so this region pins every resident name AND the xt the
+ * image will call - the only mismatch that makes an adopt execute garbage.
+ *
+ * GUARDRAIL: it must NOT cover [52, cs). That was the original range and it is the launcher's LIVE state: `SEL`, `q`,
+ * `qh`, `qt`, `qovf`, `brt`, `bh`, `bl`, `curblk` all live in it, and pressing `k` on the menu writes `SEL`. Measured
+ * with tests/adopt_sum.py on the device: the header area was byte-identical through three adopts and a `SEL` write,
+ * while [52, cs) moved by exactly 1 - sum 36585 -> 36586 - and the loader refused a dictionary that had not changed
+ * at all (`img: REFUSED resident dictionary changed (sum 36586, built on 36585)`, which is verbatim the message
+ * docs/25 recorded as unexplained). A guard that fires on ordinary use is worse than no guard: it teaches the
+ * operator to ignore the refusal.
+ *
+ * GUARDRAIL: the tradeoff is stated, not hidden. A resident BODY edit that keeps every header and every length is not
+ * detected here (nor by the pointer checks). Detecting it would mean knowing which resident bytes are mutable cells,
+ * which the header table does not record - a bigger machine change than this guard is worth, and a body edit that
+ * keeps the interface leaves a stale image perfectly callable.
+ *
+ * GUARDRAIL: one derivation, three callers (#d, op 3, and the retired #l). The old range was spelled out at each
+ * site, which is how the same bug gets fixed twice in two places and left in the third (R6).
+ */
+static unsigned resident_sum(const uint8_t *mi, unsigned top)
+{
+    unsigned hs = (unsigned)mi[12] | ((unsigned)mi[13] << 8);   /* V_SEAL = the sealed V_LATEST */
+    unsigned s = 0, k;
+    /* GUARDRAIL: clamp an impossible seal into range instead of returning a CONSTANT. A constant would match
+     * itself, so two differently-corrupt dictionaries would agree and the guard would pass the one case it must
+     * never pass. Clamping keeps the answer a function of the bytes. */
+    if (hs < 52u) hs = 52u;
+    if (hs > top) hs = top;
+    for (k = hs; k < top; k++) s = (s + mi[k]) & 0xffffu;
+    return s;
+}
+
 static void seed_poll(void)
 {
+    /* GUARDRAIL: this lives AFTER blkfile[] and BLK_N because it writes them; the first placement sat above the
+     * store's declaration and failed with "'BLK_N' undeclared", which reads like a missing include.
+     * Line format:  #b <block> <hex bytes>   - intercepted here, never forwarded to the ULP. */
     /* GUARDRAIL: 320 bytes, not 180. A full 128-byte block arrives as ~264 hex characters plus the "#b N " prefix,
      * so a 180-byte line buffer silently seeded 87 of 128 bytes per block and the phase source could not assemble
      * (measured as IDX? / Z1? during the load, and as a readback of 87 bytes). Size for the worst case. */
@@ -347,6 +383,11 @@ static void seed_poll(void)
              * the phase itself must define things and nothing else. */
             if (n > 4 && ln[0] == '#' && ln[1] == 'd' && ln[2] == ' ') {
                 unsigned v[6] = {0}; int k = 3, vi = 0, bad2 = 0;
+                unsigned vseal_now;
+                {   /* the machine's own sealed LATEST: the caller must not be the oracle for it */
+                    const uint8_t *sv = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    vseal_now = (unsigned)sv[12] | ((unsigned)sv[13] << 8);
+                }
                 while (vi < 6) {
                     while (ln[k] == ' ') k++;
                     if (!ln[k] || ln[k] < '0' || ln[k] > '9') { bad2 = 1; break; }
@@ -358,6 +399,13 @@ static void seed_poll(void)
                 } else if (v[0] + 1u >= BLK_N || v[2] < v[1] || v[4] <= v[3]
                            || 20u + (v[2] - v[1]) + (v[4] - v[3]) > (BLK_N - v[0]) * 128u) {
                     printf("dump: REJECTED (range or block overflow)\n");
+                } else if (v[4] != vseal_now) {
+                    /* GUARDRAIL: `he` must BE the machine's sealed LATEST - `bl @ .`, not `LATEST .`. Checked here, with
+                     * the other geometry checks, because the header bytes are COPIED from [v[3], v[4]): a wrong `he`
+                     * bakes a corrupt image that no adopt will ever accept, and the refusal would then surface at load
+                     * time as "sealed pointers moved" - a message about the guest, not about the caller's mistake. */
+                    printf("dump: REJECTED (hdr_end %u is not the sealed LATEST %u - pass `bl @ .`, not LATEST)\n",
+                           v[4], vseal_now);
                 } else {
                     const uint8_t *memimg = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
                     /* GUARDRAIL: the descriptor SHARES the first payload block (12 B of its 128), it does not get a
@@ -383,11 +431,13 @@ static void seed_poll(void)
                         d2[5] = (uint8_t)hl;  d2[6] = (uint8_t)(hl >> 8);
                         d2[7] = (uint8_t)v[1]; d2[8] = (uint8_t)(v[1] >> 8);
                         d2[9] = (uint8_t)v[3]; d2[10] = (uint8_t)(v[3] >> 8);
-                        /* 16 bytes: FI(2) ver(1) code_len(2) hdr_len(2) code_start(2) hdr_start(2)
-                         * payload_sum(2) resident_sum(2) reserved(1). GUARDRAIL: the RESIDENT sum is a separate
-                         * field on purpose - the payload sum only proves the image arrived intact, it says nothing
-                         * about the dictionary it will be pasted onto. Editing a resident word's body without
-                         * changing its length leaves HERE and LATEST identical, so pointers alone cannot detect it. */
+                        /* GUARDRAIL: 16 bytes: FI(2) ver(1) code_len(2) hdr_len(2) code_start(2) hdr_start(2)
+                         * payload_sum(2) resident_sum(2) reserved(1).
+                         * GUARDRAIL: the RESIDENT sum is a separate field on purpose - the payload sum only proves the
+                         * image arrived intact, it says nothing about the dictionary it will be pasted onto. But it is
+                         * the IDENTITY of that dictionary (its header table: name hash + xt per word), NOT a sum of
+                         * the resident code region - that region holds live cells and moves under the operator's
+                         * fingers. See resident_sum() for the measurement. */
                         d2[11] = (uint8_t)sum; d2[12] = (uint8_t)(sum >> 8);
                         /* GUARDRAIL: the entry xt must be written AFTER every other descriptor field. The 16-byte
                          * layout's old `d2[15] = 0` ("reserved") still ran after this line and zeroed the LOW byte:
@@ -397,14 +447,7 @@ static void seed_poll(void)
                         d2[15] = (uint8_t)v[5]; d2[16] = (uint8_t)(v[5] >> 8);   /* entry xt, 0 = none */
                         d2[2] = 2;                                              /* descriptor version 2 */
                         {
-                            unsigned rs = 0, k2;
-                            for (k2 = 52u; k2 < v[1]; k2++) rs = (rs + memimg[k2]) & 0xffffu;      /* resident code */
-                            /* GUARDRAIL: v[4] is the SEALED LATEST - the base of the RESIDENT headers. v[3] is the
-                             * post-load LATEST, i.e. the image's OWN header base. Using v[3] folded the image into its
-                             * own resident checksum, and at load time the loader compared image headers against
-                             * themselves: a clean image was refused with a name collision whose two entries were
-                             * byte-identical (measured with the offsets printed). */
-                            for (k2 = v[4]; k2 < (unsigned)ulp_repl_blk_off; k2++) rs = (rs + memimg[k2]) & 0xffffu;
+                            unsigned rs = resident_sum(memimg, (unsigned)ulp_repl_blk_off);
                             d2[13] = (uint8_t)rs; d2[14] = (uint8_t)(rs >> 8);
                         }
                     }
@@ -504,22 +547,32 @@ static void seed_poll(void)
                     unsigned cs2 = (unsigned)d2[7] | ((unsigned)d2[8] << 8);
                     unsigned hs2 = (unsigned)d2[9] | ((unsigned)d2[10] << 8);
                     unsigned psum2 = (unsigned)d2[11] | ((unsigned)d2[12] << 8);
-                    unsigned b2 = dblk, o2 = 20, i4, mism = 0, first = 0, ssum = 0, msum = 0;
+                    unsigned b2 = dblk, o2 = 20, i4, mism = 0, firstma = 0, ssum = 0, msum = 0;
+                    /* GUARDRAIL: the image's HEADERS do not follow its code in mem[]. Code sits at cs (it was compiled
+                     * upward from the seal) and the headers sit at hs, ABOVE it, growing down from the seal's LATEST -
+                     * measured: code 1666..1822 but headers 2020..2032, so the old `mi[cs2 + i4]` read 12 unrelated
+                     * bytes at 1822 and reported "12 byte(s) differ" on a perfect image. A check that lies teaches the
+                     * operator to ignore it, and this one is read exactly when something else is already wrong. */
                     for (i4 = 0; i4 < cl2 + hl2; i4++) {
                         uint8_t sv = blkfile[b2][o2];
-                        uint8_t mv = mi[cs2 + i4];
+                        unsigned ma = (i4 < cl2) ? cs2 + i4 : hs2 + (i4 - cl2);
+                        uint8_t mv = mi[ma];
                         ssum = (ssum + sv) & 0xffffu; msum = (msum + mv) & 0xffffu;
-                        if (sv != mv && !mism) { first = i4; }
+                        if (sv != mv && !mism) { firstma = ma; }
                         if (sv != mv) mism++;
                         if (++o2 == (blk_sz ? blk_sz : 128u)) { o2 = 0; b2++; }
                     }
-                    printf("cmp: %u B payload | store sum %u, mem sum %u, descriptor %u | %u byte(s) differ%s",
-                           cl2 + hl2, ssum, msum, psum2, mism, mism ? " -> FIRST AT " : "\n");
+                    printf("cmp: %u B payload (%u code @%u, %u hdr @%u) | store sum %u, mem sum %u, descriptor %u | "
+                           "%u byte(s) differ%s",
+                           cl2 + hl2, cl2, cs2, hl2, hs2, ssum, msum, psum2, mism,
+                           mism ? " -> FIRST AT " : " (mem[] holds the last ADOPTED image; before an adopt this "
+                                  "compares against whatever was pasted there before)\n");
                     if (mism) {
-                        unsigned off = first, bb = dblk, oo = 20;
+                        unsigned off = firstma < cs2 + cl2 ? firstma - cs2 : cl2 + (firstma - hs2);
+                        unsigned bb = dblk, oo = 20;
                         oo += off; while (oo >= (blk_sz ? blk_sz : 128u)) { oo -= (blk_sz ? blk_sz : 128u); bb++; }
-                        printf("%u (mem[%u]=%u, store b%u o%u=%u)\n", off, cs2 + off, (unsigned)mi[cs2 + off],
-                               bb, oo, (unsigned)blkfile[bb][oo]);
+                        printf("mem[%u] payload %u (mem[]=%u, store b%u o%u=%u)\n", firstma, off,
+                               (unsigned)mi[firstma], bb, oo, (unsigned)blkfile[bb][oo]);
                     }
                 }
                 fflush(stdout);
@@ -711,9 +764,11 @@ static void seed_poll(void)
                         badl = 1;
                     }
                     if (!badl) {
-                        unsigned rs = 0, k2, sum2 = 0;
-                        for (k2 = 52u; k2 < cs; k2++) rs = (rs + memimg[k2]) & 0xffffu;
-                        for (k2 = hs + hl; k2 < hdrtop; k2++) rs = (rs + memimg[k2]) & 0xffffu;   /* sealed LATEST */
+                        /* GUARDRAIL: the resident check is `resident_sum()`'s job - one definition of the range,
+                         * shared with #d and op 3 (R6). The local `sum2` that used to sit here was left unused by
+                         * that change and the compiler named it; a warning in this file is how a real dead variable
+                         * gets ignored later. */
+                        unsigned rs = resident_sum(memimg, hdrtop);
                         if (rs != rsum) {
                             printf("load: REFUSED resident dictionary changed (sum %u, image built on %u)\n", rs, rsum);
                             badl = 1;
@@ -944,9 +999,7 @@ static void block_task(void *arg)
                            cs, hs + hl, vhere, vseal);
                 }
                 if (!bad) {
-                    unsigned rs = 0;
-                    for (k2 = 52u; k2 < cs; k2++) rs = (rs + mi[k2]) & 0xffffu;
-                    for (k2 = hs + hl; k2 < top; k2++) rs = (rs + mi[k2]) & 0xffffu;
+                    unsigned rs = resident_sum(mi, top);
                     if (rs != rsum) { nack = 4; bad = 1; mb[3] = 0; mb[2] = 4; answered = 1; printf("img: REFUSED resident dictionary changed (sum %u, built on %u)\n", rs, rsum); }
                 }
                 if (!bad) {

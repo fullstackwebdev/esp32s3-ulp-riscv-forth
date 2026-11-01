@@ -1,8 +1,16 @@
 # 25 — A program library: resident launcher + behaviour images
 
 `examples/menu.fs` is a resident launcher. `examples/demo_bars.fs` and `examples/demo_spin.fs` are *programs*: compiled
-above the seal, dumped as behaviour images, and adopted at runtime. `tests/programs.py` builds the library and drives it
-over the real TTY.
+above the seal, dumped as behaviour images, and adopted at runtime. `./cli.py --library` builds the library and hands
+the terminal to the menu.
+
+```
+./cli.py --library
+```
+
+Enter runs the selected program, `q` returns to the menu, `q` on the menu returns to the REPL. The tests are
+`probe/repl/tests/{adopt_sum,programs,tui_cli}.py`, and `probe/repl/tests/device.sh` runs every hardware test in one
+command under the board lock.
 
 ## Why the layout is the only one that can work
 
@@ -10,41 +18,66 @@ over the real TTY.
 being replaced** — unless it sits below the seal. So:
 
 ```
-52 ................ 1650   resident launcher (ANSI words, menu, RW, SWITCH, dispatch)   ← never replaced
-1650 .............. 1788   adopted image: the selected program                        ← replaced on every switch
-2026 .............. 2152   headers, growing down                                            ← replaced
+52 ................ 1666   resident launcher (ANSI words, menu, RW, SWITCH, dispatch)   ← never replaced
+1666 .............. 1822   adopted image: the selected program                        ← replaced on every switch
+2020 .............. 2032   the image's headers, growing down from the seal
+2032 .............. 2476   the RESIDENT header table (444 B)                            ← never replaced
 ```
 
-Measured on the device (`tests/programs.py`, fresh boot): launcher 24 blocks, seal base 1 650, bars image 156 B of code
-(5 blocks at 50), spinner 92 B (5 blocks at 60).
+Measured on the device (`tests/adopt_sum.py`, fresh boot): launcher 24 blocks sealing at 1 666, sealed `LATEST` 2 032,
+bars image 156 B of code (4 blocks at 50), spinner 92 B (2 blocks at 60).
 
 ## Measured
 
 | claim | number | how |
 |---|---|---|
-| adopt + first frame | **42–43 ms** | Enter → the program's own frame with its sentinel |
+| adopt + first frame | **39–42 ms** | Enter → the program's own frame with its sentinel |
 | returning to the launcher (`q`) | works | the image `EXIT`s back to the resident caller |
-| menu → program (first switch) | works | bars, 5/5 runs |
-| menu → a *different* program after a switch | **REFUSED** | see below |
+| menu → program (first switch) | works | bars, 11/11 `tests/programs.py` |
+| menu → a *different* program after a switch | **works, 42 ms** | `tests/programs.py` "Enter → spinner (2nd program)" |
+| the shipped command | 10/10 | `tests/tui_cli.py`, driven through a pty as the operator runs it |
 
-## The open defect (named, measured)
+## The guard that fired on ordinary use (fixed, measured)
 
-After one program has been adopted and has returned, adopting a second one is refused:
+`docs/25` first recorded this as an open defect:
 
 ```
 img: REFUSED resident dictionary changed (sum 36586, built on …)
 ```
 
-The image carries a checksum of the resident region so it can refuse to be pasted onto a dictionary it was not built
-against — that guard is correct and it is doing its job. Its range is `[52, cs)` **plus** `[sealed LATEST, top)` (the
-resident headers and everything above them), and the preceding adopt writes an image's own headers into that tail. So
-the *first* adopt after a build matches and the *second* does not.
+with the hypothesis that the checksum's tail `[sealed LATEST, top)` is rewritten by the preceding adopt. **The
+hypothesis was wrong, and the measurement that killed it took one script and no firmware change**: snapshot `mem[]`
+with `#m` (main core, zero ULP bytes), diff the snapshots, compute the sums host-side.
 
-Not yet measured: which half of the range differs. The next step is to have `#d` print both partial sums and to
-compare them after a switch, then decide whether the tail belongs in the resident checksum at all (a header edit that
-preserves lengths is already detectable in `[52, cs)`).
+| snapshot | `[52,1666)` | `[2032,2476)` | total |
+|---|---|---|---|
+| after `#d 50` | 46 340 | 55 781 | **36 585** |
+| adopt 50, adopt 50 again, adopt 60 | 46 340 | 55 781 | 36 585 |
+| `1 SEL !` — what pressing `k` does | **46 341** | 55 781 | **36 586** → `REFUSED … (sum 36586, built on 36585)` |
 
-**This is a named refusal, not a hang: nothing is pasted and the launcher keeps running.**
+The header area never moved. `[52, cs)` — the resident *code* region — also holds the launcher's **live cells**
+(`SEL`, `q`, `qh`, `qt`, `qovf`, `brt`, `bh`, `bl`, `curblk`), and the menu writes `SEL` on every toggle. The guard was
+refusing a dictionary that had not changed, in normal use. `SEL` sits at 1 180.
+
+**The fix** (`main/repl_main.c`, one function, three callers): the resident sum now covers the **resident header table**
+`[V_SEAL, blk_off)` and nothing else. Header entries are 3 bytes, `imm1 | xt11 | hash12` (P54), so that region still
+pins every resident **name and the xt the image will call** — the only mismatch that makes an adopt execute garbage.
+Pointer checks (`cs == vhere`, `hs+hl == vseal`) still catch a different layout.
+
+**Tradeoff, stated rather than hidden:** a resident *body* edit that keeps every header and every length is no longer
+detected (it was before, by accident, in the same sum that made the guard unusable). Detecting it would mean knowing
+which resident bytes are mutable cells — the header table does not record that — and a body edit that keeps the
+interface leaves a stale image perfectly callable.
+
+**Verified in both directions**, because a guard nobody can trip is not a guard (`tests/adopt_sum.py`, 14/14):
+
+| check | result |
+|---|---|
+| both images carry the same identity | 55 781 / 55 781 |
+| adopt 50, adopt 50 again, adopt 60 | all status 0 |
+| a live cell moves no identity | `SEL` 0 → 1, sum unchanged, adopt still 0 |
+| a **forged** identity (`#p 60 13 …`) | `REFUSED … (sum 55781, built on 55782)`, nack 4 = `BK_CRC` |
+| restoring the field | adopts again, status 0 |
 
 ## Bugs this feature found (all fixed)
 
@@ -59,9 +92,18 @@ preserves lengths is already detectable in `[52, cs)`).
 4. **`W` is not a firmware word** — it is `0 BLOCK` in a test fixture. `BLKXFER` already pushes the address the entry
    sits at, so a launcher uses that.
 5. **`OVL` is `( blk -- )`, not a rewind**: it rewinds *and* loads a block, which arms source under running code. The
-   pure rewind is two stores, and the writable cells are `VH`/`VL` — `HERE !` is accepted and ignored.
+   pure rewind is two stores, and the writable cells are `VH`/`VL` — `HERE !` is accepted and ignored. **This one came
+   back**: the shipped `cli.py --library` still used `2 OVL` to return to the seal (it happens to work from the console),
+   and the test carried its own copy of the build, so nothing could catch it. The test now *is* `cli.library()`.
 6. **The machine refuses a redefinition** (`: XX … ; : XX … ;` → `XX?`), so a resident name and a program's name must
    not collide: `50 CONSTANT BARS` in the launcher made the program's own `: BARS` fail two files away.
+7. **`#c` compared the image's headers at the wrong address.** Code sits at `cs` and the headers at `hs`, which is *not*
+   `cs + cl` (measured: code 1 666..1 822, headers 2 020..2 032), so `#c` read 12 unrelated bytes and reported
+   "12 byte(s) differ" on a perfect image. A check that lies is worse than no check — it is read exactly when something
+   else is already wrong.
+8. **`--term`'s default word is `RUN`; the launcher's entry is `RUNP`.** `./cli.py --library` handed the terminal to a
+   word that does not exist, and the machine printed `RUN?` into an invisible alternate screen. The tool looked hung on
+   its own menu while it had not built one.
 
 ## The linter earned its keep
 

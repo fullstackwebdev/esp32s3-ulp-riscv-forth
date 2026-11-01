@@ -104,6 +104,60 @@ def upload(dev, path, first_block):
     return len(bs), bad
 
 
+LIB_FIRST, DEMO_FIRST = 70, 30          # launcher source; demo source is reused for every build
+LIBRARY = (("examples/demo_bars.fs", 50, "RUNB"), ("examples/demo_spin.fs", 60, "RUNS"))
+
+
+def library(dev, root):
+    """Build the program library: a resident launcher, then each demo as a behaviour image.
+
+    Returns the built descriptors ({path, desc, cs, ce, entry}), or None after printing why it refused. Callers
+    (tests/programs.py, tests/tui_cli.py) assert on the returned values instead of re-deriving them: two copies of
+    "what a good image looks like" is how one of them silently stops checking anything (R6).
+
+    GUARDRAIL: order is the whole trick. The launcher is compiled FIRST and sealed, so it stays resident while `BLKXFER`
+    op 3 rewinds the dictionary over the demos - code that performs an adopt cannot live in the region it replaces.
+    GUARDRAIL: rewind before every demo build. Without it the second demo is compiled on top of the first, the image
+    spans both, and adopting it runs whatever happened to be compiled last.
+    GUARDRAIL: the rewind is `RW` (the launcher's own `bh @ VH ! bl @ VL !`), NOT `2 OVL`. `OVL` is `( blk -- )`: it
+    rewinds AND arms a block as the interpreter's source, so inside a running word it queues a block to be COMPILED
+    instead of returning to the seal. It happened to work from the console and is wrong everywhere else.
+    """
+    here = dev.num("HERE .")
+    if here > 900:
+        # GUARDRAIL: a library built onto a non-fresh dictionary fails later as `ERR_DICT` in the middle of an upload,
+        # which reads like "the app is too big". Refuse here with the reason instead.
+        say(f"  the machine already has a program loaded (HERE {here}); reset it first", YL)
+        return None
+    n, bad = upload(dev, str(root / "examples/menu.fs"), LIB_FIRST)
+    if bad:
+        return None
+    dev.cmd("SEAL")
+    base = dev.num("bh @ .")
+    say(f"  launcher sealed at {base} ({n} blocks)", DM)
+    built = []
+    for path, desc, entry in LIBRARY:
+        dev.cmd("RW")                           # back to the seal, so this demo owns the space above it
+        n, bad = upload(dev, str(root / path), DEMO_FIRST)
+        if bad:
+            return None
+        cs, ce = dev.num("bh @ ."), dev.num("HERE .")
+        hs, he = dev.num("LATEST ."), dev.num("bl @ .")
+        ent = dev.num(f"' {entry} .")
+        # GUARDRAIL: a stub image is what a failed LOAD leaves behind (measured: 10 B), and EXECUTE then jumps into
+        # never-compiled bytes and spins with no error at all. The stub that actually hung the machine was 10 B, and a
+        # legitimate demo was once 92 B, so the minimum is 48 B - not the 120 B a phase-sized heuristic guessed.
+        if cs != base or ce - cs < 48 or not (cs <= ent < ce):
+            say(f"  {path}: code {cs}..{ce} ({ce - cs} B) entry {ent} - not buildable above the seal at {base}", YL)
+            return None
+        dev.cmd(f"#d {desc} {cs} {ce} {hs} {he} {ent}")
+        built.append(dict(path=path, desc=desc, cs=cs, ce=ce, entry=ent, blocks=n))
+        say(f"  {path}: {ce - cs} B of code -> block {desc}, entry {ent}", DM)
+    dev.cmd("RW")
+    say(f"  library ready: {len(LIBRARY)} programs; Enter runs one, q returns, q on the menu quits", CY)
+    return built
+
+
 def term(dev, word=None):
     """Hand the terminal to a Forth program: raw bytes in, everything out, full-screen escapes intact."""
     if word:
@@ -131,6 +185,8 @@ def term(dev, word=None):
             r, _, _ = select.select([fin, dev.fd], [], [], 0.2)
             if fin in r:
                 b = os.read(fin, 1)
+                if os.environ.get("DEBUG"):
+                    say(f"  [term] stdin {b!r}", DM)
                 if not b:
                     break
                 if b == b"\x03":                   # Ctrl-C: always ours, never the program's
@@ -142,6 +198,11 @@ def term(dev, word=None):
                 except OSError:
                     break
                 os.write(sys.stdout.fileno(), chunk)
+                # GUARDRAIL: this break means "the PROGRAM restored the screen". It fired on the very first frame of a
+                # working launcher, and the trace below is what shows whether the program or this host exited.
+                if os.environ.get("DEBUG"):
+                    rest = b"\x1b[?1049l" in chunk
+                    say(f"  [term] chunk {len(chunk)}B restore={rest}", DM)
                 if b"\x1b[?1049l" in chunk:        # the program restored the screen: it is done
                     break
     finally:
@@ -212,10 +273,14 @@ def main():
                     help="Forth program to upload and compile (repeatable)")
     ap.add_argument("--term", metavar="WORD", nargs="?", const="RUN", default=None,
                     help="after loading, hand the terminal to the program (default word: RUN)")
+    ap.add_argument("--library", action="store_true",
+                    help="build the program library (resident launcher + demo images) and run the menu")
     ap.add_argument("--block", type=int, default=64, metavar="N", help="first block to use (default 64)")
     ap.add_argument("--port", default=os.environ.get("PORT", "/dev/ttyACM1"))
     ap.add_argument("--settle", type=float, default=1.0, help="seconds to wait after reset (default 1.0)")
     a = ap.parse_args()
+    if a.library and a.include:
+        ap.error("--library builds its own sources; do not combine it with -i")
 
     dev = connect(a.port, a.settle)
     if not dev:
@@ -223,6 +288,15 @@ def main():
     try:
         blk = a.block
         failed = False
+        if a.library:
+            root = pathlib.Path(__file__).resolve().parent
+            if not library(dev, root):
+                return 1
+            # GUARDRAIL: `--term`'s default (const) is `RUN`, and the launcher has no such word - the menu's entry is
+            # `RUNP`. Left as RUN, the terminal was handed over and the machine answered `RUN?` into an invisible
+            # screen: the tool looked hung on its own menu. `--library` therefore RUNS the menu unless a word is given.
+            if a.term is None or a.term == "RUN":
+                a.term = "RUNP"
         for path in a.include:
             n, bad = upload(dev, path, blk)
             blk += n

@@ -300,6 +300,7 @@ rule that makes it work: *if it does not fit, the question is too big.*
 | 38 | "nothing of ours runs on the chip" | **it runs**: `2 3 + 4 * .` → 20, wake_count 0→60, no trap. Engine 4 314 B | P39 |
 | 39 | "the prelude can be compiled at boot" | needs **14 874 B** — 4 336 of it a duplicate dispatch switch from inlining, the rest the source in `.rodata` | P39 |
 | 40 | "we have an interpreter, so we have a REPL" | we had a **one-shot evaluator**; the REPL needed a ring pump, an echo and a prompt — now built and typed at on the chip | J-60 |
+| 41 | "the resident checksum covers the dictionary" (and docs/25's guess that an adopt rewrites its own headers above the seal) | the range included the launcher's **live** cells; `SEL` moved it by one byte and refused a good image. The tail had never moved | `tests/adopt_sum.py`, §J-102 |
 | 19 | P24 "6 pages / 6 faults per pass", P26 "3 pages / 0 faults" | **These were occupancy counts, not traces.** Re-traced: P24 is **7 pages / 13 faults per pass**, P26 is **2 pages / 0 faults**. P26's claim survives; P24's method did not | P25 |
 
 ---
@@ -1871,3 +1872,38 @@ Three things this taught:
 Next candidate, feature-neutral and unbuilt: the 4-byte header (`hash20|xt11|imm1`) could become 3 B
 (`hash13|xt10/2|imm1`) for **+85 B**, at the cost of two loads per lookup and a bake-time collision search.
 
+
+**J-102 · The guard refused a dictionary that had not changed — and the doc's own hypothesis was wrong.**
+The program library worked except for its last step: after one image had been adopted and returned, adopting a
+second was refused with `img: REFUSED resident dictionary changed`. `docs/25` recorded it as open, with a
+hypothesis — the checksum's tail `[sealed LATEST, top)` must be rewritten by the adopt itself — and a next step:
+"have `#d` print both partial sums".
+
+The next step was cheaper than that. `#m` already reads `mem[]` from the main core at zero ULP bytes, so a script
+could snapshot the whole resident region, diff it, and compute every candidate sum off-line: no firmware change for
+the diagnosis at all. What it said:
+
+* the tail `[2032,2476)` was **byte-identical** through three adopts — the hypothesis was dead on arrival;
+* `[52,1666)` — the resident code region — **also holds the launcher's live cells**, and pressing `k` writes `SEL`
+  at 1180. Sum 36 585 → 36 586, one byte. That is the refusal, verbatim: `(sum 36586, built on 36585)`.
+
+So the guard was firing on ordinary use, and it had been doing so since the menu gained a second entry. A guard that
+fires on normal use is worse than no guard: it teaches the operator to click past the one time it is right.
+
+The identity is now the **resident header table** only, `[V_SEAL, blk_off)`. Header entries are
+`imm1 | xt11 | hash12`, so that region pins every resident name *and* the xt an image will call — which is the only
+mismatch that makes an adopt execute garbage — and it does not move while the machine runs. One function, three
+callers (`#d`, op 3, and the retired `#l`), because the old range had been spelled out at each site (R6).
+
+What this session also caught, in the same sweep: the shipped `./cli.py --library` still used `2 OVL` to rewind (that
+is `( blk -- )`; it *arms a block*), `--term`'s default word `RUN` does not exist in the launcher (`RUNP` does, so the
+tool printed `RUN?` into an invisible screen), and `#c` compared an image's headers at `cs + cl` when they live at
+`hs` — reporting "12 byte(s) differ" on a perfect image.
+
+Verification is symmetric, because a guard nobody can trip is not a guard: three adopts in a row succeed (including a
+different image), a `SEL` write changes nothing, and a descriptor field forged with `#p` is still refused by name
+(`sum 55781, built on 55782`, nack 4 = `BK_CRC`).
+
+Device tests are now one command — `probe/repl/tests/device.sh`, 47 checks under the board lock — because the reason
+`2 OVL` survived in the shipped path was that each test carried its own copy of the build steps and the copy was
+never the one that shipped. `tests/programs.py` now calls `cli.library()` itself.

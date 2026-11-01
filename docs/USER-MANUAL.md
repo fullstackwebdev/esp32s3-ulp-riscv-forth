@@ -21,10 +21,25 @@ There is also a bigger, faster chip in the same package doing errands for it: it
 
 ```
 ./cli.py                     Forth REPL (about 1.5 s to connect)
+./cli.py --library           build the program library and open its menu
 ./cli.py -i app.fs           upload a program, compile it on the chip, then REPL
 ./cli.py -i app.fs --term    upload, then hand the whole terminal to the program
 ./cli.py -i app.fs --term RUN   ... and start it with the word RUN
 ```
+
+### The program library (the launcher)
+
+```
+./cli.py --library
+```
+
+That compiles a **resident launcher** (24 blocks, sealed at 1 666) and two programs as images above the seal — colour
+bars, 156 B, and a spinner, 92 B — then hands the terminal to the menu. `j`/`k` pick a program, **Enter runs it**
+(39–42 ms, measured), `q` comes back to the menu, and `q` on the menu returns you to the REPL. Any program can be
+re-entered any number of times; the images live in the block store and survive a reset.
+
+What makes it work: the code that *performs* the switch sits below the seal, so replacing everything above it never
+replaces the caller. What it cost to learn: see `docs/25-program-library.md`.
 
 Inside the REPL, lines starting with a dot are commands for your side, not the chip:
 
@@ -36,7 +51,7 @@ Inside the REPL, lines starting with a dot are commands for your side, not the c
 .quit          leave
 ```
 
-### The menu, right now
+### The menu, right now (the single-app version)
 
 ```
 ./cli.py -i examples/tui_min.fs --term RUN

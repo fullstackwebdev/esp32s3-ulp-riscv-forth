@@ -11,15 +11,12 @@ demo's start, the adopt would overwrite the very code doing the adopting, and th
 inside a working demo, not like a size error.
 """
 import os, sys, time, pathlib, select
-sys.path.insert(0, "tools")
-from devio import Dev
-from fsplit import split_defs
-
 ROOT = pathlib.Path(__file__).resolve().parents[3]
+# GUARDRAIL: ROOT must be on the path before `import cli` - this test drives the SHIPPING build path, and a test that
+# cannot see it is how the duplicate build steps crept back in.
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, "tools")
 EX = ROOT / "examples"
-MENU_FIRST, MENU_BLOCKS = 70, 30        # launcher source, compiled, then SEALed
-DEMO_FIRST = 30                          # demo source is re-used for each build
-BARS_DESC, SPIN_DESC = 50, 60            # 5 blocks each
 SENTINEL = b"\x00"
 CAP = 5.0
 PORT = os.environ.get("PORT_DEV", "/dev/ttyACM1")
@@ -58,72 +55,30 @@ def show(frame, n=120):
     return repr(t[:n])
 
 
-def compile_file(dev, path, first, name, results):
-    blocks = split_defs(path.read_text(), 92)
-    assert first + len(blocks) <= 128, f"{name}: would pass block 127"
-    missing = dev.seed_many([(first + i, b) for i, b in enumerate(blocks)])
-    if missing:
-        results.append((f"{name}: upload", False, f"no ack for {missing}")); return None
-    for i in range(len(blocks)):
-        rep = dev.cmd(f"{first + i} LOAD", timeout=25.0, allow_error=True)
-        errs = [l.strip() for l in rep.splitlines() if l.strip().endswith("?") or "ERR_" in l]
-        if errs:
-            results.append((f"{name}: compile", False, f"block {first + i}: {errs[0]}")); return None
-    results.append((f"{name}: compile", True, f"{len(blocks)} blocks"))
-    return blocks
-
-
 def main():
     results = []
-    dev = Dev(PORT)
+    import cli          # the SHIPPING build path, not a copy of it: one definition of "a good image" (R6)
+    dev = cli.connect(PORT, 1.0)
+    if not dev:
+        return report([("connect", False, "no board, or the dictionary is not fresh")])
     try:
-        fresh = False
-        for attempt in range(4):
-            # GUARDRAIL: a "reset" that did not happen silently poisons the run - the still-running launcher answers
-            # politely and the test compiles a second copy into a full dictionary. Prove freshness.
-            dev.pulse_reset(1.0) if attempt < 2 else dev.reset(settle=1.2)
-            try:
-                here = dev.num("HERE .", timeout=5.0)
-                free = dev.num("LATEST HERE - .", timeout=5.0)
-            except Exception:
-                continue
-            if here < 900 and free > 700:
-                fresh = True; break
-        results.append(("fresh boot", fresh, f"here={here} free={free}"))
-        if not fresh:
-            raise SystemExit(report(results))
-
+        free = dev.num("LATEST HERE - .", timeout=5.0)
+        results.append(("fresh boot", True, f"here={dev.num('HERE .')} free={free}"))
         dev.cmd("0 2 BLKXFER", timeout=6.0, allow_error=True)
-        if not compile_file(dev, EX / "menu.fs", MENU_FIRST, "launcher", results):
+
+        # GUARDRAIL: the build is cli.library(), the same call `./cli.py --library` makes. This test used to carry its
+        # own copy of the steps, which meant the shipped command could break while the test stayed green - and it did:
+        # the copy still said `2 OVL`, which is `( blk -- )` and arms a block instead of only rewinding.
+        built = cli.library(dev, ROOT)
+        results.append(("build the library (cli.library)", bool(built),
+                        "; ".join(f"{b['path']}: {b['ce'] - b['cs']} B -> block {b['desc']}" for b in (built or []))))
+        if not built:
             raise SystemExit(report(results))
-        dev.cmd("SEAL")
         base = dev.num("bh @ .")
-        results.append(("seal resident launcher", base > 786, f"base={base} HERE={dev.num('HERE .')}"))
+        for b in built:
+            results.append((f"{pathlib.Path(b['path']).name}: starts at the seal", b["cs"] == base,
+                            f"code {b['cs']}..{b['ce']} ({b['ce'] - b['cs']} B), entry {b['entry']}"))
 
-        for path, desc, entry in ((EX / "demo_bars.fs", BARS_DESC, "RUNB"),
-                                  (EX / "demo_spin.fs", SPIN_DESC, "RUNS")):
-            # GUARDRAIL: rewind to the seal BEFORE every build. Without the rewind each demo is compiled ON TOP of the
-            # previous one, the image spans both, and adopting it runs whatever happened to be last.
-            dev.cmd("2 OVL")
-            if not compile_file(dev, path, DEMO_FIRST, path.name, results):
-                raise SystemExit(report(results))
-            cs = dev.num("bh @ .")
-            ce = dev.num("HERE .")
-            # GUARDRAIL: a stub image is the signature of a failed LOAD (measured: 135 B instead of 576, and EXECUTE
-            # then jumps into never-compiled bytes and spins). Refuse by name instead of adopting it.
-            # GUARDRAIL: 120 B was the phase threshold and it wrongly rejected a legitimate 92 B, 2-block demo. The
-            # stub that actually hung the machine was 10 B, so the checks that matter are: the code starts AT the seal
-            # (not above it) and the entry point lands INSIDE the code it is supposed to run.
-            hs, he = dev.num("LATEST ."), dev.num("bl @ .")
-            ent = dev.num(f"' {entry} .")
-            if cs != base or ce - cs < 48 or not (cs <= ent < ce):
-                results.append((f"{path.name}: size", False,
-                                f"code {cs}..{ce} ({ce - cs} B) entry {ent}: expected code at seal {base} with entry inside"))
-                raise SystemExit(report(results))
-            dev.cmd(f"#d {desc} {cs} {ce} {hs} {he} {ent}", timeout=20.0)
-            results.append((f"{path.name}: image", True, f"{ce - cs} B of code -> blocks {desc}..{desc + 4}, entry {ent}"))
-
-        dev.cmd("2 OVL")
         os.write(dev.fd, b"RUNP\r"); time.sleep(0.35)
         os.write(dev.fd, b"!RAW\r"); time.sleep(0.25)
         menu = read_frame(dev)
@@ -145,7 +100,12 @@ def main():
         os.write(dev.fd, b"\r")
         s1 = read_until(dev, b"SPIN")
         t2 = time.time() - t0
-        results.append(("Enter -> spinner", b"SPIN" in s1 and clean(s1), f"{t2 * 1000:.0f} ms, {show(s1, 60)}"))
+        # GUARDRAIL: this is the check that failed for the whole feature (docs/25). It passed the moment the resident
+        # identity stopped being a sum of the LIVE resident region - `k` writes SEL, which lives in it. If this goes red
+        # again, read the refusal: `REFUSED resident dictionary changed` means resident_sum() and the writer disagree
+        # about what is mutable, NOT that the dictionary changed.
+        results.append(("Enter -> spinner (2nd program)", b"SPIN" in s1 and clean(s1),
+                        f"{t2 * 1000:.0f} ms, {show(s1, 60)}"))
         results.append(("k moved the marker", b"PROGRAM LIBRARY" in m3 and clean(m3), show(m3, 40)))
 
         os.write(dev.fd, b"q")

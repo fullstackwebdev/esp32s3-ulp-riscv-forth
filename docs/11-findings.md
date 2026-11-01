@@ -416,3 +416,25 @@ the load and the next trace line".
 string (`1324`) and prints `FIXED` when it starts passing. It lives outside `tests/*.fs` on purpose: that
 directory requires a golden per file, and recording `122` would be recording a gap.
 
+
+## F-123 · The resident-identity checksum covered the LIVE dictionary, so ordinary use refused a good image
+An image is only safe to adopt onto the dictionary it was built on, so `#d` baked in a 16-bit sum of the resident
+dictionary and the loader compared before pasting. The range was `[52, cs)` **plus** `[sealed LATEST, top)`.
+
+Measured with `tests/adopt_sum.py` (snapshot `mem[]` with `#m`, diff host-side — no firmware change needed):
+`[52, cs)` holds the launcher's mutable cells (`SEL` at 1180, `q`, `qh`, `qt`, `qovf`, `brt`, `bh`, `bl`, `curblk`), and
+pressing `k` on the menu writes `SEL`. Sum 36 585 → 36 586, and the second adopt was refused with
+`REFUSED resident dictionary changed` **on a dictionary that had not changed**. The tail never moved at all, through
+three adopts: the explanation recorded in `docs/25` (that adoption rewrites its own headers above the seal) was a
+hypothesis that no measurement had touched.
+
+The identity is now the **resident header table** `[V_SEAL, blk_off)` alone. Entries are 3 bytes
+(`imm1 | xt11 | hash12`), so it still pins every resident name and the xt the image calls — the mismatch that
+corrupts an adopt — and it is immutable while the machine runs. The tradeoff is explicit: a body edit that keeps every
+header and length is no longer detected, which the old sum only caught as a side effect of being unusable.
+
+Verified both ways: three adopts in a row succeed (including a different image), a `SEL` write changes no sum, and a
+**forged** descriptor field is still refused by name (`sum 55781, built on 55782`, nack 4 = `BK_CRC`).
+
+**Guarded by** `tests/adopt_sum.py` (14 checks, both directions) and `tests/programs.py` ("Enter → spinner (2nd
+program)"), which was the failing check for the whole feature.
