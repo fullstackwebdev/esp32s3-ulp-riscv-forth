@@ -81,3 +81,47 @@ duplicate — my earlier "+136 B free" was wrong.
 
 The EXIT path needs an `#else`: `if (!ip) { if (!vm_task_leave()) { ... return; } }` becomes the plain return when tasks
 are off. That is the only call site outside the scheduler.
+
+---
+
+## DONE: app space 690 → 1 453 B (+763 B, 2.1×) by rearrangement only
+
+No interpreter change. The task machinery was removed (it is documented as broken in `src/ulp_repl.c`: "the console
+replays stale command bytes and the REPL is lost — root cause not found; do not re-enable"), and the freed pool was
+converted into dictionary space.
+
+| step | pool | app space |
+|---|---|---|
+| shipped: `#define P43_TASKS 1` | 7 845 | 690 B |
+| `P43_TASKS` undefined (`0` does nothing: guards are `defined()`) | 7 581 | 690 B |
+| + scheduler/records guarded (`.text` −526, `.bss` −276, `.data` −4) | **7 039** | 690 B |
+| + `MEMSZ` 1 936 → 2 700 and a re-bake of `src/image.h` | 7 839 | **1 453 B** |
+
+### What had to change, and why each one
+
+1. **Declarations, not just functions.** Guarding the functions alone saved 264 B of `.text` and left the 272 B
+   `tskvm` array allocated — the linker kept it with every reference dead.
+2. **`vm_enter`'s EXIT path and `L_P_EXIT`/`L_P_PAUSE`** were the only live references; each needed an `#else`
+   (`ip == 0` ⇒ return to C; PAUSE ⇒ no-op resume). `p31_cases.inc` counts: those two bodies are inside the switch.
+3. **`VMDBG` disappeared** with the guarded block and the build failed with "implicit declaration of VMDBG" — a macro
+   that vanishes is a compile error, not a silent default, so an explicit no-op was added for the no-task build.
+4. **The host driver** also stepped tasks (`vm_next_ready`/`vm_run_tasks`), so the bake failed to link until that call
+   was guarded. The bake and the ULP build now share one capability set.
+5. **`tools/bake.sh`** required the same two changes: no `-DP43_TASKS`, and **MEMSZ is now a required argument** — a
+   default is how the shipping image was once baked at one size while the ULP built at another (E-079).
+6. **`MEMSZ` 2 700 with 17 B of pool left free.** Banking every byte would leave no slack, and a pool that overflows is a
+   link failure that looks like a code bug. `MEMSZ` and `image.h` are one decision: re-bake after any change, or the ULP
+   runs a dictionary built for a different memory size (measured: `LATEST HERE - .` answered nothing at all).
+
+### Gates, all device
+
+| gate | result |
+|---|---|
+| `tests/golden_battery.py check` | **17/17 identical** |
+| `tests/capabilities.py` | **11/11** (incl. net-stack-change 0) |
+| 15 phases from images | **15/15** |
+| host suite | **24 PASS / 0 FAIL** |
+| `#k` stack high-water | **240 B of 324** — unchanged by the relayout |
+
+Cost, stated plainly: `SPAWN`/tasks are gone from the shipped engine. It was already unusable per the source's own note,
+and the golden battery plus 11 capabilities cannot detect the loss of a capability that never worked.
