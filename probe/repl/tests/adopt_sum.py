@@ -28,7 +28,7 @@ refuses — that is why programs.py grew dump_state(). BLKXFER from the REPL is 
 GUARDRAIL: `RW` (the launcher's own pure rewind, `bh @ VH ! bl @ VL !`) after every adopt. An adopt leaves V_HERE at
 the image's end, so without the rewind the next upload compiles above the image and every later address is wrong.
 """
-import os, re, sys, pathlib
+import os, re, sys, time, pathlib
 
 HERE = pathlib.Path(__file__).resolve()
 ROOT = HERE.parents[3]
@@ -86,7 +86,14 @@ def blk_off(dev):
 
 
 def adopt(dev, desc):
-    """op 3 exactly as SWITCH issues it. BLKXFER is ( n op -- addr st ); the transcript is kept, not guessed."""
+    """op 3 exactly as SWITCH issues it. BLKXFER is ( n op -- addr st ); the transcript is kept, not guessed.
+
+    GUARDRAIL: there used to be a 30 ms sleep here, because the HP serviced a block request only on a 0->1 EDGE it had
+    SAMPLED (polling one FreeRTOS tick) and two adopts closer together than a poll were silently never answered. That
+    is fixed at the source - the HP now waits on the PENDING LEVEL (blk_out AND mailbox[2] == 0), which no poll gap can
+    miss - so the sleep is gone. It is gone deliberately: it was the workaround, and a workaround left in place hides
+    the day the fix regresses.
+    """
     rep = dev.cmd(f"{desc} 3 BLKXFER SWAP DROP .", timeout=25.0, allow_error=True)
     st = None
     for line in rep.splitlines():

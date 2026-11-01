@@ -55,6 +55,16 @@ CORPUS = [
     ("bad_r07.fs",   "an EMIT that is not provably 0..127",      "R7 byte range", "MUST-FAIL"),
     ("bad_r08.fs",   "KEY never tested against -1",              "R8 key -1",     None),
     ("bad_r11.fs",   "a definition that cannot fit one block",   "R11 fit",       None),
+    # GUARDRAIL: `'` must be exercised by a program that RUNS, not only by a lint fixture. The tick pushes an xt and
+    # SKIPS its operand - the shape that made an undefined ticked word invisible to the walk - and the dispatcher
+    # depends on it, so the corpus proves the chip executes `' BUMP EXECUTE` twice (counter 2) as well as the linter
+    # rejecting a tick of a word that does not exist.
+    ("06_tick.fs",   "`\'` pushes an xt and EXECUTE runs it",      None,            "2"),
+    ("bad_tick.fs",  "a `\'` of a word that does not exist",       "R2 order",      None),
+    # GUARDRAIL: the launcher's failed-adopt arm carried this exact bug for a whole turn: `' NOOP` inside a definition
+    # compiles a RUN-time parse, so the safety path parsed input instead of running NOOP, and nothing caught it. The
+    # corpus now holds both directions: `[']` is the good form (06_tick above) and a bare `'` in a body is R12.
+    ("bad_r12.fs",   "a bare tick inside a definition",          "R12 tick",      None),
 ]
 
 # 04_escape.fs emits escape bytes, so its device check is a byte pattern rather than text.

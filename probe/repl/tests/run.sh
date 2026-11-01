@@ -61,13 +61,17 @@ python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1
 # it is defined, and a backslash comment that compiled as words. Run its selftest, then lint every example.
 python3 tools/lint_forth.py --selftest >/dev/null || { echo "FAIL  linter selftest" >&2; fail=1; }
 # Strict lint for everything that can actually run on the machine.
-for f in ../../examples/tui_min.fs; do
+# GUARDRAIL: the launchers are linted here, not only on the board. `boot.fs`/`menu.fs` carried a bare `' NOOP` in PICKX's
+# refusal arm - a RUN-time parse inside a definition - for a whole turn; the linter had no rule for it, the device tests
+# never executed the refusal, and the bug was found by hand (F-134). A shippable file that no host check reads is a file
+# whose next regression waits for a chip session.
+for f in ../../examples/tui_min.fs ../../examples/boot.fs ../../examples/menu.fs; do
     if python3 tools/lint_forth.py "$f" >/tmp/lint.$$ 2>&1; then :; else
         echo "FAIL  lint $(basename "$f")" >&2; sed 's/^/      /' /tmp/lint.$$ >&2; fail=1
     fi
 done
 rm -f /tmp/lint.$$
-echo "PASS  linter (5 rules) on the shippable example"
+echo "PASS  linter (10 rules) on the shippable examples"
 # terminal_demo.fs is a WORK IN PROGRESS, and the reason is not laziness: it needs ~2 100 B of dictionary and the machine
 # has 1 366, so it cannot be loaded, cannot be tested on the board, and its 41 lint findings cannot be separated from
 # "this file is not finished". Its status is PRINTED so it cannot be forgotten.

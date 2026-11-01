@@ -24,7 +24,9 @@ flock -n 9 || { echo "board busy (another device run holds $LOCK)" >&2; exit 3; 
 # could not compile, and only the chip said so.
 # GUARDRAIL: `tools/sink.py --device` is last and is the only runner that does not live in tests/: it is the
 # CORPUS (small programs + their expected lint verdicts), so it doubles as the linter's regression suite.
-tests=(lint_vocab.py ms_clock.py tui_menu.py adopt_sum.py programs.py tui_cli.py)
+# GUARDRAIL: dispatcher.py is the chain/window test - it builds 24 generated phases and requires the chain
+# to reach the last one and return. It runs before programs.py because it resets to a bare dispatcher.
+tests=(lint_vocab.py ms_clock.py dispatcher.py tui_menu.py adopt_sum.py programs.py tui_cli.py)
 fail=0
 for t in "${tests[@]}"; do
     echo

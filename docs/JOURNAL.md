@@ -2122,3 +2122,76 @@ Two facts fell out of building it, both now pinned:
 * **the first block op after a hard reset can answer `ERR_BUSY`** — the store is still booting and the layer is latched
   (measured: HERE stayed 786, block 64 refused). One `0 2 BLKXFER` abort plus one retry is the documented escape; the
   runner does both, or the corpus fails for a reason unrelated to what it tests.
+
+**J-110 · Branch `dispatcher`: 1 193 B of window, 2.1 ms per hop, and the two bugs that hid behind a 10 ms tick.**
+Both halves of the operator's request are now numbers instead of arguments.
+
+**Window.** `examples/boot.fs` (dispatcher only: `CHAIN`/`PICKX`/`SWITCH`/`GO` + two cells = 134 B of code, 24 B of
+headers) leaves **1 193 B** where the full menu launcher leaves 254 B — 4.7×.
+
+**Unlimited.** `tests/dispatcher.py` builds 24 generated phases and requires each to run in order and the line to return:
+**24 hops, 50 ms, 2.1 ms/hop, counter 24, no refusals.** The ceiling is the store (128 blocks), not the design.
+
+**Then the operator said "make it faster than 20 ms" — and that request exposed two real bugs.**
+
+*F-132, the handshake.* The HP serviced a block request only on a 0→1 **edge it sampled** once per tick; a raw `BLKXFER`
+does not raise `blk_req`, so an ULP that re-raised the flag between two polls was never answered: 845 ms of BLKWAIT,
+`BK_NOSERVER`, flag left set, everything after that `BK_BUSY`. That is the "fourth hop" and the 41 Hz re-entry. Fixed by
+testing the **pending level** (`blk_out == 1 && mailbox[2] == 0`) — zero ULP bytes — plus publishing `blk_out` *after*
+the mailbox, because at boot mailbox[2] is 0 and a half-posted request got answered with power-on garbage (`ERR_CRC` on
+the first LOAD).
+
+*F-131, the canary.* `canary_paint()` wrote 0xA5 from a hardcoded `0x1EAC`, and **two bytes** of new code pushed
+`blk_out`/`blk_req` past it. Those are the only ULP globals zeroed at boot and never rewritten, so they read
+`0xA5A5A5A5` for ever — and the new level test believed it: **12 028 phantom requests in 2 s**, trampling the transfer
+window under a real `LOAD`. Symptom: `ERR_CRC` on the first block read after reset in 2–3 of 12 trials, then NAME?
+cascades, with a re-`LOAD` clean. Fixed by deriving the paint base from the pool budget the flash gate enforces, by
+testing `blk_out == 1` rather than "nonzero", and by a boot assertion that names the fault. 18/18 trials clean after.
+
+*F-133, the log line.* One `printf` per adopt is 4.8 ms of UART at 115200 and the block task cannot poll while it
+writes: it was 4.5 of the 5.1 ms a hop cost. Now behind `#v 1`, quiet by default (failures stay loud). With the
+hot-path spin (8 × 150 µs after a service, instead of a whole tick) the hop is **2.1 ms**.
+
+Also on this branch: the window is **declared** (`MIN_WINDOW = 200` in `cli.library()`, refused if violated — it had
+drifted 346 → 290 → 237 B silently); `connect()` proves the block server answers before handing over the port; the
+linter learned that `'` pushes an xt and skips its operand; and phase names must avoid resident hash collisions
+(`: P1` refused, `: PHASE1` compiled).
+
+**Rejected:** `CONFIG_FREERTOS_HZ=1000` reached 2.2 ms but exposed an unrelated intermittent garbage path (5 failures in
+11 trials at 1 kHz vs 0 in 6 at 100 Hz). One subsystem's latency is not worth the whole system's tick rate.
+
+**J-111 · "Do we have coverage of any of this?" — two holes, one of them a false guarantee.**
+The question found what the numbers had hidden.
+
+*The refusal arm was a lie.* The guarantee added with the window work — "a failed adopt STOPS the chain instead of
+executing stale bytes" — rested on `PICKX` returning a `NOOP` xt, and that arm read `UNLATCH ' NOOP`. Bare `'`
+(`P_TICK`) calls `word()` at **run** time; `[']` (`BTICK`, immediate) compiles a literal. So the arm compiled a *parse*
+that ran with no input and printed `?`. It never showed because the 24-hop test only ever adopted valid descriptors.
+Fixed in both launchers, and `tests/dispatcher.py` now **forces** the refusal: a phase chains to a block nobody described
+and the test requires the line to return, the counter to stop at 1, and `REFUSED` to be printed. Proof: revert the fix and
+`a chain into an UNDESCRIBED block returns` fails with no ` ok`.
+
+*The linter could not see it.* It modelled `'` as "push an xt, skip the operand" — right for the stack, wrong for the
+code, and it never checked that a ticked word exists. It now has **R12** (bare `'` inside a definition, message carries
+the fix), knows `[']`, and reports `['] NOXX` as R2. The corpus grew to 15 entries (`06_tick.fs` runs `[']` on the chip;
+`bad_r12.fs` and `bad_tick.fs` are the two refusals) and `tests/run.sh` now lints `boot.fs`/`menu.fs` — a shippable file
+that no host check reads is a file whose next regression waits for a board.
+
+Also added, both from the same "was that ever tested?" pass: `dispatcher.py` asserts the block server is **quiet at rest**
+(one idle second, stable `#u` total — the exact signature of the canary storm that cost two hours) and that the
+per-adopt line is off by default and follows `#v` both ways (the 8 ms/hop threshold could NOT have caught that one: 24
+hops x 4.8 ms is still 115 ms). `dispatcher.py` is 14 checks; the suite is 7 device files + a 15-entry corpus + the host
+suite, all green.
+
+**J-112 · The "HP off" behaviour is documented, because it was only in my head.** The operator asked what happens with
+the main core disabled, and the answer existed as three separate facts in three code paths. It is now a named section in
+`docs/25` ("What works with the HP switched off"), two rows plus a short paragraph in the user manual, and a pointer from
+`docs/22`: (1) block server absent but HP alive - everything resident keeps working (dictionary 786 to headers ~2 476),
+one `ERR_NO_SERVER` after `BLKWAIT` ~845 ms, then `ERR_BUSY` for every later block call until `0 2 BLKXFER`, which is a
+deliberate latch, not a second fault; (2) HP not running at all - no console, since the HP owns the UART and both rings,
+so a single baked program of 1 366 B; (3) the build switches that remove the HP from the picture on purpose
+(`BISECT_NO_FLASH_WRITE`, `P33_NOPAGE`, and `CANARY`, which is a keep).
+
+Every number in the table is quoted from the artefact that asserts it (`tests/blocks_noserver.fs` and its `.expected`,
+decoded byte for byte: `ERR_NO_SERVER -3`, then `5` from `2 3 + .`, then `ERR_BUSY -2`), so the document cannot drift from
+the machine without the host suite going red first.

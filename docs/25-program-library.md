@@ -105,6 +105,102 @@ being refused silently after two `EXECUTE` levels (the dump prints nothing) or t
 rewind. Measured facts to start from: `#u` while it spins shows `blk_out 1 req 0 off 2476`, and `V_HERE 1762
 V_LATEST 2023` — i.e. the dictionary is the sealed one, not the pasted one.
 
+## The dispatcher-only launcher: 1 193 B of window, and the race behind every stall (measured)
+
+The window is what the resident launcher leaves behind, so the biggest window comes from making the dispatcher the
+*only* resident thing. `examples/boot.fs` is that launcher — `CHAIN`, `PICKX`, `SWITCH`, `GO` and two cells, 134 B of
+code:
+
+| | full menu launcher | dispatcher only |
+|---|---|---|
+| code | 1 714 B | **134 B** |
+| headers | 168 B | **24 B** |
+| **window** | **254 B** | **1 193 B** |
+
+4.7×. And the chain runs: `tests/dispatcher.py` builds **24 generated phases** and requires every one to run and the
+line to return — measured **24 hops, 739 ms, 30.8 ms per hop, counter = 24, no refusals**. That is "unlimited
+chaining" in the sense that matters: **the count is bounded by the store (128 blocks), not by the design.** 24 phases
+at 2 blocks each is 48 of 128 blocks.
+
+### Why every chain stalled before this: one flag, sampled
+
+`BLKXFER` is a mailbox handshake, and the HP serviced a request **only on a 0→1 edge it sampled**, once per FreeRTOS
+tick (10 ms at `CONFIG_FREERTOS_HZ=100`):
+
+```c
+int fresh = out_now && !blk_out_prev;      /* "a request I happened to SEE arrive" */
+```
+
+A raw `BLKXFER` does not raise `repl_blk_req`, so if the ULP cleared and re-raised `blk_out` between two polls the HP
+saw `1 → 1`, decided "not fresh", and **never serviced it**. The ULP then waited out `BLKWAIT` (~845 ms), returned
+`BK_NOSERVER`, and *deliberately left `blk_out` set* — after which every adopt answered `BK_BUSY` instantly. The
+launcher ignored that status and `EXECUTE`d whatever was in the block window: the "phase body re-enters at 41 Hz" we
+chased.
+
+Three changes, all measured, none of them a delay:
+
+| change | where | effect |
+|---|---|---|
+| test the **pending level** `blk_out == 1 && mailbox[2] == 0` | HP (`.c`) | a missed poll can no longer lose a request — **0 ULP bytes** |
+| publish `blk_out` **after** the mailbox words | ULP (`.c`) | a half-posted request can never be seen |
+| keep polling 8 × 150 µs after a service (`hot`) | HP (`.c`) | the next chained request is ~100–300 µs away, not a tick |
+| `PICKX` checks the status and returns `NOOP` | `.fs` | a failed adopt **stops** the chain instead of running stale bytes |
+| that arm uses `['] NOOP`, not `' NOOP` | `.fs` | `'` parses the input at RUN time, so the arm was a parse, not an xt (`F-134`) |
+| the per-adopt `img: adopted …` line is behind `#v 1` | HP (`.c`) | it was 4.5 of the 5.1 ms a hop cost |
+
+**30.8 ms/hop → 2.1 ms**, i.e. 24 hops in 50 ms instead of 739 ms, and `tests/dispatcher.py` now asserts the *latency*
+(under 8 ms) so a tick wait creeping back fails the suite rather than being felt by a user.
+
+`cli.connect()` also proves the block server answers a read before returning: the ULP is armed ~500 ms before the main
+core creates the block task, so a caller could previously act while `blocksrv` did not exist yet.
+
+### Hops are not free, and names collide
+
+* **~2.1 ms per hop**, of which ≤1 ms is the HP's poll. A 24-phase program walks in 50 ms. Fine for staged programs,
+  still wrong for per-frame work.
+* **Phase names must not collide with resident names.** The dictionary stores a 12-bit hash and refuses a collision with
+  the same `NAME?` a missing word produces: `: P1` was **refused** while `: PHASE1` compiled. With ~60 resident words
+  that is ~2–3 % per name, and a paged design multiplies the number of names — so this grows teeth as phases multiply.
+
+## What works with the HP switched off (measured, three cases)
+
+The launcher, the store and the doorway all live on the **main core** (HP). The ULP only ever holds a 128 B transfer
+window plus its own dictionary. So "HP off" is not one situation, and the honest answer differs by case.
+
+**1 · Block server absent or wedged, HP otherwise alive — the machine keeps working.** Everything resident is in the
+ULP's own RAM (dictionary from 786, headers to ~2 476): arithmetic, control flow, colours, `MS`, `KEY`, the display.
+Only the block layer notices:
+
+```
+5 BLOCK .     -> ERR_NO_SERVER -3     the request waits out BLKWAIT (~845 ms), ONCE
+2 3 + .       -> 5                    the machine is still perfectly usable
+0 BLOCK .     -> ERR_BUSY -2          the latch was left set on purpose
+```
+
+The latch staying set is a **deliberate** consequence, not a bug: a late answer must not be raced into the next
+request's buffer, so the next block call is refused until the operator says the server is dead with `0 2 BLKXFER`
+(BLK_ABORT) or resets. That sequence is what `tests/blocks_noserver.fs` asserts, and it runs in its own process — one
+wedged request would poison every later test in the same session.
+
+**2 · HP not running at all — no console.** The HP owns the UART and both rings, so there is no prompt, no `cli.py`, no
+`#d`, no store. The ULP still runs its baked prelude and program. That is ULP-only operation, not an interactive
+machine, and the budget is the resident one: **1 366 B** of app space and a single program — no adopts, no chaining.
+
+**3 · Build switches, which are the supported way to remove the HP from the picture.**
+
+| switch | where | what turning it on does |
+|---|---|---|
+| `BISECT_NO_FLASH_WRITE` | `main/repl_main.c` | every commit becomes a no-op: RAM cache only, so nothing written survives power |
+| `P33_NOPAGE` | `src/uforth.c` | no paging at all |
+| `CANARY` | `main/repl_main.c` | the stack paint; keep it (its base is now the pool budget — `F-131`) |
+
+**What you cannot do without the HP:** adopt/chain (each phase needs the 128 B window filled), `LOAD`/`SAVE`, `#d`
+descriptors, and anything beyond the store's **128 blocks ≈ 16 KB**.
+
+**Why this is a safe degradation now:** before the level-test handshake, "no server" was not a refusal at all — the
+launcher dropped the status and re-executed whatever was in the window, which is the 41 Hz re-entry we chased. A missing
+server is now **one named refusal in ~845 ms**, and `PICKX` stops the chain there instead of running stale bytes.
+
 ## The guard that fired on ordinary use (fixed, measured)
 
 `docs/25` first recorded this as an open defect:

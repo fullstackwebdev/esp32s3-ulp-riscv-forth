@@ -292,3 +292,23 @@ separately, and the dirty-sector cache + explicit `COMMIT` (next step) is what m
 > A paged program and its images survive reset; size is still bounded at 16 KB.
 
 `SAVE` alone does not persist — `#f` commits (option (c)).
+
+### `#u` and `#v` (the block server's own instruments)
+
+`#u` prints what the server has actually *done* — the last 16 serviced requests as `op/blk/ms`, the running total, the
+ULP's `blk_out`/`blk_req` levels, the ring cursors and the wake count — plus `pending_ms`, the age of the request it is
+working on (`0` when idle). It answers while the ULP is silent, which is the entire point: "the ULP never asked" and
+"the HP never answered" look identical from the port.
+
+`#v 1` turns the per-adopt line back on. It is **off by default** because at 115200 baud that 55-character line is 4.8 ms
+of UART and the server cannot poll while it writes — it was 4.5 of the 5.1 ms a phase hop cost (`F-133`). Failures
+(REFUSED, nack, `ERR_*`) are never gated: only the success line is.
+
+### If the server is not there
+
+The store, the cache and the block server are all main-core code; the ULP owns only a 128 B transfer window. With no
+server the ULP gives **one** `ERR_NO_SERVER` after `BLKWAIT` (~845 ms) and then `ERR_BUSY` for every later block call
+until `0 2 BLKXFER` (BLK_ABORT) or a reset — deliberately, so a late answer cannot be raced into the next request's
+buffer. `BISECT_NO_FLASH_WRITE` keeps the server but makes every commit a no-op (RAM-only, nothing survives power);
+`P33_NOPAGE` removes paging entirely. The full three-case table is in
+[25-program-library.md](25-program-library.md#what-works-with-the-hp-switched-off-measured-three-cases).

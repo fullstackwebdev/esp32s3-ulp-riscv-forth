@@ -150,3 +150,44 @@ the hole is named in the test's own header comment.
 **Fail loud:** an invalid probe is written down as INVALID with its defects listed (see E-060, E-069, E-070). A
 negative result that is recorded is worth more than a positive one that is guessed — twice in this project the
 recorded negative stopped a week of work.
+
+## R13 — If the consumer can miss two changes, sample a level, not an edge
+
+**Lesson:** the block server looked for a rising edge of the ULP's request flag while polling once per FreeRTOS tick.
+An ULP that cleared and re-raised the flag between two polls was never serviced — 845 ms of `BLKWAIT`, `BK_NOSERVER`,
+and a flag left set so that everything afterwards answered `BK_BUSY`. Chased as "the fourth hop" and "the phase body
+re-enters at 41 Hz" for hours, and a 20 ms gap in the launcher hid it instead of explaining it. `F-132`.
+**Do instead:** publish a **level** that means "nobody has answered this yet" (`flag == 1 && answer_word == 0`), and
+publish the data *before* the flag. Then a poll that is arbitrarily late still sees the request. Reset the
+age/staleness timer with the answer, not with the sample.
+
+**Corollary — check the domain of a cross-core boolean.** `0xA5A5A5A5` is a perfectly good `if`. The paint canary
+had drifted on top of `blk_out`, the flag read `0xA5A5A5A5`, and a *level* test then invented 5 600 requests per second
+(`F-131`). Test `== 1`, and print the value by name when it is neither 0 nor 1.
+
+## R14 — A measuring instrument that writes must derive its base from an enforced budget
+
+**Lesson:** `canary_paint()` wrote 0xA5 from the constant `0x1EAC` "taken from nm". The image grows toward it, and two
+bytes of code put two live `.bss` words inside the paint. They were the only words there that are zeroed at boot and
+never rewritten, so they stayed `0xA5A5A5A5` and every block read after that was corrupted (`F-131`). The two failures
+that followed — `ERR_CRC` on the first block op, then a `NAME?` cascade — pointed at the loader, the splitter and the
+UART before they pointed at a diagnostic.
+**Do instead:** derive the base from the same number the build already enforces (`ULP_POOL_BUDGET == flash_safe.sh
+POOL`), so the instrument cannot overlap its subject unless the gate is bypassed. And assert the consequence at boot
+(`blk_out > 1` → FATAL by name) so the next occurrence takes one second, not two hours.
+
+**Corollary — off-by-one address arithmetic hides in "obvious" constants.** The first fix computed the base from
+`STACK_TOP 0x1FF0` and was 16 B low, because the top is not 0x2000. Write `base == budget` instead of
+`base == top - (total - budget)`.
+
+## R15 — The same name can be two words; test the form you ship
+
+**Lesson:** `'` (`P_TICK`, not immediate) calls `word()` at **run** time; `[']` (`BTICK`, immediate) calls `clit()` and
+compiles a literal. Inside a definition they are not the same thing at all: `: T ' NOOP EXECUTE ;` compiles a parse and
+prints `?` at run time, while `['] NOOP` works. The launcher's *refusal* arm used the broken form, so the "a failed
+adopt stops the chain" guarantee added the turn before was false — and the happy-path test (24 valid hops) could not see
+it, because that arm never executed (`F-134`).
+**Do instead:** cover the failure arm with a device test that **forces the failure** (`tests/dispatcher.py` chains into an
+undescribed block and requires the line to return, the counter to stop, and `REFUSED` to be printed), and confirm the new
+test fails when the fix is reverted. When two spellings look interchangeable, find the primitive table
+(`src/p31_prims.inc`) and read the immediate flag instead of assuming.

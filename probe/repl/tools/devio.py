@@ -187,10 +187,10 @@ class Dev:
 
     # GUARDRAIL: a refusal from the console (`line too long: ... NOT sent`) carries neither `ok` nor `?`, so it
     # timed out instead of being reported. Every console-side message must be a completion marker.
-    def cmd(self, line, timeout=5.0, allow_error=False, settle=0.02, # GUARDRAIL: `#i`/`#u` answer with "info:" and return WITHOUT an `ok`, so the default markers never matched and a
+    def cmd(self, line, timeout=5.0, allow_error=False, settle=0.02, # GUARDRAIL: `#i`/`#u` answer with "info:" and `#v` with "verbose:" and return WITHOUT an `ok`, so the default markers never matched and a
             # harness call waited until timeout while the answer was already in the buffer. Give the harness the real marker.
             markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:",
-                     "info:", "mem:", "cmp:", "stack:", "seed:", "dump:")):
+                     "info:", "mem:", "cmp:", "stack:", "seed:", "dump:", "verbose:")):
         """Send one line, read until the prompt marker (ok) or an error (?), return the transcript.
 
         GUARDRAIL: `settle` is the quiet window after the marker, and it costs 20 ms on EVERY command - 34 blocks of

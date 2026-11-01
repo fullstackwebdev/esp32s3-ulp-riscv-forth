@@ -128,7 +128,36 @@ def connect(port, settle):
             say("  * cable in?  * Linux: sudo usermod -aG dialout $USER (log out, in)", YL)
         return None
     dev.cmd("0 2 BLKXFER", timeout=6.0, allow_error=True)
-    say(f"  connected: fresh dictionary, {free} B free.", DM)
+    # GUARDRAIL: prove the block server ANSWERS before handing the port to a caller. The freshness probe above talks to
+    # the ULP, and the ULP is armed ~500 ms before the main core creates the block task - so `connect()` could return
+    # while `blocksrv` did not exist yet, and the first block operation then collided with its start. Measured as
+    # `ERR_CRC` on the first `LOAD` after reset in 3 of 12 trials (and as the boot banner `blocksrv up` arriving in the
+    # middle of that very reply), with the block log showing the task servicing its first requests at ms 1760 - i.e.
+    # AFTER the host had already asked. A readiness check has to test the capability, not a banner (the banner is printed
+    # once and is consumed by this function's own earlier drains): read block 0 and require status 0.
+    served = False
+    for _ in range(25):
+        # GUARDRAIL: `BLKXFER` leaves ( addr st ), so `DROP .` prints the ADDRESS (2476) and every caller read that as the
+        # status - it "failed" forever while the server was answering perfectly (measured: `2476 ok` four times in a row).
+        # `SWAP DROP .` is the idiom tests/adopt_sum.py already used.
+        rep = dev.cmd("0 0 BLKXFER SWAP DROP .", timeout=8.0, allow_error=True)
+        # GUARDRAIL: the block task's own debug lines carry numbers (blk=%u buf=%u sum=%u) and arrive AFTER the status
+        # while the ULP is still booting, so "the last number in the reply" was the transfer address 2476, not a status.
+        # Strip the server's diagnostics before parsing, exactly as tests/loader_tests.py does for the same reason.
+        kept = "\n".join(ln for ln in rep.splitlines()
+                         if not any(p in ln for p in ("info:", "blksrv", "dump:", "load:", "poke:", "seed:", "store:")))
+        nums = [int(m) for m in re.findall(r"-?\d+", kept.split("ok")[0])]
+        if nums and nums[-1] == 0:
+            served = True
+            break
+        time.sleep(0.1)
+    if not served:
+        say("  the block server never answered a read (status "
+            f"{nums[-1] if nums else 'none'}).", YL)
+        say("  the main core did not start its block task - check the boot banner for 'blocksrv FAILED'.", YL)
+        dev.close()
+        return None
+    say(f"  connected: fresh dictionary, {free} B free, block server answering.", DM)
     return dev
 
 
@@ -162,6 +191,11 @@ def upload(dev, path, first_block):
 
 
 LIB_FIRST, DEMO_FIRST = 70, 30          # launcher source; phase source is reused for every build
+# The window is DECLARED, not inherited. It is what is left above the seal after the resident launcher and its headers,
+# and every phase must fit in it. Measured drift in one afternoon: 346 -> 290 -> 237 B as the launcher grew, and at
+# 237 B a working 222 B program stopped fitting - which read as "the demo broke", not as "the budget moved". A floor
+# makes that a build error with numbers.
+MIN_WINDOW = 200
 # A PROGRAM is a chain of PHASES. One phase = one image = at most the window above the seal. The first phase's
 # descriptor is what the launcher is handed; every later one is reached by the phase itself calling `CHAIN`.
 LIBRARY = (
@@ -225,9 +259,17 @@ def library(dev, root):
     dev.cmd("SEAL")
     base = dev.num("bh @ .")
     say(f"  launcher sealed at {base} ({n} blocks)", DM)
-    built, window = [], 0
+    # GUARDRAIL: report the window ONCE, before building, and refuse a launcher that leaves the phases too little.
+    # `LATEST` here is the SEALED latest (the launcher's header base), so `LATEST - seal` is exactly the space a phase
+    # gets - not an estimate. `base` is the seal, read from the machine, so this cannot drift from what SEAL did.
+    built = []
+    window = dev.num("LATEST .") - base
+    say(f"  phase window: {window} B above the seal (launcher {base - 52} B of code + "
+        f"{dev.num('LATEST .')} headers)", CY if window >= MIN_WINDOW else YL)
+    if window < MIN_WINDOW:
+        say(f"  the launcher leaves {window} B, under the declared {MIN_WINDOW} B floor - move a feature into a phase", YL)
+        return None
     for program, phases in LIBRARY:
-        window = dev.num("LATEST .") - base   # the space above the seal: one phase must fit in it
         for i, (path, desc, entry) in enumerate(phases):
             dev.cmd("RW")                       # back to the seal, so this phase owns the space above it
             n, bad = upload(dev, str(root / path), DEMO_FIRST)

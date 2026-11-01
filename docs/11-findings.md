@@ -561,3 +561,90 @@ the splitter's docstring, and it is a family with the `CREATE`/`,` rule already 
 stack-self-contained.**
 
 **Guarded by** `tools/fsplit.py --selftest` (4 cases).
+
+## F-131 · The stack-paint canary was covering live `.bss`, and a "flag" of 0xA5A5A5A5 became a 5 600 Hz phantom storm
+`canary_paint()` paints the ULP stack region with 0xA5 before the coprocessor runs, so the high-water mark can be read
+back with `#k`. Its base was the constant `0x1EAC`, "taken from nm". The image grows toward it, and **two bytes** of new
+code (7 877 → 7 879) pushed `repl_blk_out` and `repl_blk_req` past that address.
+
+Those two words happen to be the only ULP globals that are **zeroed at boot and never rewritten** — everything else in
+that area is assigned by the ULP at run time, which is exactly why the damage looked like nothing at all. Both became
+`0xA5A5A5A5`, i.e. *truthy*, and the block server's test for "a request is pending" latched onto it: **12 028 phantom
+requests in 2 s**, each one writing the transfer window under a real `LOAD`. The symptom was `ERR_CRC` on the first block
+read after reset in 2–3 of 12 trials, then a cascade of `NAME?` for every word the truncated block had defined — with a
+`re-load` of the same block clean, because by then the phantom traffic had moved on.
+
+**Fixed** three ways, because one was not enough:
+* `CANARY_BASE` is now **the pool budget** (`ULP_POOL_BUDGET 7892`), the same number `flash_safe.sh` refuses to exceed —
+  so the paint cannot overlap the image unless the gate is bypassed. (A first attempt derived it from `STACK_TOP` and was
+  off by 16 B, because the top is 0x1FF0, not 0x2000: the same mistake in a new dress.)
+* the server tests `blk_out == 1`, not "nonzero": a word that is not 0 or 1 is not a request, and it now prints
+  `FATAL: ULP blk_out = 0x…` once instead of spinning.
+* a boot assertion rejects `blk_out > 1 || blk_req > 1` by name, before the block layer is used.
+
+Measured after: 0 requests at rest, and **18/18** upload trials clean (was 2–3 failures in 12).
+
+**Lesson:** a measuring instrument that writes to the thing it measures needs its base *derived from a budget the build
+enforces*, never copied from a map. And a boolean published across cores must be checked against its domain, because
+`0xA5A5A5A5` is a perfectly good `if`.
+
+## F-132 · A handshake that the poller SAMPLES must be a level, not an edge
+The block server services a ULP request, and the ULP waits for the answer. The server looked for a **rising edge** of
+`blk_out` — "a request I saw arrive" — while polling once per FreeRTOS tick. An ULP that cleared and re-raised the flag
+*inside* one poll interval was therefore never serviced: it waited out `BLKWAIT` (~845 ms), got `BK_NOSERVER`, left the
+flag set (so every later adopt answered `BK_BUSY`), and the launcher — which dropped the status — executed whatever was
+in the block window. That is the "fourth hop" and the "phase body re-enters at 41 Hz" we chased for hours.
+
+The fix is to test the **pending level**: `blk_out == 1 && mailbox[2] == 0`, where mailbox[2] is written 0 by the issuing
+side and 1 by the answering side. A level cannot be missed, however far behind the poller is. The age check that guards
+against a *late* service still works, because it is reset by the answer.
+
+**Ordering is part of the contract:** the ULP now publishes `blk_out` **after** the mailbox words, or the answering side
+could see "flag set, nothing written yet" — which at boot (mailbox[2] starts at 0) meant answering a request with
+power-on garbage.
+
+**Measured:** 8-hop chain went from stalling at hop 2 to 24 hops; without the ordering fix, `ERR_CRC` on the first block
+op after reset. Costs **zero ULP bytes** (7 877 before and after).
+
+**Lesson:** if the producer can change the state twice between two samples of the consumer, an edge is not a signal.
+Publish the data, then the flag.
+
+## F-133 · One `printf` per adopt was 4.5 of the 5.1 ms a phase hop cost
+At 115200 baud a 55-character line is ~4.8 ms of UART, and the block task cannot poll while it writes. The per-adopt
+`img: adopted code … entry …` line was therefore most of the hop. The answer is written *before* the print (so only
+latency was ever lost), and the line is now behind `#v 1` — quiet by default, because a 24-phase chain printed 24
+identical lines nobody reads and the status already travels back to Forth where `PICKX` checks it. Failures stay
+unconditional: a REFUSED adopt is never silent.
+
+Combined with the hot-path polling (8 × 150 µs after each service, instead of sleeping a 10 ms tick) the hop is now
+**2.1 ms**, from 30.8 ms with a launcher gap — a 14× change, measured by `tests/dispatcher.py`, which now asserts the
+latency and not only the outcome.
+
+**Tried and rejected:** `CONFIG_FREERTOS_HZ=1000` did reach 2.2 ms/hop, but it also exposed an unrelated intermittent
+garbage path (5 failures in 11 trials at 1 kHz against 0 in 6 at 100 Hz, `ERR_ULPCODE 0xff`). The world-wide tick rate
+is not the place to buy one subsystem's latency; the bounded spin is.
+
+## F-134 · `'` is a RUN-time parse, `[']` is the compile-time one — and the launcher's refusal arm used the wrong one
+`X(TICK,"'",0)` and `X(BTICK,"[']",1)`: bare `'` reads the next word **from the input stream when it executes**, while
+`[']` is immediate and calls `clit()` — it compiles a literal. So inside a definition:
+
+```
+: T ( -- ) ' NOOP EXECUTE ;        ( compiles a parse; at run time there is no input: two `?` lines )
+: T ( -- ) ['] NOOP EXECUTE ;      ( pushes NOOP's xt: correct )
+```
+
+`PICKX`, the arm that is supposed to make a **refused adopt stop the chain instead of executing stale bytes**, read
+`UNLATCH ' NOOP`. On the success path (`... ELSE DROP @ THEN`) that arm never ran, and the 24-hop test only ever adopted
+valid descriptors — so the guarantee added the turn before was **not true**, and nothing noticed for a whole turn.
+
+Found by asking "do we have coverage of any of this?" The linter modelled `'` as "push an xt, skip the operand", which is
+right for the stack effect and wrong for the code: a ticked operand was also never checked for existence.
+
+**Fixed:** both launchers use `['] NOOP`; the linter gained **R12** (a bare `'` inside a definition, with the fix in the
+message) and learned `[']`; the corpus gained `06_tick.fs` (`[']` runs on the chip) and `bad_r12.fs`/`bad_tick.fs`; the
+host suite lints `boot.fs` and `menu.fs`; and `tests/dispatcher.py` now **executes the refusal**: a phase chains to a
+block nobody described, and the test requires the line to RETURN, the counter to stop at 1, and `REFUSED` to be printed.
+Verified to fail without the fix (`a chain into an UNDESCRIBED block returns` → no ` ok`).
+
+**Lesson:** the same symbol can be two different words in this machine — `'` and `[']` differ by *when* they parse. If a
+guarantee's code path never runs in a test, the guarantee is a comment.

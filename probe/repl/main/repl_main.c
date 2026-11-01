@@ -33,6 +33,7 @@
 #include "ulp_main.h"
 #include "flash_store.h"
 #include "esp_system.h"
+#include "esp_rom_sys.h"   /* GUARDRAIL: esp_rom_delay_us is the bounded hot poll at the end of the server loop - see the note there */
 
 static void seed_poll(void);   /* defined after blkfile[]; called from the UART pump */
 
@@ -113,7 +114,30 @@ static uint32_t blk_sz;      /* transfer size, published by the ULP */
  * next block request. Main-core only, zero ULP bytes; without it the race cannot be provoked deliberately. */
 static uint32_t stall_ms;
 static uint32_t apply_stall_ms;   /* test-only: stall INSIDE the op-3 critical section, after the age check */
-static int blk_out_prev;      /* edge detector for the ULP's outstanding-request flag */
+static int blk_out_prev;      /* level of the ULP's outstanding-request flag, for `#u` only */
+/* GUARDRAIL: freshness is a LEVEL, not an edge. It used to be `fresh = blk_out && !blk_out_prev`, i.e. "a request I
+ * happened to SAMPLE arrive" - and this task polls only once per FreeRTOS tick (10 ms at CONFIG_FREERTOS_HZ=100, which
+ * R3 measured: pdMS_TO_TICKS(2) is 0). An ULP that cleared and re-raised blk_out between two polls was therefore never
+ * serviced: it waited out BLKWAIT (~845 ms), returned BK_NOSERVER, deliberately left blk_out set, and every later adopt
+ * answered BK_BUSY. Measured as a chain stalling at the SECOND hop, and as a test that passed 19/19 one run and died at
+ * the first adopt the next. A 20 ms gap in the launcher hid it; this removes the need for the gap.
+ *
+ * The level that cannot be missed is the mailbox's own answered word: the ULP writes 0 when it issues a request and
+ * this core writes 1 when it answers. So "outstanding AND not yet answered" IS the pending request, whatever happened
+ * between two polls. The age check below still does its job - it is now measured from when this core first SAW the
+ * pending level, and reset by an answer, so a missed transition cannot make a fresh request look stale. */
+static uint32_t req_ms;       /* when this core first saw the current PENDING request (0 = none) */
+/* GUARDRAIL: one `printf` per adopt was 4.5 of the 5.1 ms a phase hop cost. At 115200 baud a 55-character line is
+ * ~4.8 ms of UART, and this task cannot poll while it is writing, so the chain waited for its own log line. The answer
+ * is written BEFORE the print (see the op-3 handler), so only latency was lost, never correctness. `#v 1` brings it
+ * back for debugging; the default is quiet because a chain of 24 phases printed 24 identical lines nobody reads, and
+ * the STATUS already travels back to Forth (PICKX checks it). Failures stay unconditional - a REFUSED adopt is never
+ * silent. */
+static int img_verbose;
+/* GUARDRAIL: see the note at the bottom of the server loop - the hot counter is the latency fix that does not change
+ * the system-wide tick rate. 8 x 150 us = 1.2 ms of fast polling after each service, which covers the ~100-300 us a
+ * chained phase needs before it asks again. */
+static int hot;
 /* GUARDRAIL: `#u` showed the ULP silent while the HP console answered, which cannot distinguish "the ULP never asked"
  * from "the HP never answered". This ring records the last 16 requests this task actually SERVICED (op, blk, ms since
  * boot). It lives in .bss, NOT RTC memory: RTC slow RAM is fully owned by the ULP pool (adding 192 B there overflowed
@@ -126,7 +150,9 @@ static uint32_t req_total;
  * waiting" from "gave up". A destructive op (image load) must therefore be applied only inside a conservative fraction
  * of that window; outside it, refuse loudly instead of adopting a dictionary the machine was told it does not have.
  * Failure mode is a named nack, never silent corruption. */
-static uint32_t edge_ms;
+/* GUARDRAIL: this declaration is now `req_ms` (above, next to the level test it belongs to). The old `edge_ms` was the
+ * same idea KEYED TO A SAMPLED EDGE, so a missed poll made a fresh request look old; keeping the name would have kept
+ * the bug's shape. One variable, one meaning: "when this core first saw the request that is pending right now". */
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
 /* GUARDRAIL: blkfile is now a CACHE of the flash store, not the store. Placing it in flash is what makes a paged program
  * survive reset; keeping the array keeps the 16 existing direct indexes correct, but every WRITE must be committed or the
@@ -207,8 +233,20 @@ static void store_boot(void)
  * console (binary noise) because the ring is single-writer per index and the UART pump owns cmd_head in the same task.
  * The measurement now goes out through `#k`, which is an HP console command: no ULP bytes, no ring writer, no collision. */
 #define CANARY 1
-#define CANARY_BASE 0x1EACu
+/* GUARDRAIL: the paint base must be DERIVED from the pool budget, never copied from a map. It was 0x1EAC "from nm", and
+ * when the image grew past it - by TWO BYTES, 7 877 -> 7 879 - the paint started covering live .bss: `repl_blk_out` and
+ * `repl_blk_req` are only ever ZEROED at boot (everything else in that area is assigned by the ULP at run time, which is
+ * why only the flags broke), so both became 0xA5A5A5A5 for ever. A "flag" of 0xA5A5A5A5 is truthy to a level test, so
+ * the block server answered a request nobody had made 5 600 times a second (measured: 12 028 in 2 s), trampling the
+ * transfer window under a real LOAD - which surfaced as `ERR_CRC` on the first block read and a cascade of NAME?.
+ * The budget below is the SAME number flash_safe.sh refuses to exceed (POOL=7892), so the paint can never overlap the
+ * image unless the gate is bypassed: image end <= 0x1EC7 < base 0x1ED0. If POOL changes there, change it here. */
+#define ULP_POOL_BUDGET 7892u
 #define STACK_TOP   0x1FF0u
+/* the paint starts exactly AT the budget: flash_safe.sh refuses any image whose size passes ULP_POOL_BUDGET, so the
+ * image can never reach this address. Deriving it from STACK_TOP instead was off by 16 B (0x1FF0, not 0x2000) and put
+ * the base three bytes inside the image - the same mistake in a new dress. */
+#define CANARY_BASE ((uint32_t)ULP_POOL_BUDGET)
 #define CANARY_VAL  0xA5u
 
 static void canary_paint(void)
@@ -506,8 +544,8 @@ static void seed_poll(void)
                            (unsigned)(mi[16] | (mi[17] << 8)));
                     fflush(stdout);
                 }
-                printf("info: hp view: blk_out_prev %d edge_ms %u now_ms %u | store_ok %d\n",
-                       blk_out_prev, (unsigned)edge_ms,
+                printf("info: hp view: blk_out_prev %d pending_ms %u now_ms %u | store_ok %d\n",
+                       blk_out_prev, (unsigned)req_ms,
                        (unsigned)(xTaskGetTickCount() * portTICK_PERIOD_MS), store_ok);
                 fflush(stdout);
                 n = 0;
@@ -657,6 +695,18 @@ static void seed_poll(void)
                 int r = fs_format();
                 if (r == FS_OK) { store_ok = 1; memset(blkfile, ' ', sizeof blkfile); printf("format: ok, store empty\n"); }
                 else            printf("format: FAILED %s\n", fs_strerror(r));
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#v <0|1>` sets the per-adopt log line. It exists because that line is 4.5 ms of the 5.1 ms a
+             * phase hop costs (measured), and because a diagnostic you cannot turn on when you need it is worse than no
+             * diagnostic: adopt_sum.py and loader_tests.py both still read it, they just have to ask for it now. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'v' && ln[2] == ' ') {
+                int k = 3;
+                while (ln[k] == ' ') k++;
+                img_verbose = (ln[k] == '1');
+                printf("verbose: per-adopt lines %s\n", img_verbose ? "ON" : "off");
                 fflush(stdout);
                 n = 0;
                 continue;
@@ -907,18 +957,33 @@ static void block_task(void *arg)
     uint32_t seen = 0;
 #endif
     for (;;) {
-        /* GUARDRAIL: service a request only on a FRESH edge of the ULP's outstanding-request flag (or when a Forth
-         * verb raised repl_blk_req). The naive version - "service whatever blk_out advertises" - was measured twice
-         * wrong: (1) when this task is stalled past the ULP's BLKWAIT, the ULP returns BK_NOSERVER (-3) and leaves
-         * blk_out set, so the late service still ADOPTED the image the machine had been told it does not have
-         * ("img: adopted ... entry 1280" after a -3); (2) with blk_out set for ever after that timeout, the naive
-         * task re-serviced the same stale request continuously and flooded the console.
-         * An edge cannot be missed: this task polls every FreeRTOS tick (~10 ms) and BLKWAIT is ~845 ms measured. */
+        /* GUARDRAIL: `pending` is "a request is out and nobody has answered it". The answered word (mailbox[2]) is
+         * written 0 by the ULP when it issues and 1 by this core when it answers, so the pair survives any number of
+         * missed polls - which is the whole point (see the note on `req_ms`). The two nastier variants of "service
+         * whatever blk_out advertises" stay excluded: a late service is refused by the age check below, and a
+         * completed request cannot be re-serviced because this core's own answer sets mailbox[2] away from 0. */
+        volatile uint32_t *mbp = (volatile uint32_t *)(ULP_RAM_BASE + ulp_repl_mb_addr);
+        uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         int out_now = (int)ulp_repl_blk_out;      /* read once: the other core clears it when it has the answer */
-        int fresh = out_now && !blk_out_prev;     /* a request this task actually SAW arrive */
+        /* GUARDRAIL: `== 1`, not "nonzero". The flag is written as 0 or 1, so anything else is not a request - it is
+         * corrupt memory, and treating it as truthy made this task service 5 600 phantom requests a second (see the
+         * note on CANARY_BASE). Fail by name instead of spinning. */
+        if (out_now != 0 && out_now != 1) {
+            static int complained;
+            if (!complained) {
+                complained = 1;
+                printf("FATAL: ULP blk_out = 0x%08x, which is not a flag - image/paint overlap?\n", (unsigned)ulp_repl_blk_out);
+                fflush(stdout);
+            }
+            vTaskDelay(1);
+            continue;
+        }
+        int pending = (out_now == 1) && (mbp[2] == 0u);  /* a request this core has not answered */
         blk_out_prev = out_now;
-        if (fresh) edge_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        if (ulp_repl_blk_req || fresh) {
+        if (pending) { if (!req_ms) req_ms = now_ms; }
+        else req_ms = 0;
+        if (ulp_repl_blk_req || pending) {
+                hot = 8;                  /* GUARDRAIL: the next request in a chain is ~100-300 us away - stay awake */
                 if (stall_ms) { vTaskDelay(pdMS_TO_TICKS(stall_ms)); stall_ms = 0; }
 #if defined(BLK_DEBUG)
             if (seen < 3) {
@@ -956,7 +1021,7 @@ static void block_task(void *arg)
                  *   header collision  -> 6 (BK_BUFOVER) a pasted header must not shadow a resident name */
                 const uint8_t *desc = blkfile[blk];
                 uint8_t *mi = (uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
-                uint32_t age = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - edge_ms;
+                uint32_t age = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - req_ms;
                 if (age > 400u) {          /* 400 ms < BLKWAIT ~845 ms: past this the ULP has certainly given up */
                     /* GUARDRAIL: answer the ULP FIRST, print second. The ULP is blocked on this word, and stdout can
                      * stall for milliseconds on the USB console - measured as 50 adoption cycles where an op-3 answer
@@ -972,7 +1037,7 @@ static void block_task(void *arg)
                  * copied. The entry check alone is not enough: a stall of 2 s inside the section happened after the
                  * check passed, and the copy would then land in a dictionary the ULP had already been told it does not
                  * have. The bound has to be tested where the decision is taken. */
-                age = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - edge_ms;
+                age = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - req_ms;
                 if (age > 400u) {
                     mb[3] = 0; mb[2] = 5;
                     printf("img: REFUSED stale request after the stall (%u ms old) - nothing applied\n", (unsigned)age);
@@ -1055,8 +1120,12 @@ static void block_task(void *arg)
                     /* the entry xt rides back in the block window: 4 bytes, little-endian */
                     buf[0] = (uint8_t)(entry & 0xffu); buf[1] = (uint8_t)((entry >> 8) & 0xffu);
                     buf[2] = 0; buf[3] = 0;
-                    mb[3] = 0; mb[2] = 1u;      /* answer FIRST - see the GUARDRAIL above */
-                    printf("img: adopted code %u + hdr %u from block %u, entry %u\n", cl, hl, (unsigned)blk, entry);
+                    /* GUARDRAIL: clear req_ms WITH the answer. Waiting for the next poll to notice mailbox[2] != 0
+                     * would leave the previous request's timestamp in place, and a request that arrived inside that
+                     * same poll window would inherit an age it never had. */
+                    mb[3] = 0; mb[2] = 1u; req_ms = 0;   /* answer FIRST - see the GUARDRAIL above */
+                    if (img_verbose) printf("img: adopted code %u + hdr %u from block %u, entry %u\n",
+                                            cl, hl, (unsigned)blk, entry);
                     answered = 1;
                 }
                 if (!answered) { mb[3] = 0; mb[2] = bad ? nack : 1u; }
@@ -1078,7 +1147,7 @@ img_done:   ;
                 }
 #endif
                 mb[3] = s & 0xffffu;
-                mb[2] = 1u;
+                mb[2] = 1u; req_ms = 0;      /* GUARDRAIL: an answer ends the pending episode here, not on the next poll */
             } else {                             /* WRITE */
                 uint32_t s = 0; int i;
                 for (i = 0; i < (int)blk_sz; i++) s += buf[i];
@@ -1096,14 +1165,28 @@ img_done:   ;
                      * stayed alive (intermittent, 2 of 5 attempts). Persistence is explicit: `#f`, `#d`, seeding. The
                      * cost of this rule is that SAVE alone does not persist, and the claim says so. */
                     blk_dirty(blk);
-                    mb[2] = 1u;
+                    mb[2] = 1u; req_ms = 0;  /* GUARDRAIL: same rule on the WRITE path - an answer resets the age */
                 }
             }
         }
         /* GUARDRAIL: the painted high-water mark is reported by `#k`, not from this loop. Injecting a Forth line into the
          * command ring from here corrupted the console (binary noise) because this task and the UART pump both own
          * cmd_head. A reader (`#k`) cannot collide with the writer. */
-        vTaskDelay(1);                            /* 1 ms: the ULP's poll is bounded, so keep this short */
+        /* GUARDRAIL: this delay IS the block-request latency - the ULP has nothing to run on until it is answered - and
+         * one FreeRTOS tick is 10 ms at CONFIG_FREERTOS_HZ=100, so a naive poll charges every phase hop an average of
+         * half a tick: measured 10.7 ms/hop, all of it this line.
+         * Raising CONFIG_FREERTOS_HZ to 1000 DID cut the hop to 2.2 ms (measured) but made block seeding/LOADing
+         * intermittently deliver garbage (`ulp: ERR_ULPCODE 0xff`, then NAME? cascades) - 5 failures in 11 trials at
+         * 1 kHz against 0 in 6 at 100 Hz. That is a REAL finding (F-131), not a reason to crank the clock, so the tick
+         * stays at 100 Hz and the latency is bought narrowly instead:
+         *
+         * `hot` is the number of extra 150 us polls to do after servicing a request, because a chain's next request
+         * arrives ~100-300 us later (the ULP copies 128 B, runs a 20 B phase and asks again). A bounded spin on the hot
+         * path costs ~1.2 ms of this core ONLY while a chain is running, and falls back to the tick the moment it goes
+         * quiet - do NOT make this an unbounded busy-wait: this task and the console task share a core, and a task that
+         * never yields starves the console (R3). */
+        if (hot) { hot--; esp_rom_delay_us(150); }
+        else vTaskDelay(1);                       /* idle: one tick, and the console keeps the core */
     }
 }
 
@@ -1168,6 +1251,16 @@ void app_main(void)
      * apart. This line is the proof that the ULP is alive; its absence is a different failure. */
     vTaskDelay(pdMS_TO_TICKS(500));
     printf("ulp woke %u times\n", (unsigned)ulp_repl_wake_count);
+    /* GUARDRAIL: prove the paint did not land on live state BEFORE anything uses the block layer. These two words are
+     * the only ULP globals that are zeroed at boot and never rewritten, which makes them the canary for the canary -
+     * 0xA5A5A5A5 here cost two hours of chasing ERR_CRC through the LOAD path. Cheap, loud, at boot. */
+    if (ulp_repl_blk_out > 1u || ulp_repl_blk_req > 1u) {
+        printf("FATAL: ULP block flags read 0x%08x / 0x%08x - the stack paint is covering live .bss\n"
+               "       (CANARY_BASE 0x%X vs pool budget %u B) - fix ULP_POOL_BUDGET before anything else\n",
+               (unsigned)ulp_repl_blk_out, (unsigned)ulp_repl_blk_req, (unsigned)CANARY_BASE, (unsigned)ULP_POOL_BUDGET);
+        fflush(stdout);
+        for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
+    }
     fflush(stdout);
 
     /* GUARDRAIL: console_task installs the UART driver, so it must exist before anything that prints at

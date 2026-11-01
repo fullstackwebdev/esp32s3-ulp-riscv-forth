@@ -1,0 +1,2 @@
+: NOOP ( -- ) ;
+: RUNSINK ( -- ) ' NOOP EXECUTE ;
