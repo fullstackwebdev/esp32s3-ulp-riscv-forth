@@ -104,6 +104,17 @@ class Dev:
 
     def close(self):
         if self.fd is not None:
+            # GUARDRAIL: leave the board in the RUN state. DTR is wired to IO0 and RTS to EN; a script that exits with
+            # IO0 low leaves the next reset selecting the DOWNLOAD BOOTLOADER, which looks exactly like a dead board
+            # (measured twice: silent on every port, recovered only by reflashing or a reset that happened to hit the
+            # right edge). Drive IO0 high and release EN before closing.
+            try:
+                import fcntl, struct
+                TIOCM_DTR, TIOCM_RTS = 0x002, 0x004
+                fcntl.ioctl(self.fd, termios.TIOCMBIS, struct.pack("I", TIOCM_DTR))
+                fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_RTS))
+            except Exception:
+                pass
             os.close(self.fd)
             self.fd = None
 
