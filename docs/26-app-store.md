@@ -150,7 +150,8 @@ which is exactly right. The principle the arithmetic exposes:
 
 | range | owner | durable? |
 |---|---|---|
-| 0–7 | reserved (descriptor packing, never content) | – |
+| 0–6 | reserved (descriptor packing, never content) | – |
+| 7 | **sheet data**: 36 cell values in one block (`7 BLOCK` … `UPDATE` … `SAVE`) | yes |
 | 8–15 | calc1 descriptor | yes |
 | 16–23 | calc2 descriptor | yes |
 | 24–31 | sheet1 descriptor | yes |
@@ -166,6 +167,20 @@ which is exactly right. The principle the arithmetic exposes:
 Rules that follow: a phase lives in the range of its *descriptor* (that is what `GO` chains to); the staging range is
 reused by every upload and must never hold anything a phase needs at run time; content ranges never move, because page N is
 `START + N*8` arithmetic.
+
+### Writing a block back: three steps, and the second one is the trap
+
+```
+7 BLOCK        ( -- addr )   read the block into the buffer
+... C! ...     poke bytes into that buffer
+UPDATE         ( -- )       mark it dirty        <-- REQUIRED
+SAVE           ( -- st )    write it back, 0 = ok
+```
+
+`p_blk_save` begins `if (dirty == 0) { PUSH(0); return; }` — so **`SAVE` without `UPDATE` returns 0 and writes nothing**.
+An app that forgets `UPDATE` reports success on every keystroke and loses its data on the next entry, with a green test.
+The same class of trap governs descriptors: `#d` plus a power cycle needs `#f` (measured by lane R). Any logic test for
+stored data must assert a poke → `UPDATE` → `SAVE` → re-`BLOCK` round-trip, not just that nothing errored.
 
 **One phase per app, and a view is not a capability.** The store is exactly full at 7 descriptors, so a second phase is
 never free: it costs 8 blocks that have no home. A *view* (inbox vs message, page vs search results) is a cell and a
