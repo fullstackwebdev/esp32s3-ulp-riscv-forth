@@ -1,0 +1,53 @@
+{
+ "arith": [
+  "5 ok"
+ ],
+ "arith-nest": [
+  "5 ok"
+ ],
+ "begin-until": [
+  "5 ok"
+ ],
+ "begin-while": [
+  "5 ok"
+ ],
+ "block-refetch": [
+  "32 ok"
+ ],
+ "block-rw": [
+  "65 ok"
+ ],
+ "block-write2": [],
+ "cell": [
+  "42 ok"
+ ],
+ "colon-def": [
+  "81 ok"
+ ],
+ "compare": [
+  "-1 0 -1 -1 ok"
+ ],
+ "divmod": [
+  "3 1 ok"
+ ],
+ "image-exec": [
+  "[]",
+  "[8320, 540800, 0, 65, 128, 0]"
+ ],
+ "line-long": [
+  "line too long: 64 bytes, the ring holds 63 - NOT sent"
+ ],
+ "line-ok": [
+  "3 ok"
+ ],
+ "stack-ops": [
+  "2 1 2 ok"
+ ],
+ "undefined": [
+  "NOPE?"
+ ],
+ "underflow": [
+  "stack?",
+  "5 ok"
+ ]
+}

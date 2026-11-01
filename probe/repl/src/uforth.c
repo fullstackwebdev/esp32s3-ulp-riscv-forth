@@ -947,6 +947,11 @@ static u16 mkhdr(u8 cf)
  * `(from + i) % NTSK` with NTSK 3 is a divide-by-constant (multiply-high sequence on RV32IMC) and with
  * NTSK 2 it is a single `and`. The cost is real: at most TWO tasks may exist at once, and a third SPAWN
  * must fail loudly rather than silently do nothing. */
+/* GUARDRAIL: the whole task machinery is behind P43_TASKS, declarations included. Guarding only the functions saved 264 B
+ * of .text but left 272 B of .bss (`tskvm`) allocated, because the arrays were declared unconditionally - the linker kept
+ * them even with every reference dead. With tasks undefined there is no SPAWN (documented as broken: it loses the REPL)
+ * and the two VM records plus the states are unreachable, so they must not exist. */
+#if defined(P43_TASKS)
 #ifndef NTSK
 #define NTSK 2
 #endif
@@ -959,6 +964,7 @@ static u16 mkhdr(u8 cf)
 static u8 tskstate[NTSK];   /* 0 free, 1 ready, 2 done */
 static VM tskvm[NTSK];
 static int cur = -1;                  /* -1 = run() is the outer interpreter, not a task */
+#endif /* defined(P43_TASKS) */
 /* GUARDRAIL: the switch counters are gone (vm_switches, vm_sw_taskexit, vm_sw_first). Each was
  * incremented once per switch and read by NOTHING — not the boot banner, not the suite, not the bench, not
  * any tool — so each cost a load, an add and a store per switch plus 4 B of .bss. Same class as the depth
@@ -999,6 +1005,7 @@ static int vm_depth, vm_max_depth;
  * always null. P29's rule — a hook that nothing calls is a stub — applies one step further: a hook nothing
  * SETS is a branch that always fails. Re-add it with a setter when something actually needs it. */
 
+#if defined(P43_TASKS)
 static int vm_next_ready(int from)
 {
 #if NTSK == 2
@@ -1124,6 +1131,12 @@ static void vm_task_init(int k, u16 xt)
     tskvm[k].W = xt; tskvm[k].IP = 0;  /* ip 0 = the task's outermost word ends via EXIT */
     tskstate[k] = 1;
 }
+#else
+/* GUARDRAIL: VMDBG is defined inside the guarded block, so with tasks off the EXIT/PAUSE bodies lost their no-op macro
+ * and the build failed with "implicit declaration of VMDBG" - a macro that vanishes is a compile error, not a silent
+ * default. Give the no-task build an explicit no-op instead. */
+#define VMDBG(tag, k) ((void)0)
+#endif /* defined(P43_TASKS) */
 
 #if defined(BLKPRIM)
 /* ---- R5: BLOCK / UPDATE / SAVE as C primitives ---------------------------------
@@ -1221,6 +1234,7 @@ static void vm_enter(void);
 /* Spawn by name: parse the next word out of tib, resolve it, take the first free slot.
  * GUARDRAIL: named failures only — an unknown name or a full task table must report through err(),
  * never silently do nothing, or a script that spawns three tasks appears to work with one. */
+#if defined(P43_TASKS)
 static int vm_spawn_name(void)
 {
     int k;
@@ -1247,6 +1261,7 @@ static void vm_run_tasks(void)
     vm_enter();
     while (vm_next_ready(cur) >= 0) vm_enter();
 }
+#endif /* defined(P43_TASKS) */
 
 /* ---- the inner interpreter ---- */
 static void run(u16 xt)
@@ -1618,7 +1633,14 @@ tail:
             stack_ovf = 0; sp = 0; rsp = 0; errf_msg(MSG_ERR_STACK);
             VM_FLUSH(); VMD_LEAVE(); return;
         }
+#if defined(P43_TASKS)
         if (!ip) { VM_FLUSH(); if (!vm_task_leave()) { VMD_LEAVE(); return; } VM_RELOAD(); continue; }
+#else
+        /* GUARDRAIL: with tasks off, ip == 0 is simply "return to C". This single call site is what kept the whole
+         * scheduler (50 B), vm_next_ready (44 B), vm_switch (62 B), vm_copy (38 B) and the 272 B of task records
+         * alive after P43_TASKS went undefined - measured by nm, not by reading the code. */
+        if (!ip) { VM_FLUSH(); VMD_LEAVE(); return; }
+#endif
         w = rd16_paged(ip); ip += 2;
     }
 #undef w
@@ -1927,7 +1949,12 @@ int main(int argc, char **argv)
      * execute half-defined tasks, and a dump must be a pure image of what was compiled.
      * GUARDRAIL: requires a clean stack, exactly as the ULP does — a task switch overwrites vm_live, so a
      * pending value would be silently lost. */
+#if defined(P43_TASKS)
     if (!dump && !interactive && vm_next_ready(-1) >= 0 && sp == 0u && rsp == 0u) vm_run_tasks();
+#endif
+    /* GUARDRAIL: with tasks off there is nothing to step, and the two calls above are the ONLY reason the host driver
+     * needed the scheduler - leaving them unconditional is a link error ("undefined reference to vm_next_ready"), which
+     * is the good kind of failure but still costs a bake cycle. */
 #endif
     if (dump) {
         /* GUARDRAIL: headers live ABOVE V_HERE now, so dumping only V_HERE bytes would bake an image with no

@@ -205,7 +205,10 @@ static void store_boot(void)
  * GUARDRAIL: the base IS settled: nm -n on ulp_main.elf puts the highest .bss symbol at `junk` 0x1EA8, so the
  * image ends at 0x1EA9 and the stack occupies [0x1EA9, 0x1FF0) = 327 B. 0x1EAC is the map's answer, not the
  * pool arithmetic that guessed 0x1EB0. */
-/* #define CANARY 1 */
+/* GUARDRAIL: the paint is ON, the ring-injection report is GONE. Injecting a Forth line to print the number corrupted the
+ * console (binary noise) because the ring is single-writer per index and the UART pump owns cmd_head in the same task.
+ * The measurement now goes out through `#k`, which is an HP console command: no ULP bytes, no ring writer, no collision. */
+#define CANARY 1
 #define CANARY_BASE 0x1EACu
 #define STACK_TOP   0x1FF0u
 #define CANARY_VAL  0xA5u
@@ -221,7 +224,10 @@ static uint32_t canary_used(void)
 {
     volatile uint8_t *p = (volatile uint8_t *)(ULP_RAM_BASE + CANARY_BASE);
     uint32_t i, low = STACK_TOP - CANARY_BASE;
-    for (i = 0; i < STACK_TOP - CANARY_BASE; i++) if (p[i] != CANARY_VAL) low = i;
+    /* GUARDRAIL: keep the MINIMUM changed index, not the last one. The old loop assigned unconditionally, so it ended
+     * holding the HIGHEST changed byte and reported `324 - 323 = 1 B` for a machine that obviously uses more - the
+     * "impossible 1 byte" that sent two earlier attempts looking for a wrong base. The base was always right. */
+    for (i = 0; i < STACK_TOP - CANARY_BASE; i++) if (p[i] != CANARY_VAL && i < low) low = i;
     /* the stack grows DOWN from STACK_TOP, so the deepest touch is the LOWEST painted byte that changed */
     return (low < STACK_TOP - CANARY_BASE) ? (STACK_TOP - CANARY_BASE - low) : 0u;
 }
@@ -403,6 +409,23 @@ static void seed_poll(void)
                 printf("info: hp view: blk_out_prev %d edge_ms %u now_ms %u | store_ok %d\n",
                        blk_out_prev, (unsigned)edge_ms,
                        (unsigned)(xTaskGetTickCount() * portTICK_PERIOD_MS), store_ok);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#k` reports the ULP stack high-water mark on demand. The stack grows DOWN from 0x1FF0 into .bss,
+             * so an overflow corrupts engine state instead of faulting - which is how a 336 B chain once broke block I/O
+             * silently. This is the only measurement that can tell whether the 327 B region has slack, and slack is the
+             * only ULP memory that can be reclaimed after boot without shrinking the image. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'k' && (ln[2] == 0 || ln[2] == ' ')) {
+#if defined(CANARY)
+                uint32_t used = canary_used();
+                printf("stack: high-water %u B of %u B region (%u B free), base 0x%04X\n",
+                       (unsigned)used, (unsigned)(STACK_TOP - CANARY_BASE),
+                       (unsigned)(STACK_TOP - CANARY_BASE - used), (unsigned)CANARY_BASE);
+#else
+                printf("stack: high-water probe is OFF in this build\n");
+#endif
                 fflush(stdout);
                 n = 0;
                 continue;
@@ -967,25 +990,9 @@ img_done:   ;
                 }
             }
         }
-        /* Once, after the ULP has done real work, report the painted high-water mark.
-         * GUARDRAIL: report it THROUGH THE ULP'S CONSOLE by injecting a Forth line into the command ring.
-         * printf here goes to a console that emits nothing on this board (/dev/ttyACM0 reads 0 bytes), so the
-         * measurement had no channel at all. The ring is the only visible console, and it needs no ULP bytes. */
-#if defined(CANARY)
-        { static int reported; static uint32_t ticks;
-          if (!reported && ++ticks == 4000u) {
-              char line[24]; int n;
-              uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, space, k;
-              n = snprintf(line, sizeof line, "%u .\r", (unsigned)canary_used());
-              space = CMD_SIZE - (h - tl);
-              if (n > 0 && (uint32_t)n <= space) {
-                  for (k = 0; k < (uint32_t)n; k++) CMD_BYTES[(h + k) & CMD_MASK] = (uint8_t)line[k];
-                  ulp_repl_cmd_head = h + (uint32_t)n;
-                  reported = 1;
-              }
-              /* if the ring is full this retries next tick rather than losing the number silently */
-          } }
-#endif
+        /* GUARDRAIL: the painted high-water mark is reported by `#k`, not from this loop. Injecting a Forth line into the
+         * command ring from here corrupted the console (binary noise) because this task and the UART pump both own
+         * cmd_head. A reader (`#k`) cannot collide with the writer. */
         vTaskDelay(1);                            /* 1 ms: the ULP's poll is bounded, so keep this short */
     }
 }

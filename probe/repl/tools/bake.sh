@@ -16,8 +16,13 @@
 set -e
 cd "$(dirname "$0")/.."
 
-MEMSZ=${1:-1400}
-FLAGS="-O2 -fno-strict-aliasing -DHOST -DP43_TASKS -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DOVL_LOAD -DP33_NOPAGE -DP30_HANDCOPY -DMEMSZ=$MEMSZ"
+# GUARDRAIL: MEMSZ is now REQUIRED, with no default. A default is how the shipping image once got baked at one MEMSZ
+# while the ULP built at another (E-079: link fine, every word WORD? on the chip). The caller must state the number that
+# is in ulp_repl.c, and this script prints it back so the two can be compared instead of assumed.
+MEMSZ=${1:?"usage: tools/bake.sh <MEMSZ>   (must equal MEMSZ in src/ulp_repl.c)"}
+# GUARDRAIL: NO -DP43_TASKS. The ULP image no longer compiles the scheduler, and the baked dictionary must match the
+# engine it will run on: with SPAWN baked but no SPAWN case compiled, its header points at a case that does not exist.
+FLAGS="-O2 -fno-strict-aliasing -DHOST -DP33_BLOCK -DBLKPRIM -DBLKSZ=128 -DBLK_MB=4 -DTIBSZ=128 -DOVL_LOAD -DP33_NOPAGE -DP30_HANDCOPY -DMEMSZ=$MEMSZ"
 
 # GUARDRAIL: -DP33_BLOCK without -DBLKPRIM (or the reverse) compiles and links and produces a dictionary
 # with no BLOCK words — the failure is a "WORD?" on the chip, not a build error (E-079).

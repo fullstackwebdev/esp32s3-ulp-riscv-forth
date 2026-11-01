@@ -15,7 +15,12 @@
         L_P_EXIT:
             /* P56: same switch point as the loop tail — flush the hoisted w/ip before vm_task_leave can
              * copy V, and reload afterwards because it overwrote the fields those locals shadow. */
+#if defined(P43_TASKS)
             if (!ip) { VM_FLUSH(); if (!vm_task_leave()) { VMD_LEAVE(); return; } VM_RELOAD(); goto top; }
+#else
+            /* GUARDRAIL: with no scheduler, ip == 0 means "return to C"; there is no other machine to resume. */
+            if (!ip) { VM_FLUSH(); VMD_LEAVE(); return; }
+#endif
             ip = RPOP(); goto tail;
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_LIT)
@@ -248,7 +253,13 @@
          * must name the token the task has *not* run yet. */
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_PAUSE)
-        L_P_PAUSE: {
+        L_P_PAUSE:
+#if !defined(P43_TASKS)
+        /* GUARDRAIL: PAUSE with no task table has nothing to switch to. It must remain a no-op that RESUMES at the next
+         * token (goto top refetches w/ip), not a fallthrough into code that no longer compiles. */
+        goto top;
+#else
+        {
             int nx;
             if (!ip) goto tail;                          /* PAUSE as the last token: nothing to resume */
             w = rd16_paged(ip); ip += 2;             /* same as the loop tail below */
@@ -260,6 +271,7 @@
             VM_RELOAD();
             goto top;                                /* re-fetch rd16(w) in the new machine */
         }
+#endif
 
         /* FAULT: a page fault at this dispatch. The save point here is the CURRENT token
          * (nothing of it has executed), unlike PAUSE which has finished — but the save,
