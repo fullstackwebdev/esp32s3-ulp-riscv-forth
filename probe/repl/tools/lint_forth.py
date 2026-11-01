@@ -283,6 +283,18 @@ def collect_vocab(src):
     reports every resident word as undefined. That is a false positive on the one layout the machine actually ships.
     """
     v = {}
+    # GUARDRAIL: `collect_vocab` reads a BASE file, so a GUARDRAIL comment in it that quotes `CREATE X` invented a cell in
+    # the vocabulary every lane is linted against - the same comment-is-not-code bug the definition scan had. Blank first.
+    if "(" in src:
+        out, i, n = [], 0, len(src)
+        while i < n:
+            if src[i] == "(":
+                j = src.find(")", i)
+                if j < 0:
+                    out.append(src[i:]); break
+                out.append(" " * (j + 1 - i)); i = j + 1; continue
+            out.append(src[i]); i += 1
+        src = "".join(out)
     for m in re.finditer(r"(?:CREATE|CONSTANT)\s+(\S+)", src):
         v[m.group(1)] = (0, 1)
     for m in re.finditer(r":\s+(\S+)(.*?);", src, re.S):
@@ -322,9 +334,30 @@ def lint_definitions(src, base=None):
     # nothing" made every later `SEL @` look like an underflow, which is a false positive on perfectly good code.
     for m in re.finditer(r"(?:CREATE|CONSTANT)\s+(\S+)", src):
         vocab[m.group(1)] = (0, 1)
-    for m in re.finditer(r":\s+(\S+)(.*?);", src, re.S):
-        name, body = m.group(1), m.group(2)
-        lineno = src[:m.start()].count("\n") + 1
+    # GUARDRAIL: blank `( ... )` comments BEFORE scanning for definitions. A GUARDRAIL comment that quotes code - e.g.
+    # `( GUARDRAIL: `: W ... ;` must be clean )` - was parsed as a definition of its own, so R2/R10 fired on comment text
+    # and the only way to keep a phase lint-clean was to write comments that avoid colons and semicolons (lane MAIL did
+    # exactly that, and said so). Comments are not code; make them spaces, keep the line structure so line numbers hold.
+    def _blank_comments(text):
+        out, i, n = [], 0, len(text)
+        while i < n:
+            if text[i] == "(":
+                j = text.find(")", i)
+                if j < 0:
+                    out.append(text[i:]); break
+                chunk = text[i:j + 1]
+                out.append("".join(c if c == "\n" else " " for c in chunk)); i = j + 1; continue
+            out.append(text[i]); i += 1
+        return "".join(out)
+
+    # GUARDRAIL: scan the BLANKED text for definition boundaries but slice the ORIGINAL for the body, because the body's
+    # `( a b -- c )` declaration IS a parenthesised comment - blanking it removed every stack effect and the selftest went
+    # red on rules that depend on depth. The blanks preserve length, so the offsets are the same in both strings.
+    blank = _blank_comments(src)
+    for m in re.finditer(r":\s+(\S+)(.*?);", blank, re.S):
+        name = m.group(1)
+        body = src[m.start(2):m.end(2)]
+        lineno = blank[:m.start()].count("\n") + 1
         eff = declared(body)
         pops_in, pushes_out = eff if eff else (0, 0)
         depth = pops_in

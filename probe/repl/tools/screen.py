@@ -503,7 +503,7 @@ def main(argv):
                     help="the word to run after loading (default: the file's name uppercased, docs/26)")
     ap.add_argument("--keys", metavar="STR", default="",
                     help=r"keys to type, in order; \e is ESC (\e[B = Down), \r = Enter")
-    ap.add_argument("--block", type=int, default=64, metavar="N", help="first block of the program (device), default 64")
+    ap.add_argument("--block", type=int, default=120, metavar="N", help="first block of the program (device), default 64")
     ap.add_argument("--port", default=os.environ.get("PORT", PORT))
     ap.add_argument("--timeout", type=float, default=60.0, help="host run cap in seconds (default 60)")
     ap.add_argument("--grid", action="store_true", help="print the 24x80 grid on stdout")

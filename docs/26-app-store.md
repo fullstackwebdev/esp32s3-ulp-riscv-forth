@@ -169,6 +169,17 @@ Rules that follow: a phase lives in the range of its *descriptor* (that is what 
 reused by every upload and must never hold anything a phase needs at run time; content ranges never move, because page N is
 `START + N*8` arithmetic.
 
+### `>` does not exist on this machine, and the host server now answers the whole store
+
+* Only `<` exists (`p31_prims.inc`): a clamp is written with the operands swapped, e.g. `2 MAX <`, never `MAX >`.
+* The host fake server answered blocks **0..63** and the App Store puts content at 64..119, so every content read on the
+  host took the no-answer path and `screen.py` exited 3 on the ignored request. It answers **0..127** now (block 5 still
+  silent, block 7 still a bad checksum). Consequence: a test that wants "nobody answers" must name a silent block, not
+  rely on being past a limit - `tests/loop.fs` used `99 OVL` and now uses `5 OVL`.
+* A `( ... )` comment is not code: the linter blanks comments before scanning for definitions *and* before collecting a
+  base file's vocabulary, so a GUARDRAIL that quotes `: W ... ;` no longer reads as a definition (lane MAIL had to write
+  colon-free comments to stay lint-clean). Stack declarations are still read from the original text.
+
 ### Two store blocks belong to the test harness
 
 `srv_answer()` in `probe/repl/src/uforth.c` gives **block 5** no answer at all and answers **block 7** with a bad checksum;

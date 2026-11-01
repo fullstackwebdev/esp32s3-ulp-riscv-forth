@@ -1836,7 +1836,11 @@ static u32 pins;
  * single-image size, and the answering range had to grow with it. The two deliberate failures the other tests
  * depend on are kept by number: block 5 never answers (tests/blocks_noserver.fs), block 7 answers with a bad
  * checksum (tests/blocks.fs). 64 x 128 B of .bss in the host binary, 0 B on the chip. */
-#define SRVBLK 64
+/* GUARDRAIL: the answering range must cover the WHOLE store the ship layout uses, not just the first half. It was 64, and
+ * the App Store puts content at 64..119, so every content read on the host took the no-answer path: a phase that draws a
+ * page could not be run under the grid harness at all (`screen.py` exited 3 on a byte from the ignored request, lane MAIL
+ * measured it). 128 x 128 B of .bss in the host binary, 0 B on the chip - the chip's store is the flash-backed 128. */
+#define SRVBLK 128
 static u8 srv[SRVBLK][BLKSZ];
 
 static void srv_answer(void)
