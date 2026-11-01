@@ -24,11 +24,19 @@ import pathlib
 import re
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+# GUARDRAIL: `parents[1]`, not [2]. This file is <repo>/tools/seed_pages.py, so parents[0] is tools/ and parents[1] is the
+# repo; [2] pointed one level ABOVE the repo and the tool reported "content/mail has no pNN.txt files" against a tree that
+# had three of them. It survived my own smoke test because I tested a PATCHED COPY in /tmp (where ROOT was hardcoded to the
+# repo) - verifying a copy of the artifact instead of the artifact. `--dry-run` now prints the content root it resolved.
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONTENT = ROOT / "content"
 
 # The allocation table in docs/26. One base per app; pages are base + page*8.
-BASE = {"mail": 40, "gopher": 60, "reader": 80, "sheet": 20, "calc": 8, "shelf": 96}
+# GUARDRAIL: these are the CONTENT bases from the re-partitioned table in docs/26, not the old per-app ranges. The first
+# version still said mail 40 / gopher 60 / reader 80 - the pre-repartition numbers - so a dry run planned to write mail
+# across 40..63 and would have seeded it into calc2's and sheet's descriptor blocks. Only apps with AUTHORED PAGES belong
+# in this table: the calculator and the shelf have none (their state is cells), and the sheet's block is data, not pages.
+BASE = {"mail": 80, "gopher": 104, "reader": 64}
 PAGE_BLOCKS = 8          # a page is 8 blocks
 LINE_WIDTH = 70          # the shared display width (examples/menu.fs: FILL is 70)
 STORE_BLOCKS = 128
@@ -90,6 +98,7 @@ def main(argv):
         print(f"  {app}: {len({p for p, _, _ in rows})} page(s), {len(rows)} line(s), blocks "
               f"{BASE[app]}..{BASE[app] + PAGE_BLOCKS * (max(p for p, _, _ in rows) + 1) - 1}")
     if a.dry_run:
+        print(f"  content root: {CONTENT}")
         for app, rows in plan.items():
             for page, blk, text in rows:
                 print(f"    {app} p{page} block {blk:3d}: {text}")
