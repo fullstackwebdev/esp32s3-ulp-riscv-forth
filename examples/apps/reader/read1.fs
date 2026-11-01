@@ -12,11 +12,11 @@
 : AT ( r c -- ) SWAP ESC CSI .N 59 EMIT .N 72 EMIT ;
 : FILL ( -- ) 0 BEGIN DUP 70 < WHILE SP 1+ REPEAT DROP ;
 : NPG ( -- n ) 2 ;
-: RMAX ( -- n ) NPG 8 * 8 - ;
+: RMAX ( -- n ) NPG 8 * 1- ;
 : RT ( -- line ) READ_ST @ 8 * READ_ST 4 + @ + ;
 : RSET ( line -- ) ( rem under quot, page first ) 8 /MOD READ_ST ! READ_ST 4 + ! ;
 : RCLAMP ( line -- line ) DUP 0 < IF DROP 0 ELSE DUP RMAX < 0= IF DROP RMAX THEN THEN ;
-: RBLK ( i -- blk ) RT + 64 + ;
+: RBLK ( i -- blk ) RT + 72 + ;
 : RNEXT ( -- ) RT 1+ RCLAMP RSET ;
 : RPREV ( -- ) RT 1- RCLAMP RSET ;
 : RMARK ( -- ) RT READ_ST 8 + ! ;

@@ -772,3 +772,19 @@ refusal on screen, not a print from address -6; (2) its page base is still `64` 
 moved to **72** when the shelf's 9-block descriptor was given its room, so the arithmetic reads the wrong blocks even when
 the transfer succeeds. (3) Arguably the engine should push 0 on a failed `BLOCK`, so a bad read faults loudly instead of
 aliasing a status as a pointer - that is an engine decision, not a fix to paper over.
+**FIXED (both halves).** Engine: `p_blk_block` pushes **0** on all three failure paths (negative block, refused dirty
+switch, transfer failure) instead of `-5/-7/-6` as an address, with the status still reported by name - a null address
+faults loudly at the next access instead of aliasing a code. Reader: page base `64 -> 72` (content moved when the shelf's
+9-block descriptor needed room) and `RMAX` `NPG*8-8 -> NPG*8-1`, i.e. the clamp now reaches the last line of the document
+instead of stopping half way through page 2.
+
+Verified: the chip's stream is **708 bytes with no `ERR_` at all** (was `ERR_UNNAMED` + five `ERR_ULPCODE`s), and the
+reader draws its page. `tests/blocks.expected`, `tests/blocks_noserver.expected` and `tests/reader_logic.expected` were
+updated by hand for the deliberate contract change (`-7/-5/-4 -> 0`, base 72, clamp 15, `last blk=87`); host suite green.
+
+**New, and named: the reader's frame loses bytes mid-stream on the chip.** A stray `5;1H` appears inside a text row and
+only two of eight rows arrive, from a frame of ~800 B - while the shelf's 1 224 B frame arrives whole. So this is not
+"frames over N bytes are lost"; it is the output ring dropping when a phase writes without the small gaps the shelf gets
+from its `AT` calls. Next step: find whether the ULP blocks or drops on a full ring (`src/ulp_repl.c`, the emit path) -
+that is the same question F-137 raised and it is still unanswered.
+
