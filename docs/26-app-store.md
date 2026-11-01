@@ -150,8 +150,9 @@ which is exactly right. The principle the arithmetic exposes:
 
 | range | owner | durable? |
 |---|---|---|
-| 0–6 | reserved (descriptor packing, never content) | – |
-| 7 | **sheet data**: 36 cell values in one block (`7 BLOCK` … `UPDATE` … `SAVE`) | yes |
+| 0–4 | reserved (descriptor packing, never content) | – |
+| 5, 7 | **TEST FIXTURES, never allocate**: block 5 is silent, block 7 answers with a bad checksum (`srv_answer()`, used by `tests/blocks.fs`) | – |
+| 6 | **sheet data**: 36 cell values in one block (`6 BLOCK` … `UPDATE` … `SAVE`) | yes |
 | 8–15 | calc1 descriptor | yes |
 | 16–23 | calc2 descriptor | yes |
 | 24–31 | sheet1 descriptor | yes |
@@ -167,6 +168,13 @@ which is exactly right. The principle the arithmetic exposes:
 Rules that follow: a phase lives in the range of its *descriptor* (that is what `GO` chains to); the staging range is
 reused by every upload and must never hold anything a phase needs at run time; content ranges never move, because page N is
 `START + N*8` arithmetic.
+
+### Two store blocks belong to the test harness
+
+`srv_answer()` in `probe/repl/src/uforth.c` gives **block 5** no answer at all and answers **block 7** with a bad checksum;
+`tests/blocks.fs` depends on both. Allocating either of them means the app cannot be exercised on the host at all - it
+`ERR_CRC`s on every run - so it would reach the board with zero pre-board evidence for its data path. Lane SHEET caught
+this after my table handed it block 7.
 
 ### Writing a block back: three steps, and the second one is the trap
 

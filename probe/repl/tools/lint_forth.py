@@ -62,7 +62,12 @@ import sys
 PRIMS = {
     # GUARDRAIL: the words the launcher needs that the first table missed - EXECUTE (1,0), BLKXFER (2,2), KEY?/LOAD.
     # A missing entry reads as "undefined word" in perfectly good code, which is the fastest way to make a linter hated.
-    "EXECUTE": (1, 0), "OVL": (1, 0), "BLKXFER": (2, 2), "KEY?": (0, 1), "LOAD": (1, 0), "SAVE": (0, 0), "UPDATE": (0, 0),
+    "EXECUTE": (1, 0), "OVL": (1, 0), "BLKXFER": (2, 2), "KEY?": (0, 1), "LOAD": (1, 0), "UPDATE": (0, 0),
+    # GUARDRAIL: `SAVE` PUSHES a status - p_blk_save ends with PUSH(st) (src/uforth.c:1257). This table said (0, 0), so the
+    # only lint-clean way to call it was a bare `SAVE`, which leaks one stack cell per press and kills the phase with
+    # ERR_STACK after 16; consuming the status (`SAVE 0= IF ...`) was reported as R3 underflow / R4 leak. Lane SHEET hit
+    # this: the linter was forcing the buggy form. Check a pushed status against the C before trusting the table.
+    "SAVE": (0, 1),
     # GUARDRAIL: machine variables are WORDS that push an address: `W @` is 1 push, not 0. Listing them as unknown
     # made a real launcher look like it used an undefined word.
     "HERE": (0, 1), "LATEST": (0, 1), "bh": (0, 1), "bl": (0, 1), "VH": (0, 1), "VL": (0, 1), "SEAL": (0, 0), 
@@ -617,6 +622,9 @@ GOOD_BLOCKS = ": A 1 ; 40 CONSTANT X : B 2 + . ;"
 # a ticked resident word is silent, a ticked unknown word is R2.
 # GUARDRAIL: the fixture uses `[']`, because `'` inside a definition is the BUG (R12) - the first version of this test
 # asserted the broken form was clean, which is how a linter certifies the mistake it is supposed to catch.
+# GUARDRAIL: the fixture that would have caught the SAVE table entry: a body that CONSUMES the status is correct code
+# (p_blk_save pushes it), so it must lint clean. With SAVE modelled as (0, 0) this fixture reports R3 underflow.
+GOOD_SAVE = ": W ( -- ) UPDATE SAVE DROP ;"
 GOOD_TICK = ": NOOP ; : A ( -- ) ['] NOOP EXECUTE ;"
 BAD_TICK = ": NOOP ; : A ( -- ) ['] NOXX EXECUTE ;"
 BAD_R12 = ": NOOP ; : A ( -- ) ' NOOP EXECUTE ;"
@@ -650,6 +658,9 @@ def selftest():
     f = check_blocks(GOOD_BLOCKS)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  good blocks (must be silent)      {f[:1] if f else ''}")
+    f = lint_definitions(GOOD_SAVE)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  SAVE's status is consumed        {f[:1] if f else ''}")
     f = lint_definitions(GOOD_TICK)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  ticked resident word (must be silent) {f[:1] if f else ''}")
