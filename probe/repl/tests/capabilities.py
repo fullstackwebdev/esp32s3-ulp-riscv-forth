@@ -139,8 +139,24 @@ def device_half(brk=None):
         if brk == "leak":                     # deliberate break: leak three window addresses before the check
             for _ in range(3):
                 d.cmd(f"{IMG_AREA} 3 BLKXFER .")
-        first = d.cmd(". 32 EMIT", timeout=8.0)
-        check("cycles: no window address left on the stack", "1808" not in first, first.strip()[:24])
+        # GUARDRAIL: measure the NET stack change instead of guessing at a magic depth. Push a sentinel, run the cycles,
+        # then pop (bounded) until the sentinel comes back: the count of pops is items the cycles left behind. "1808 not
+        # in the reply" was not a check at all - an EMPTY stack answers ERR_STACK, which contains no 1808 and went green.
+        d.cmd("777")
+        for _ in range(10):
+            d.cmd(f"{IMG_AREA} 3 BLKXFER . DROP", timeout=25.0)
+        pops, extra = 0, None
+        try:
+            while pops < 40:
+                v = d.num(".", timeout=8.0)
+                pops += 1
+                if v == 777:
+                    extra = pops - 1
+                    break
+        except Exception:
+            extra = None                      # underflow before the sentinel: the cycles POPPED the stack
+        check("cycles: net stack change is zero (sentinel recovered after 0 pops)", extra == 0,
+              f"extra={extra} pops={pops}")
 
         # --- apply latency: capability check, not the 200-sample measurement
         t = []

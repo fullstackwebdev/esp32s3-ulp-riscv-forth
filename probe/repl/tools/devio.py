@@ -120,7 +120,7 @@ class Dev:
     def cmd(self, line, timeout=5.0, allow_error=False, # GUARDRAIL: `#i`/`#u` answer with "info:" and return WITHOUT an `ok`, so the default markers never matched and a
             # harness call waited until timeout while the answer was already in the buffer. Give the harness the real marker.
             markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:",
-                     "info:", "mem:")):
+                     "info:", "mem:", "cmp:")):
         """Send one line, read until the prompt marker (ok) or an error (?), return the transcript."""
         os.write(self.fd, line.encode() + b"\r")
         buf = ""
@@ -185,21 +185,29 @@ class Dev:
         return False
 
     def seed_many(self, items):
-        """items: [(block, text), ...].
+        """items: [(block, text), ...]. Returns the blocks that were NOT seeded exactly; empty means all good.
 
-        GUARDRAIL: seeding is UART-TRANSMIT-bound, not round-trip-bound: a 128-byte block travels as 256 hex chars, so
-        ~30 ms per block is the wire, not the machine. Measured: per-line 30 ms/block; a batch-then-reverify version was
-        54 ms/block - SLOWER, because the extra verification pass cost more than the round trips it saved. So this
-        sends everything and reads ONE transcript, counting the acks, then retries only the blocks that never
-        acknowledged. That is the cheapest correct form; do not add a per-block re-verification pass.
+        GUARDRAIL: seeding is UART-TRANSMIT-bound, not round-trip-bound: a 128-byte block travels as 256 hex chars.
+        GUARDRAIL: send in SMALL BATCHES and check the ACK'S BYTE COUNT. A 10-line burst (2.6 KB) lost bytes mid-line on
+        the board even with a 4 KB RX ring - measured acks of 64/128, 116/128, 65/77 and one line missing entirely -
+        because the reader stalls ~34 ms inside a flash erase. Checking only the ack's PREFIX accepted those short blocks;
+        the phase then compiled a truncated source, its image was 135 B instead of 576, and EXECUTE jumped past the
+        pasted code into a spin that touched no memory. Count, or do not believe the ack.
         """
         items = list(items)
         pending = list(items)
-        for _ in range(3):
-            for blk, text in pending:
-                os.write(self.fd, f"#b {blk} {text.encode().hex()}".encode() + b"\r")
-            out = self.drain(0.4, 10.0 + 0.03 * len(pending))
-            pending = [(b, t) for b, t in pending if f"seed: block {b} <-" not in out]
+        BATCH = 2
+        for _ in range(5):
+            acked = {}                       # GUARDRAIL: accumulate acks across the WHOLE pass. Filtering on the last
+                                             # batch's acks alone marked already-seeded blocks as pending (-2, -21).
+            for i in range(0, len(pending), BATCH):
+                batch = pending[i:i + BATCH]
+                for blk, text in batch:
+                    os.write(self.fd, f"#b {blk} {text.encode().hex()}".encode() + b"\r")
+                out = self.drain(0.15, 6.0)
+                acked.update({int(m.group(1)): int(m.group(2))
+                              for m in re.finditer(r"seed: block (\d+) <- (\d+) bytes", out)})
+            pending = [(b, t) for b, t in pending if acked.get(b) != len(t.encode())]
             if not pending:
                 return []
         return [b for b, _ in pending]

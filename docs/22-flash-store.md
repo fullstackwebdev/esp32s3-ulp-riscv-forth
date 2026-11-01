@@ -247,3 +247,48 @@ blocks on the host.
 **Instruments added this step** (all HP-side, 0 ULP bytes): request ring of the last 16 serviced requests (`op/blk/ms`),
 the ULP sys-vars (`V_STATE`, `V_HERE`, `V_LATEST`, `V_SEAL`, `V_LOADB`), the HP edge-detector view, `#m <addr> <n>` cell
 dump, and `hard_reset_capture()` which keeps the ROM boot log by toggling EN while holding the port.
+
+---
+
+## Step 6f: ROOT CAUSE FOUND — and it was the harness, amplified by flash stalls
+
+The ULP was **not** wedged by a flash write. The chain, every link measured:
+
+1. `seed_many()` sent seed lines in one burst and accepted an ack by **prefix** (`seed: block N <-`), ignoring the byte
+   count. Measured acks in a 10-line burst: **64/128, 116/128, 65/77 bytes, one line missing entirely**.
+2. The reason bytes were lost: `seed_poll()` is the only UART reader and it stalls **~34 ms inside a flash erase**
+   (measured 20.6 ms erase + 13.5 ms write). The 1 KB RX ring overflowed. Now 4 KB (HP RAM, 0 ULP bytes).
+3. A short block compiles a short phase: image **135 B instead of 576 B**. `EXECUTE` then jumped past the pasted body into
+   bytes that were never compiled — which is why the spin touched **zero memory cells**, asked for nothing and emitted
+   nothing. Every earlier hypothesis (flash in the ULP's blocked path, a store wait, a `LOAD` spin) is dead.
+4. The fix is on the host: seed in batches of two, **verify each ack's byte count**, retry, and refuse loudly. `step4`
+   now raises `seed failed for blocks [...]` rather than building on a short store.
+
+### Result (device)
+
+- **15 phases from images, 15/15**, every image exactly 576 B.
+- `capabilities.py` **11/11** — with a *strengthened* balance check: the old one asserted "1808 not in the reply", which
+  passed on an EMPTY stack (`ERR_STACK`). The new one pushes a sentinel and measures the net change: **0 extra items**.
+- `flash_persist.py` **3/3**: flush, byte-exact after hard reset, two blocks in one sector, image adopted and executed
+  after reboot (`83205408000651280` = host).
+- Host suite **24 PASS / 0 FAIL**.
+
+### Wear (device, measured for the SOURCE path: re-seed + dump + adopt per switch)
+
+`#f` after 15 switches: **68 sector erases, 52 flushes, 213 016 B programmed**; per-sector `0:1 1:25 2:13 3:10 4:8 5:1`
+— hottest is **sector 1 with 25 erases**. At a datasheet-order endurance of 100 000 cycles per sector:
+
+| switch rate | hot-sector erases/day | lifetime |
+|---|---|---|
+| 1/hour | 40 | ~6.8 years |
+| 1/min | 2 400 | ~42 days |
+| 1/s | 144 000 | **~17 hours** |
+
+Caveat: this is the **source** path, which rewrites the whole phase through the store. A pure binary adopt was not counted
+separately, and the dirty-sector cache + explicit `COMMIT` (next step) is what makes the fast rate survivable.
+
+### Claim, exactly as far as measured
+
+> A paged program and its images survive reset; size is still bounded at 16 KB.
+
+`SAVE` alone does not persist — `#f` commits (option (c)).

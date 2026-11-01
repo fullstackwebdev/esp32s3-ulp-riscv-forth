@@ -407,6 +407,45 @@ static void seed_poll(void)
                 n = 0;
                 continue;
             }
+            /* GUARDRAIL: `#c <desc_blk>` compares the image IN THE STORE against what is pasted in mem[], byte for byte.
+             * The loader's own checks bracket the copy; this one is for AFTER the machine has run (or wedged), where the
+             * question is "is the code executing the code that was compiled". It reads mem[] only, so it answers while
+             * the ULP is frozen inside one wake. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'c' && ln[2] == ' ') {
+                unsigned dblk = 0, k = 3;
+                while (ln[k] == ' ') k++;
+                while (ln[k] >= '0' && ln[k] <= '9') dblk = dblk * 10u + (unsigned)(ln[k++] - '0');
+                if (dblk >= BLK_N) printf("cmp: REJECTED (block)\n");
+                else {
+                    const uint8_t *d2 = blkfile[dblk];
+                    const uint8_t *mi = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    unsigned cl2 = (unsigned)d2[3] | ((unsigned)d2[4] << 8);
+                    unsigned hl2 = (unsigned)d2[5] | ((unsigned)d2[6] << 8);
+                    unsigned cs2 = (unsigned)d2[7] | ((unsigned)d2[8] << 8);
+                    unsigned hs2 = (unsigned)d2[9] | ((unsigned)d2[10] << 8);
+                    unsigned psum2 = (unsigned)d2[11] | ((unsigned)d2[12] << 8);
+                    unsigned b2 = dblk, o2 = 20, i4, mism = 0, first = 0, ssum = 0, msum = 0;
+                    for (i4 = 0; i4 < cl2 + hl2; i4++) {
+                        uint8_t sv = blkfile[b2][o2];
+                        uint8_t mv = mi[cs2 + i4];
+                        ssum = (ssum + sv) & 0xffffu; msum = (msum + mv) & 0xffffu;
+                        if (sv != mv && !mism) { first = i4; }
+                        if (sv != mv) mism++;
+                        if (++o2 == (blk_sz ? blk_sz : 128u)) { o2 = 0; b2++; }
+                    }
+                    printf("cmp: %u B payload | store sum %u, mem sum %u, descriptor %u | %u byte(s) differ%s",
+                           cl2 + hl2, ssum, msum, psum2, mism, mism ? " -> FIRST AT " : "\n");
+                    if (mism) {
+                        unsigned off = first, bb = dblk, oo = 20;
+                        oo += off; while (oo >= (blk_sz ? blk_sz : 128u)) { oo -= (blk_sz ? blk_sz : 128u); bb++; }
+                        printf("%u (mem[%u]=%u, store b%u o%u=%u)\n", off, cs2 + off, (unsigned)mi[cs2 + off],
+                               bb, oo, (unsigned)blkfile[bb][oo]);
+                    }
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             /* GUARDRAIL: `#m <addr> <n>` prints n u16 cells of the ULP's mem[] from addr. It exists because a spinning
              * phase cannot be asked anything - its own counters are the only witnesses, and reading them from the HP
              * costs 0 ULP bytes and works while the ULP is frozen inside one wake. */
@@ -861,6 +900,21 @@ static void block_task(void *arg)
                         mi[cs + k2] = blkfile[b2][o2];
                         if (++o2 == blk_sz) { o2 = 0; b2++; }
                     }
+                    /* GUARDRAIL: verify AFTER pasting, not only before. The pre-copy check proves the STORE is intact;
+                     * it says nothing about what landed in mem[]. A spin that touches no memory and asks for nothing
+                     * is the signature of executing bytes that are not the ones compiled, so the pasted region must
+                     * be summed too - and a mismatch must be loud, not a silent "adopted". */
+                    {
+                        unsigned post = 0, k4;
+                        for (k4 = 0; k4 < cl + hl; k4++) post = (post + mi[cs + k4]) & 0xffffu;
+                        if (post != psum) {
+                            printf("img: REFUSED pasted code differs from the image (mem sum %u, descriptor %u)\n",
+                                   post, psum);
+                            mb[3] = 0; mb[2] = 4; answered = 1;
+                            bad = 1;
+                        }
+                    }
+                    if (bad) goto img_post;
                     mi[4] = (uint8_t)((cs + cl) & 0xffu); mi[5] = (uint8_t)(((cs + cl) >> 8) & 0xffu);
                     mi[6] = 0; mi[7] = 0;
                     mi[8] = (uint8_t)(hs & 0xffu); mi[9] = (uint8_t)((hs >> 8) & 0xffu);
@@ -873,6 +927,7 @@ static void block_task(void *arg)
                     answered = 1;
                 }
                 if (!answered) { mb[3] = 0; mb[2] = bad ? nack : 1u; }
+img_post:   ;
 img_done:   ;
             } else if (op == 0u) {               /* READ */
                 uint32_t s = 0; int i;
@@ -955,7 +1010,12 @@ void app_main(void)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_DEFAULT,
     };
-    ESP_ERROR_CHECK(uart_driver_install(CONSOLE_UART, 1024, 1024, 0, NULL, 0));
+    /* GUARDRAIL: the RX ring must absorb a flash stall. `#b` seed lines arrive at ~263 B each and this task is the only
+     * reader; a flash erase+program inside seed_poll froze it for 34 ms measured, the 1 KB ring overflowed, bytes were
+     * lost mid-line, and the seeder still acked - the phase then compiled a truncated source (576 B image became 135 B)
+     * and EXECUTE spun in code that had been pasted past its own body. 4 KB of HP RAM, 0 ULP bytes. The harness now also
+     * verifies each ack's byte count, so a loss is a named refusal instead of a hang. */
+    ESP_ERROR_CHECK(uart_driver_install(CONSOLE_UART, 4096, 1024, 0, NULL, 0));
     ESP_ERROR_CHECK(uart_param_config(CONSOLE_UART, &cfg));
 
     printf("\nboot: ulp forth bridge, %u B image\n", (unsigned)(bin_end - bin_start));
