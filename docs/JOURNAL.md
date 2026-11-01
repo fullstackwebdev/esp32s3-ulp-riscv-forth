@@ -301,6 +301,10 @@ rule that makes it work: *if it does not fit, the question is too big.*
 | 39 | "the prelude can be compiled at boot" | needs **14 874 B** — 4 336 of it a duplicate dispatch switch from inlining, the rest the source in `.rodata` | P39 |
 | 40 | "we have an interpreter, so we have a REPL" | we had a **one-shot evaluator**; the REPL needed a ring pump, an echo and a prompt — now built and typed at on the chip | J-60 |
 | 41 | "the resident checksum covers the dictionary" (and docs/25's guess that an adopt rewrites its own headers above the seal) | the range included the launcher's **live** cells; `SEL` moved it by one byte and refused a good image. The tail had never moved | `tests/adopt_sum.py`, §J-102 |
+| 42 | "the program library's image checksum is the finished work" (my own claim, hours old) | the operator found `ERR_ULPCODE` from the second frame on: `.N` built digits with `48 +` into the raw `EMIT` path, `0x80`+ being the console's message codes | `tests/adopt_sum.py`, `tests/tui_cli.py`, lint R7 |
+| 43 | "MS sleeps for its argument" | it returns the wake count: twenty `200 MS` in 0.05 s (F-125) | lint R9 |
+| 44 | "a DTR/RTS pulse resets the board in ~50 ms" | on USB-Serial-JTAG it does nothing: HERE 794 stayed 794. Only esptool's hard reset worked (F-126) | `devio.Dev.pulse_reset` verifies |
+| 45 | "the linter knows the machine's vocabulary" | it listed 8 words the machine does not have, incl. `MOD`; the chip answered `MOD?` for code the linter called clean | `tests/lint_vocab.py` |
 | 19 | P24 "6 pages / 6 faults per pass", P26 "3 pages / 0 faults" | **These were occupancy counts, not traces.** Re-traced: P24 is **7 pages / 13 faults per pass**, P26 is **2 pages / 0 faults**. P26's claim survives; P24's method did not | P25 |
 
 ---
@@ -1907,3 +1911,43 @@ different image), a `SEL` write changes nothing, and a descriptor field forged w
 Device tests are now one command — `probe/repl/tests/device.sh`, 47 checks under the board lock — because the reason
 `2 OVL` survived in the shipped path was that each test carried its own copy of the build steps and the copy was
 never the one that shipped. `tests/programs.py` now calls `cli.library()` itself.
+
+**J-103 · `ERR_ULPCODE` was a digit, not a bug in the program library.**
+The operator clicked the spinner and got flooded. Reproduced under a pty in one run, and the stream names the cause:
+`\x1b[5;2H\x7f3 … \x7f9`, then `ERR_ULPCODE 0x80`, then `ERR_BUSY` at 0x8A, `ERR_UNNAMED` at 0x90, then `ERR_ULPCODE`
+for every frame from 0x91 up. The frame counter had walked past 790 in four seconds and `.N` builds its digits as
+`48 + EMIT` — and `EMIT` is the raw byte path, while `src/msg_codes.h` owns everything at or above `0x80`.
+
+Three defects stacked, none of them the program library:
+
+* **`.N` was a two-digit printer at best** (`DUP 10 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN` — 100 printed `:0`) and it
+  fed `48 + quot` straight into `EMIT`, so from 897 the digits *were* message codes.
+* **`KEY` returns `-1` for "no key"** and both demos compared it only with `113`, so "nothing" was a keystroke and the
+  draw loop ran at ~267 frames/s instead of once per press.
+* **`MS` does not sleep**: twenty `200 MS` measured at 0.05 s, because `L_P_MS` is `pl_hw(3, POP(), 0)` and `pl_hw` op 3
+  returns the wake count. The pacing did nothing.
+
+Fixed in `.fs`, as asked: `DIGIT` clamps (`15 AND 48 + EMIT`), `.N` proves its range (`100 /MOD DROP DUP 9 <`), both
+demos wait with the resident `K0`, and the spinner is key-paced — one frame per press, silent when idle. **The engine
+was not touched**: `MS` should sleep, but that is the wake timer and needs permission; F-125 records it as open.
+
+The tests had certified this twice over. `read_until(b"SPIN")` returns the moment the title arrives, so it never saw the
+second frame; and the linter had nothing to say about `EMIT`, `KEY` or `MS`.
+
+So the linter grew three rules, each quoting its measurement: **R7 byte range** (an interval analysis that trusts only
+literals and `AND`/`/MOD`, so `ESC 27` and `SENT 0` stay clean while `48 +` does not), **R8 key -1**, **R9 ms stub**.
+The selftest now names the rule each fixture must trip instead of just "something fired" — it was quietly passing on
+unrelated leaks before, which is how three demo bugs sat behind a green selftest.
+
+And the linter's own vocabulary was wrong: it listed `MOD`, `/`, `>`, `@!`, `ALLOT`, `CR`, `SD`, `SPACE`, none of which
+the machine has. It linted a launcher containing `100 MOD` as CLEAN while the chip answered `MOD?` at block 79. The table
+is now checked **against the device** — `tests/lint_vocab.py`, 60/60 — and the duplicate dict keys that made it lie to
+itself are gone.
+
+One more, found while timing the operator's first complaint ("cli --library is really slow"): `pulse_reset` never reset
+this board. HERE 794 → pulse → 794; only esptool's hard reset returned 786. USB-Serial-JTAG emulates DTR/RTS, so the
+modem bits are not wired to EN. Two no-ops per connect, and a message that blamed the hardware. Now verified and fell
+back: **21.7 s → 2.9 s**. While measuring it I also found a stale `cli.py` from my own crashed harness holding
+`/dev/ttyACM1`, which `cli.connect` can now name instead of retrying for 36 s.
+
+Device: 51/51 across five files (`tests/device.sh`). Host suite: exit 0.

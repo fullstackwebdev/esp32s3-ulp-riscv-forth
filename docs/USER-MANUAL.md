@@ -33,10 +33,14 @@ There is also a bigger, faster chip in the same package doing errands for it: it
 ./cli.py --library
 ```
 
-That compiles a **resident launcher** (24 blocks, sealed at 1 666) and two programs as images above the seal — colour
-bars, 156 B, and a spinner, 92 B — then hands the terminal to the menu. `j`/`k` pick a program, **Enter runs it**
-(39–42 ms, measured), `q` comes back to the menu, and `q` on the menu returns you to the REPL. Any program can be
-re-entered any number of times; the images live in the block store and survive a reset.
+That compiles a **resident launcher** (25 blocks, sealed at 1 686) and two programs as images above the seal — colour
+bars, 156 B, and a spinner, 180 B — then hands the terminal to the menu. It takes about **3 s to connect and 4 s to
+build**; most of the connect time is a real hard reset. `j`/`k` pick a program, **Enter runs it** (38–43 ms, measured),
+`q` comes back to the menu, and `q` on the menu returns you to the REPL. Any program can be re-entered any number of
+times; the images live in the block store and survive a reset.
+
+Both demos are **key-paced**: the bars redraw and the spinner steps one frame per key press, and both are silent when
+you are not typing. `q` leaves either one.
 
 What makes it work: the code that *performs* the switch sits below the seal, so replacing everything above it never
 replaces the caller. What it cost to learn: see `docs/25-program-library.md`.
@@ -206,6 +210,14 @@ python3 probe/repl/tools/lint_forth.py --selftest      # proves each rule fires 
 | R3 underflow | a body that pops more than it holds | `DUP 106 = … 107 = … DROP` — the second comparison ate the key |
 | R4 leak | a body that leaves items nobody wants | `ESC CSI 55 M` pushed the digit `'7'` and never emitted it: a cell per colour change |
 | R5 loop leak | a loop body that is not balanced per iteration | `BEGIN KEY DUP 0 < 0= UNTIL` kept every `-1`, thousands per second |
+| R7 byte range | an `EMIT` whose argument is not provably a byte `0..127` | `: DIGIT 48 + EMIT ;` — at n=897 that emits `0x81`, which the console reads as a **message code**: the spinner printed `ERR_BUSY`, then `ERR_ULPCODE` |
+| R8 key -1 | a `KEY` that is never tested against `-1` ("no key") | `KEY DUP 113 =` treated "nothing" as a keystroke, so the demo ran at ~267 frames/s instead of once per press |
+| R9 ms stub | `MS` used to pace anything | `MS` does not sleep on this machine (20 × `200 MS` measured at 0.05 s); it returns the wake count |
 
 Declare stack effects and the linter can prove things: `: WAIT ( -- c ) … ;`. A definition without a declaration is
-assumed `( -- )`, which is what most are.
+assumed `( -- )`, which is what most are. R7 needs that proof: `AND`/`/MOD` bound a value, arithmetic alone does not,
+which is why `DIGIT` is `15 AND 48 + EMIT` and `.N` starts with `100 /MOD DROP`.
+
+**Never write `\` or long comments inside `examples/*.fs`.** `cli.py` compiles the file verbatim (no comment stripping),
+so a `\` line becomes words on the chip and a `( … )` that straddles a split boundary becomes words too. Write the
+notes in the docs; the launcher, the bars and the spinner are all comment-free for that reason.

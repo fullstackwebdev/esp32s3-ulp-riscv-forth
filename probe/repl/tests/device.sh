@@ -18,7 +18,10 @@ mkdir -p ../results
 exec 9>"$LOCK"
 flock -n 9 || { echo "board busy (another device run holds $LOCK)" >&2; exit 3; }
 
-tests=(tui_menu.py adopt_sum.py programs.py tui_cli.py)
+# GUARDRAIL: lint_vocab.py runs FIRST and against a fresh machine, because it asks `' WORD .` for every name the
+# linter believes in. `MOD` was in that table and not on the chip: the linter certified block 79 of a launcher that
+# could not compile, and only the chip said so.
+tests=(lint_vocab.py tui_menu.py adopt_sum.py programs.py tui_cli.py)
 fail=0
 for t in "${tests[@]}"; do
     echo

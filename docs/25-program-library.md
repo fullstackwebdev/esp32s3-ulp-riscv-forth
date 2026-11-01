@@ -104,6 +104,56 @@ interface leaves a stale image perfectly callable.
 8. **`--term`'s default word is `RUN`; the launcher's entry is `RUNP`.** `./cli.py --library` handed the terminal to a
    word that does not exist, and the machine printed `RUN?` into an invisible alternate screen. The tool looked hung on
    its own menu while it had not built one.
+9. **The linter's own word table lied.** It listed `MOD`, `/`, `>`, `@!`, `ALLOT`, `CR`, `SD` and `SPACE`; the machine
+   has none of them. It therefore linted a launcher containing `100 MOD` as CLEAN while the chip answered `MOD?` at block
+   79. `tests/lint_vocab.py` now asks the device about all 60 names before every device run — a table that certifies
+   itself certifies nothing.
+10. **`pulse_reset` did not reset this board.** `: ZZZZ 1 ;` (HERE 794) then an RTS/DTR pulse left HERE at 794; only
+   esptool's hard reset returned it to 786. The chip exposes USB-Serial-JTAG, whose DTR/RTS are emulated, so the modem
+   bits are not wired to EN. Two no-op resets per connect were ~3 s of the 21 s `./cli.py` startup, and the failure
+   reported itself as "the board did not come back to a fresh dictionary". Now verified and fell back automatically:
+   **21.7 s → 2.9 s**, measured.
+
+## The spinner flood: `ERR_ULPCODE`, and two bugs behind it (fixed, measured)
+
+Reported by the operator, correctly: *clicking the spinner and getting flooded with `ERR_ULPCODE`*. Reproduced under a
+pty, and the stream says the whole story in one line:
+
+```
+... \x1b[5;2H\x7f3  \x1b[5;2H\x7f4  ...  \x1b[5;2H<9  \x1b[5;2H=0  \x1b[5;2H=1
+            0x7F        ERR_ULPCODE 0x80 ...     ERR_UNNAMED ...  0x91, 0x92, ...
+```
+
+The frame counter (`DUP 5 2 AT .N SP`) walks past 99 in four seconds, and the old `.N` was
+
+```
+: DIGIT ( n -- ) 48 + EMIT ;
+: .N ( n -- ) DUP 10 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;
+```
+
+`EMIT` is the **raw byte** path, and `src/msg_codes.h` reserves everything at or above `0x80` for console messages
+(`0x81`..`0x90`). A digit built as `48 + quot` walks straight through that space: at n=790 it emits `0x7F` (invisible),
+at 800 it emits `0x80` → `ERR_ULPCODE 0x80`, at 810 `0x8A` → `ERR_BUSY`, at 825 `0x90` → `ERR_UNNAMED`, and from 0x91
+on, `ERR_ULPCODE` for every frame, with the byte incrementing. Two bugs made it reach 800 in one second:
+
+1. **`KEY` returns `-1` for "no key"** and both demos compared it only with `113` (`q`), so "nothing" counted as a
+   keystroke and the draw loop ran flat out — measured at ~267 frames/s, not one per press.
+2. **`MS` does not sleep.** Measured: twenty `200 MS` in **0.05 s**. `L_P_MS` is `pl_hw(3, POP(), 0)` and `pl_hw` op 3
+   returns the wake count (`src/p31_cases.inc`, `src/ulp_p39.c`), so the pacing did nothing at all.
+
+**Fixes, all in `.fs`** (the engine is untouched): `DIGIT` clamps its input (`15 AND 48 + EMIT`), `.N` proves its
+range first (`100 /MOD DROP DUP 9 < …`), and both demos wait with the resident `K0` (which drops `-1`) instead of
+calling `KEY` themselves. The spinner is now key-paced: one frame per press, bounded counter, silent when idle.
+
+**The `.c` question, left open on purpose:** `MS` should sleep. Making it do so means the wake timer (RTC) in the
+engine, which is a separate decision and needs the operator's permission — so it is written down here as an open engine
+defect, not patched quietly.
+
+### What the tests did not catch, and now do
+`read_until(b"SPIN")` returns the instant the title appears, so the old `tui_cli.py` certified a program whose first
+frame was fine and whose second was `ERR_ULPCODE`. It now reads for a **fixed window after the first frame**, then reads
+again with an idle screen, and requires: no `ERR_*`, no byte `>= 0x80`, **zero bytes while nobody types**, and that a
+key produces a new frame (so "quiet" cannot mean "dead").
 
 ## The linter earned its keep
 

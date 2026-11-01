@@ -38,6 +38,38 @@ def say(s="", c=""):
     print(f"{c}{s}{OFF if c else ''}", flush=True)
 
 
+def port_holders(port):
+    """Who else has this tty open. Linux answers in /proc, and "the board is dead" vs "something else holds the cable"
+    are different facts with different fixes.
+
+    GUARDRAIL: measured the hard way - a crashed test harness left `cli.py --library` alive on /dev/ttyACM1, and every
+    later run spent 21-36 s retrying resets and then said "the board did not come back to a fresh dictionary". That
+    message sent me looking at hardware for a bug in a process table.
+    """
+    try:
+        st = os.stat(port)
+    except OSError:
+        return ""
+    me = {os.getpid(), os.getppid()}
+    found = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit() or int(pid) in me:
+            continue
+        try:
+            for fd in os.listdir(f"/proc/{pid}/fd"):
+                try:
+                    s = os.stat(f"/proc/{pid}/fd/{fd}")
+                except OSError:
+                    continue
+                if s.st_ino == st.st_ino and s.st_rdev == st.st_rdev:
+                    cmd = open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\0", b" ").decode("latin-1").strip()
+                    found.append(f"pid {pid} ({cmd[:60]})")
+                    break
+        except OSError:
+            continue
+    return ", ".join(found)
+
+
 def connect(port, settle):
     from devio import Dev
     try:
@@ -55,23 +87,48 @@ def connect(port, settle):
     # nothing, the still-running ULP answers politely, and the next upload compiles on top of the previous app - the
     # dictionary runs out mid-upload and the operator sees a wall of ERR_DICT from block 70 on, which looks like the app
     # being too big. Assert a FRESH machine (baked HERE ~786 and >900 B free), and fall back to esptool's slower reset.
-    fresh = False
+    #
+    # GUARDRAIL: this loop used to burn 21-36 s and then blame the board. Two causes, both now named:
+    #   * a 5 s timeout per probe. A live ULP answers `HERE .` in 40 ms, so 5 s only hides a dead one: the probe is 1.5 s
+    #     now and four attempts cost seconds instead of half a minute;
+    #   * a stale `cli.py` from a crashed harness still holding the tty. Then NOBODY answers, every attempt times out,
+    #     and the operator is told to unplug the cable. Check for a holder FIRST, and when nothing answers say "no
+    #     answer" rather than "not fresh" - measured: 36 s of the wrong sentence.
+    holders = port_holders(port)
+    if holders:
+        say(f"  {port} is already open by: {holders}", YL)
+        say("  close that program (or kill it) and run this again.", YL)
+        dev.close()
+        return None
+    fresh, answered, here, free = False, False, 0, 0
     for attempt in range(4):
+        if attempt:
+            say(f"  retrying reset ({attempt + 1}/4)...", DM)
         if attempt < 2:
             dev.pulse_reset(settle)
         else:
             dev.reset(settle=1.2)
+        # GUARDRAIL: `!LINE` first. A previous session may leave the board in raw mode, where every byte goes to the
+        # running program and a probe is read as a keystroke - so the probe times out on a machine that is alive.
+        # `!LINE` is a host op and works from raw mode (measured).
         try:
-            here = dev.num("HERE .", timeout=5.0)
-            free = dev.num("LATEST HERE - .", timeout=5.0)
+            dev.cmd("!LINE", timeout=1.5, allow_error=True)
+            here = dev.num("HERE .", timeout=1.5)
+            free = dev.num("LATEST HERE - .", timeout=1.5)
         except Exception:
             continue
+        answered = True
         if here < 900 and free > 900:
             fresh = True
             break
     if not fresh:
-        say("  the board did not come back to a fresh dictionary.", YL)
-        say("  unplug the USB cable, plug it back in, and run this again.", YL)
+        if answered:
+            say(f"  the dictionary is not fresh (HERE {here}, {free} B free).", YL)
+            say("  unplug the USB cable, plug it back in, and run this again.", YL)
+        else:
+            say("  the board did not answer at all.", YL)
+            say(f"  * is another program holding the port?  (fuser -v {port})", YL)
+            say("  * cable in?  * Linux: sudo usermod -aG dialout $USER (log out, in)", YL)
         return None
     dev.cmd("0 2 BLKXFER", timeout=6.0, allow_error=True)
     say(f"  connected: fresh dictionary, {free} B free.", DM)

@@ -56,11 +56,16 @@ class Dev:
         self.drain(0.5)
 
     def pulse_reset(self, settle=0.9):
-        """Reset the board by pulsing EN on the RTS line, holding the port open.
+        """Reset the board by pulsing EN on the RTS line, holding the port open. VERIFIED: if the pulse did not reset the
+        machine, fall back to esptool's hard reset, because a reset that did not happen is worse than a slow one.
 
         GUARDRAIL: esptool's hard reset costs ~2.5 s per invocation because it re-opens the port and talks the bootloader
-        protocol - measured in cli.py's startup. A DTR/RTS pulse does the same reset in ~50 ms and is what the boot-log
-        capture already used. The cost is that we must wait for the ULP to boot ourselves, hence settle.
+        protocol - measured in cli.py's startup. A DTR/RTS pulse was believed to do the same reset in ~50 ms, and on a
+        board with a USB-UART bridge it does. On THIS board it does NOT: measured with `: ZZZZ 1 ;` (HERE 794) followed
+        by a pulse, HERE stayed 794, while esptool's hard reset returned it to the baked 786. The chip exposes
+        USB-Serial-JTAG, whose DTR/RTS are emulated registers rather than a physical EN line, so the modem bits are
+        simply not connected to the reset. Every test paid for two of those no-ops, and worse, a caller that assumed
+        "pulsed = fresh" was reading the PREVIOUS run's dictionary.
         """
         import fcntl, struct
         TIOCM_DTR, TIOCM_RTS = 0x002, 0x004
@@ -84,6 +89,14 @@ class Dev:
         fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_RTS))   # EN high = start
         time.sleep(settle)
         self.drain(0.15, 3.0)
+        # GUARDRAIL: verify, then fall back. A fresh boot reports the baked HERE (786 here); anything at or above 900 means
+        # the machine never restarted (see the class-level note above for the measurement). No answer is also a failure.
+        try:
+            here = self.num("HERE .", timeout=1.5)
+        except Exception:
+            here = None
+        if here is None or here >= 900:
+            self.reset(settle=settle)
 
     def hard_reset_capture(self, seconds=4.0):
         """GUARDRAIL: esptool-based reset() closes the port, so the ROM boot log - the only record of why a wedged board

@@ -438,3 +438,50 @@ Verified both ways: three adopts in a row succeed (including a different image),
 
 **Guarded by** `tests/adopt_sum.py` (14 checks, both directions) and `tests/programs.py` ("Enter → spinner (2nd
 program)"), which was the failing check for the whole feature.
+
+## F-124 · `EMIT` is the raw byte path, and 0x80.. is the console's message-code space — so a digit can print a message
+`src/msg_codes.h` reserves every byte at or above `0x80` for console messages, and its own header comment states the
+invariant: "Nothing the engine can emit is >= 0x80, so 0x80 and up is a free escape space." That invariant holds for the
+*engine*. It does not hold for a **program**, because `EMIT` writes the byte it is given.
+
+Measured on the device with the program-library spinner, whose counter was printed by
+`: DIGIT 48 + EMIT ; : .N DUP 10 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;`:
+
+| n | byte emitted | what the operator saw |
+|---|---|---|
+| 790 | `0x7F` | an invisible byte |
+| 800 | `0x80` | `ERR_ULPCODE 0x80 (unknown code)` |
+| 810 | `0x8A` | `ERR_BUSY` |
+| 825 | `0x90` | `ERR_UNNAMED` |
+| 897+ | `0x91`…`0xFF` | `ERR_ULPCODE` for every frame, one 16 KB flood |
+
+The word is fine for 0..99 and lies from 100 (`100` printed `:0`, because `.N` also reversed its digits). A number
+printer must either prove its range or clamp: `DIGIT` is now `15 AND 48 + EMIT` and `.N` starts with `100 /MOD DROP`.
+
+**Guarded by** linter rule **R7 byte range** — an interval analysis that only trusts literals and `AND`/`/MOD`, so it
+stays silent on `ESC` (27) and `SENT` (0) and fires on arithmetic feeding `EMIT` — plus `tests/tui_cli.py`, which now
+requires **zero bytes** from an idle full-screen program and names any byte `>= 0x80`.
+
+## F-125 · `MS` does not sleep, and two demos were paced by it (OPEN — engine, not yet permitted)
+`L_P_MS` is `pl_hw(3, POP(), 0)` and `pl_hw` op 3 returns the wake count (`src/p31_cases.inc`, `src/ulp_p39.c`), so
+`MS` pops its argument and returns immediately. Measured on the chip: twenty `200 MS` completed in **0.05 s**, and a
+spinner intended to draw one frame per 200 ms drew **~267 frames/s**.
+
+Nothing in the `.fs` layer can sleep — the machine has no idle primitive — so the demos are now **key-paced** (one frame
+per press, using the resident `K0`). A real `MS` needs the wake timer in the engine; that is a `.c` change and is
+recorded here rather than made quietly.
+
+**Guarded by** linter rule **R9 ms stub**, which refuses `MS` as a pacing word and quotes the measurement.
+
+## F-126 · A reset that reports success and does nothing costs more than a slow reset
+On this board (ESP32-S3, native USB-Serial-JTAG) the RTS/DTR modem bits are emulated registers, not a physical EN line.
+Measured: `: ZZZZ 1 ;` moved HERE to 794; a `pulse_reset` left it at **794**; the same call after esptool's hard reset
+read **786** (baked). So the "fast path" was a no-op that two callers per run paid ~1.3 s for, and a harness that
+assumed "pulsed ⇒ fresh" was reading the *previous* run's dictionary.
+
+`devio.Dev.pulse_reset` now verifies (`HERE < 900`) and falls back to the esptool reset, and `cli.connect` probes with
+1.5 s timeouts instead of 5 s and names a held port (it found a stale `cli.py` holding `/dev/ttyACM1`: the old message
+said "the board did not come back to a fresh dictionary", which sent me looking at hardware for a process-table bug).
+`./cli.py` startup: **21.7 s → 2.9 s**, measured on a board with a non-fresh dictionary.
+
+**Guarded by** `probe/repl/tests/device.sh`, which every device run goes through.

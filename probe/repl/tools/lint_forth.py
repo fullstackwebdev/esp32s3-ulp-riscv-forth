@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """lint_forth.py - static checks for Forth programs that will be compiled on the chip.
 
-Four rules, each one earned by a real bug (see docs/24-dispatch.md):
+Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-library.md):
 
   R1 comment    a `\\` comment in a block source compiles as WORDS (blocks have no line boundaries).
                 Measured: a comment containing "poll:" produced `POLL:?` at compile time.
@@ -11,6 +11,16 @@ Four rules, each one earned by a real bug (see docs/24-dispatch.md):
                 killed a running program three steps later with ERR_STACK.
   R4 leak       a body leaves items nobody asked for. Measured: `: INV ESC CSI 55 M ;` pushed the digit
                 '7' and never emitted it - one cell per colour change, ~8 per frame = overflow.
+  R7 byte range an EMIT argument that is not provably 32..126. EMIT is the RAW byte path, and every byte
+                >= 0x80 is the console's MESSAGE-CODE space (src/msg_codes.h), so a "digit" built with
+                `48 +` stops being a digit at 897 and prints other people's messages: measured on the
+                device, `900 .N` answered `ERR_BUSY` and `1000 .N` answered `ERR_ULPCODE 0x94`.
+  R8 key -1     KEY returns -1 for "no key". A body that reads KEY and never tests -1 treats "nothing"
+                as a keystroke, so its loop runs flat out: measured as a spinner drawing 267 frames/s
+                (and printing 16 KB in 4 s) instead of one frame per press.
+  R9 ms stub    MS does not sleep on this machine. Measured: 20 x `200 MS` completed in 0.05 s, because
+                L_P_MS is `pl_hw(3, POP(), 0)` and pl_hw op 3 returns the wake count (src/p31_cases.inc,
+                src/ulp_p39.c). Pacing a demo with MS paces nothing.
 
 Stack effects come from a table for the machine's own words, plus `( in -- out )` declarations for the
 program's words. A definition without a declaration is assumed ( -- ), which is what most of them are; a
@@ -29,17 +39,23 @@ PRIMS = {
     "EXECUTE": (1, 0), "OVL": (1, 0), "BLKXFER": (2, 2), "KEY?": (0, 1), "LOAD": (1, 0), "SAVE": (0, 0), "UPDATE": (0, 0),
     # GUARDRAIL: machine variables are WORDS that push an address: `W @` is 1 push, not 0. Listing them as unknown
     # made a real launcher look like it used an undefined word.
-    "HERE": (0, 1), "LATEST": (0, 1), "bh": (0, 1), "bl": (0, 1), "VH": (0, 1), "VL": (0, 1), "SEAL": (0, 0), "SD": (0, 1),
-    "!": (2, 0), "*": (2, 1), "+": (2, 1), "-": (2, 1), "<": (2, 1), "=": (2, 1), "<>": (2, 1),
+    "HERE": (0, 1), "LATEST": (0, 1), "bh": (0, 1), "bl": (0, 1), "VH": (0, 1), "VL": (0, 1), "SEAL": (0, 0), 
+    "!": (2, 0), "*": (2, 1), "+": (2, 1), "-": (2, 1), "<": (2, 1),  "=": (2, 1), "<>": (2, 1),
+    # GUARDRAIL: `>` was missing while `<` was present - a gap the lint selftest caught the moment a fixture used
+    # it, and the kind of gap that reports "undefined word" in code the chip compiles happily.
     "0=": (1, 1), "1+": (1, 1), "1-": (1, 1), "@": (1, 1), "AND": (2, 1), "OR": (2, 1), "XOR": (2, 1),
     "INVERT": (1, 1), "LSHIFT": (2, 1), "RSHIFT": (2, 1), "U<": (2, 1), "U/MOD": (2, 2),
-    "/MOD": (2, 2), "C@": (1, 1), "C!": (2, 0), "W@": (1, 1), "W!": (2, 0), "@!": (2, 0),
+    # GUARDRAIL: `MOD` does NOT exist (only `/MOD`), and neither do `/`, `>`, `@!`, `ALLOT`, `CR`, `SD` or `SPACE`.
+    # This table said MOD existed, linted a launcher containing `100 MOD` as CLEAN, and the chip answered `MOD?` while
+    # compiling block 79 - a linter that certifies a word the machine lacks is worse than no linter, because it is
+    # believed. tests/lint_vocab.py now asks the DEVICE about every entry here, and the duplicates that used to sit in
+    # this dict (KEY?, HERE, LATEST, UPDATE, SAVE, LOAD, BLKXFER, silently won by whichever came last) are gone.
+    "/MOD": (2, 2), "C@": (1, 1), "C!": (2, 0), "W@": (1, 1), "W!": (2, 0),
     "DUP": (1, 2), "DROP": (1, 0), "SWAP": (2, 2), "OVER": (2, 3), "ROT": (3, 3), "NIP": (2, 1),
-    "EMIT": (1, 0), "TYPE": (2, 0), ".": (1, 0), "MS": (1, 0), "KEY": (0, 1), "KEY?": (0, 1),
-    "HERE": (0, 1), "LATEST": (0, 1), "STATE": (0, 1), "BLOCK": (1, 1), "UPDATE": (0, 0),
-    "SAVE": (0, 1), "LOAD": (1, 0), "BLKXFER": (2, 2), "CREATE": (0, 0), ",": (1, 0), "ALLOT": (1, 0),
+    "EMIT": (1, 0), "TYPE": (2, 0), ".": (1, 0), "MS": (1, 0), "KEY": (0, 1),
+    "STATE": (0, 1), "BLOCK": (1, 1), "CREATE": (0, 0), ",": (1, 0),
     "PAUSE": (0, 0), "WAKE": (0, 0), ">R": (1, 0), "R>": (0, 1), "I": (0, 1), "J": (0, 1),
-    "UNLOOP": (0, 0), '."': (0, 0), "SPACE": (0, 0), "CR": (0, 0),
+    "UNLOOP": (0, 0), '."': (0, 0),
 }
 CONTROL = {"IF", "ELSE", "THEN", "BEGIN", "UNTIL", "WHILE", "REPEAT", "AGAIN", "DO", "LOOP", "+LOOP", "EXIT"}
 
@@ -69,6 +85,87 @@ def tokens(text):
 
 def is_num(t):
     return bool(re.fullmatch(r"-?\d+", t))
+
+
+# ---- R7: a tiny interval analysis, only for the byte an EMIT receives -------------------------------------
+# Intervals are (lo, hi) or None = "unknown". None is the answer for anything read from memory, a key, or a
+# word whose body we have not modelled; that is deliberate, because a wrong bound is how a linter lies.
+def r_add(a, b):
+    return None if a is None or b is None else (a[0] + b[0], a[1] + b[1])
+
+
+def r_sub(a, b):
+    return None if a is None or b is None else (a[0] - b[1], a[1] - b[0])
+
+
+def r_mul(a, b):
+    if a is None or b is None:
+        return None
+    c = [a[0] * b[0], a[0] * b[1], a[1] * b[0], a[1] * b[1]]
+    return (min(c), max(c))
+
+
+def xfer(tk, rs):
+    """Apply one token to the interval stack `rs` in place. `rs` is padded to the current depth by the caller."""
+    def pop(n=1):
+        out = []
+        for _ in range(n):
+            out.append(rs.pop() if rs else None)
+        return out
+
+    if tk == "DUP":
+        rs.append(rs[-1] if rs else None); return []
+    if tk == "DROP":
+        pop(); return []
+    if tk == "SWAP":
+        a, b = pop(2); rs.extend([a, b]); return []
+    if tk == "OVER":
+        rs.append(rs[-2] if len(rs) >= 2 else None); return []
+    if tk == "NIP":
+        a, b = pop(2); rs.append(a); return []
+    if tk == "ROT":
+        a, b, c = pop(3); rs.extend([b, c, a]); return []
+    if tk == "1+":
+        rs.append(r_add(pop()[0], (1, 1))); return []
+    if tk == "1-":
+        rs.append(r_add(pop()[0], (-1, -1))); return []
+    if tk == "+":
+        b, a = pop(2); rs.append(r_add(a, b)); return []
+    if tk == "-":
+        b, a = pop(2); rs.append(r_sub(a, b)); return []
+    if tk == "*":
+        b, a = pop(2); rs.append(r_mul(a, b)); return []
+    if tk == "AND":
+        # GUARDRAIL: `x m AND` clears every bit above m, so the result is 0..m for ANY x - true for a negative x
+        # too, because the mask is applied to the 32-bit two's complement. This is the one bound worth trusting.
+        b, a = pop(2)
+        m = None
+        for r in (a, b):
+            if r is not None and r[0] == r[1] and r[0] >= 0:
+                m = r[0]
+        rs.append((0, m) if m is not None else None); return []
+    if tk == "MOD":
+        b, a = pop(2)
+        # GUARDRAIL: only when the dividend is provably non-negative. Forth leaves MOD's sign open for a negative
+        # dividend, and inventing (0, m-1) there would hide exactly the negative byte R7 exists to catch.
+        if b is not None and b[0] == b[1] and b[0] > 0 and a is not None and a[0] >= 0:
+            rs.append((0, b[1] - 1))
+        else:
+            rs.append(None)
+        return []
+    if tk in ("/MOD", "U/MOD"):
+        b, a = pop(2)
+        if b is not None and b[0] == b[1] and b[0] > 0 and a is not None and a[0] >= 0:
+            rs.extend([(0, b[1] - 1), (0, a[1] // b[0])])
+        else:
+            rs.extend([None, None])
+        return []
+    if tk == "C@":
+        pop(); rs.append((0, 255)); return []
+    if tk == "KEY":
+        # GUARDRAIL: -1 is a real KEY value here, so the low bound is negative, not 0. R8 is what complains about it.
+        rs.append((-1, 255)); return []
+    return None            # not modelled: caller pushes p_out unknowns
 
 
 def declared(body):
@@ -141,7 +238,16 @@ def lint_definitions(src, base=None):
         # GUARDRAIL: `0 UNTIL` never loops back, so everything after that loop is dead and the definition's end depth
         # is unreachable. A demo that runs until `q` returns through EXIT, so its leftover loop counter is not a leak -
         # the rule is "the end depth must balance IF the end can be reached".
+        rs = []              # R7: interval per stack item, kept in step with `depth`
         toks = tokens(body)
+        # GUARDRAIL: R8, whole-definition (not per token). KEY yields -1 for "no key" on this machine, and a body that
+        # reads it without ever testing -1 treats "nothing" as a keystroke: measured as a spinner drawing 267 frames/s
+        # and printing 16 KB in 4 s, whose counter then walked into the message-code space. A filter counts as a test:
+        # `KEY 0 >` separates -1 from a real byte just as well as `KEY -1 =`.
+        if "KEY" in toks and "-1" not in toks and not any(
+                toks[i] == "0" and toks[i + 1] in (">", "<") for i in range(len(toks) - 1)):
+            findings.append((lineno, "R8 key -1",
+                             f"{name}: reads KEY but never tests -1 (no key), so it treats `nothing` as a keystroke"))
         infinite = any(toks[i - 1] == "0" and toks[i] == "UNTIL" for i in range(1, len(toks)))
         skip = 0
         for tk in toks:
@@ -221,6 +327,8 @@ def lint_definitions(src, base=None):
                 continue
             if is_num(tk):
                 depth += 1
+                while len(rs) < depth: rs.append(None)
+                rs[-1] = (int(tk), int(tk))
                 continue
             if tk not in vocab:
                 findings.append((lineno, "R2 order", f"{name}: `{tk}` is not defined before this point"))
@@ -234,7 +342,40 @@ def lint_definitions(src, base=None):
                                  f"{name}: `{tk}` needs {p_in} item(s), the body only has {p_in + depth}"))
                 bad = True
                 break
+            # GUARDRAIL: `rs` must hold exactly the items this word CONSUMES before its transfer runs, and exactly
+            # `depth` after it - padding it to the post-word depth first made DUP look like it pushed two items and
+            # desynchronised every later judgement.
+            while len(rs) < depth + p_in: rs.append(None)
+            while len(rs) > depth + p_in: rs.pop()
+            if tk == "EMIT":
+                # GUARDRAIL: R7. `EMIT` writes the byte as-is and the host reads anything >= 0x80 as a MESSAGE CODE,
+                # so an out-of-range "character" prints someone else's sentence or `ERR_ULPCODE`. Only a provable
+                # 32..126 passes; `AND`/`MOD` are how a body proves it (see DIGIT in examples/menu.fs).
+                # GUARDRAIL: the boundary is 0x7F, not 32. Control bytes below 32 are the ANSI escapes this machine
+                # draws with (`ESC` = 27, `SENT` = 0), and src/msg_codes.h says so: the reserved space starts at 0x80.
+                # A rule that rejected 27 would have flagged every working drawing word and been turned off.
+                r = rs[-1] if rs else None
+                if r is None or r[0] < 0 or r[1] > 127:
+                    findings.append((lineno, "R7 byte range",
+                                     f"{name}: EMIT gets {('an unbounded value' if r is None else f'{r[0]}..{r[1]}')}" +
+                                     ", not a provable 0..127 - bytes >= 0x80 are the console's message codes"))
+                    bad = True
+                    break
+            elif tk == "MS":
+                # GUARDRAIL: R9. MS is `pl_hw(3, POP(), 0)` and pl_hw op 3 returns the wake count - it does not
+                # sleep. Measured: 20 x `200 MS` in 0.05 s. A demo paced by MS runs flat out and floods the console.
+                findings.append((lineno, "R9 ms stub",
+                                 f"{name}: `MS` does not sleep on this machine (measured 20 x 200 MS in 0.05 s); "
+                                 "pace with a key wait instead, or accept a flat-out loop"))
+                bad = True
+                break
+            else:
+                if xfer(tk, rs) is None:
+                    for _ in range(p_out):
+                        rs.append(None)
             depth += p_out
+            while len(rs) < depth: rs.append(None)
+            while len(rs) > depth: rs.pop()
         if _os.environ.get('LINTDBG'): print(f'  [dbg] {name}: end depth={depth} bad={bad}')
         if not bad and not infinite and depth != pushes_out:
             findings.append((lineno, "R4 leak",
@@ -243,39 +384,58 @@ def lint_definitions(src, base=None):
     return findings
 
 
+# (source, the ONE rule it exists to prove). Naming the rule matters: the first version only asserted "something
+# fired", so a fixture with an unrelated leak counted as a catch, and three of these bugs were never actually proven.
 BUGS = {
- "missing DUP (our JK bug)": """: JK DUP 106 = IF DROP NEXT EXIT THEN 107 = IF PREV EXIT THEN DROP ;
+ "missing DUP (our JK bug)":
+   (""": JK DUP 106 = IF DROP NEXT EXIT THEN 107 = IF PREV EXIT THEN DROP ;
 : ACT DUP 13 = IF DROP PICKED EXIT THEN JK ;
 : PICKED ;
 : NEXT ; : PREV ;
-""",
- "leaking digit (our INV bug)": """: M 109 EMIT ;
+""", "R3 underflow"),
+ "leaking digit (our INV bug)":
+   (""": M 109 EMIT ;
 : INV ( -- ) ESC CSI 55 M ;
-: ESC ( -- ) ;
-: CSI ( -- ) ;
-""",
- "used before defined (our ACT bug)": """: ACT ( -- ) JK ;
+""", "R2 order"),
+ "used before defined (our ACT bug)":
+   (""": ACT ( -- ) JK ;
 : JK ( -- ) ;
-""",
- "poll loop leak (our K0 bug)": """: KEY ( -- c ) ;
-: K0 ( -- c ) BEGIN KEY DUP -1 = 0= UNTIL ;
-""",
- "comment compiles as words": """\\ poll: drop the -1 marker
+""", "R2 order"),
+ "poll loop leak (our K0 bug)":
+   (""": K0 ( -- c ) BEGIN KEY DUP -1 = 0= UNTIL ;
+""", "R5 loop leak"),
+ "comment compiles as words":
+   ("""\\ poll: drop the -1 marker
 : K0 ( -- ) ;
-""",
+""", "R1 comment"),
+ # The three below are today's spinner flood, and each one is a separate cause of it.
+ "unbounded EMIT (our ERR_ULPCODE flood)":
+   (""": DIGIT ( n -- ) 48 + EMIT ;
+: N2 ( n -- ) DIGIT ;
+""", "R7 byte range"),
+ "KEY without the -1 test (our flat-out spinner)":
+   (""": RUNS ( -- ) BEGIN KEY DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
+""", "R8 key -1"),
+ "MS used as a sleep (our pacing bug)":
+   (""": TICK ( n -- n ) 200 MS 1+ ;
+""", "R9 ms stub"),
 }
+# The corrected versions of every bug above, in one source: it must lint SILENT, or the rules are just noise.
 GOOD = """: WAIT ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
 : JK ( c -- ) DUP 106 = IF DROP WAIT DROP EXIT THEN DUP 107 = IF DROP WAIT DROP EXIT THEN DROP ;
+: DIGIT ( n -- ) 15 AND 48 + EMIT ;
+: .N ( n -- ) 100 /MOD DROP DUP 9 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;
+: RUNS ( -- ) BEGIN WAIT DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
 """
-
 
 def selftest():
     ok = True
-    for name, src in BUGS.items():
+    for name, (src, rule) in BUGS.items():
         f = lint_definitions(src)
-        hit = bool(f)
+        hit = any(r == rule for _, r, _ in f)
         ok = ok and hit
-        print(f"  {'caught' if hit else 'MISSED'}  {name:38} {f[0][1] if f else ''}")
+        print(f"  {'caught' if hit else 'MISSED'}  {name:44} {rule}"
+              + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
     f = lint_definitions(GOOD)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  good source (must be silent)      {f[:1] if f else ''}")

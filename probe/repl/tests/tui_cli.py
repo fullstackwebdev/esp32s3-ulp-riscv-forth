@@ -10,13 +10,16 @@ What it proves, in the operator's own terms:
   * `--library` builds the launcher + both images with no extra flags and no test harness;
   * the menu appears (so `--term` was handed the launcher's entry word, not the group's default `RUN`);
   * Enter runs a program, `q` comes back, `k` picks the other one and it RUNS - the case docs/25 recorded as refused;
-  * `q` on the menu returns to the Forth REPL, which still answers.
+  * `q` on the menu returns to the Forth REPL, which still answers;
+  * BOTH demos are SILENT while nobody types, and noisy bytes are named - the spinner used to flood
+    `ERR_ULPCODE` from its second frame on (an unclamped `48 +` walking into the console's message-code space),
+    and `read_until(b"SPIN")` returned before the flood started, so a green run certified it.
 
 GUARDRAIL: `--library` must RUN the menu, not just build it. `--term`'s default is the word `RUN`, which the launcher
 does not define, so the shipped command used to hand the terminal to a missing word and print `RUN?` into an invisible
 alternate screen - the tool looked hung. That is why the first assertion here is the menu's own title.
 """
-import os, sys, pty, time, select, pathlib, subprocess, signal
+import os, sys, pty, re, time, select, pathlib, subprocess, signal
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 CAP = 40.0
@@ -33,6 +36,32 @@ def read_until(fd, needle, cap):
             except OSError:
                 break
     return buf
+
+
+def dwell(fd, cap):
+    """Read for the WHOLE cap, ignoring quiet. A busy-looping program is silent until it is not; the earlier version of
+    this test stopped at the first frame that matched a needle and therefore could not see a flood that started after
+    it - which is exactly how `ERR_ULPCODE` got past a green run."""
+    buf, end = b"", time.time() + cap
+    while time.time() < end:
+        r, _, _ = select.select([fd], [], [], 0.05)
+        if r:
+            try:
+                c = os.read(fd, 65536)
+            except OSError:
+                break
+            if not c:
+                break
+            buf += c
+    return buf
+
+
+def loud_errors(buf):
+    """Anything the console should never print while a demo is idle."""
+    hits = re.findall(rb"ERR_[A-Z_]+", buf)
+    hits += re.findall(rb"ERR_ULPCODE 0x[0-9a-f]+", buf)
+    high = sorted({b for b in buf if b >= 0x80})
+    return sorted(set(hits)), high
 
 
 def main():
@@ -57,7 +86,15 @@ def main():
         os.write(master, b"\r")
         bars = read_until(master, b"BARS", 10.0)
         t1 = (time.time() - t0) * 1000
+        # GUARDRAIL: drain the rest of the FIRST frame before judging idleness - measured 845 B of bars still in flight
+        # when the title matched, which reads as "it is looping" when it is one frame arriving. The second window is the
+        # real question.
+        dwell(master, 0.8)
+        idle_bars = dwell(master, 1.0)
+        hits, high = loud_errors(idle_bars)
         check("Enter -> colour bars", b"BARS" in bars and b"ERR_" not in bars, f"{t1:.0f} ms")
+        check("bars is quiet when nobody types", not hits and not high,
+              f"{len(idle_bars)} B in 1.5 s idle" + (f", noise {hits} {high}" if (hits or high) else ""))
 
         os.write(master, b"q")
         back = read_until(master, MENU, 10.0)
@@ -69,8 +106,25 @@ def main():
         os.write(master, b"\r")
         spin = read_until(master, b"SPIN", 10.0)
         t2 = (time.time() - t0) * 1000
+        # GUARDRAIL: this is the check that was missing for the whole feature (docs/25). `read_until(SPIN)` returns the
+        # moment the title appears, so it certified a program whose FIRST frame was fine and whose second was
+        # `ERR_ULPCODE`. Read for the full window instead, and read again with an idle screen.
+        idle_spin = dwell(master, 2.0)
+        hits, high = loud_errors(idle_spin)
         check("k + Enter -> the OTHER program runs", b"SPIN" in spin and b"ERR_" not in spin,
               f"{t2:.0f} ms; menu redrawn {MENU in moved}")
+        check("spinner is quiet when nobody types", not hits and not high,
+              f"{len(idle_spin)} B in 2 s idle" + (f", noise {hits[:4]} {high[:6]}" if (hits or high) else ""))
+
+        # A key-paced demo must answer a key with a new frame - otherwise "quiet" could just mean "dead".
+        frames = []
+        for _ in range(3):
+            os.write(master, b"j")
+            frames.append(dwell(master, 0.25))
+        check("a key advances the spinner", all(b"SPIN" in f for f in frames) and len({f for f in frames}) > 1,
+              f"{len(frames)} frames, {sum(len(f) for f in frames)} B")
+        hits, high = loud_errors(b"".join(frames))
+        check("no noise from keying either", not hits and not high, f"{hits[:4]} {high[:6]}" if (hits or high) else "")
 
         os.write(master, b"q")
         read_until(master, MENU, 10.0)
