@@ -36,6 +36,19 @@ Inside the REPL, lines starting with a dot are commands for your side, not the c
 .quit          leave
 ```
 
+### The menu, right now
+
+```
+./cli.py -i examples/tui_min.fs --term RUN
+```
+
+That uploads the 18-block app, the chip compiles it, and the terminal is handed over with `RUN` started.
+`j` / `k` move the selection, `q` quits, and **Ctrl-C always brings your terminal back**. From inside the REPL
+the same thing is `.term RUN`.
+
+`examples/terminal_demo.fs` is the bigger app (five panes); it needs about 2 100 bytes of dictionary and the
+machine has 1 366, so it currently stops with `ERR_DICT`. `tui_min.fs` is the one that fits.
+
 `--term` gives the program a clean alternate screen and passes every keystroke straight through.
 **Ctrl-C always gives your terminal back** - alternate screen, cursor and colours are restored even if the
 program misbehaves, because a terminal left in the alternate buffer looks like a broken shell.
