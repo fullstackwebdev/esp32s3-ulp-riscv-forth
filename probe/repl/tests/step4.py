@@ -33,6 +33,7 @@ def phase_src(p):
 
 
 def host_expect(p, workdir):
+    workdir.mkdir(parents=True, exist_ok=True)   # GUARDRAIL: a clean clone has no .auto/tmp
     blocks = phase_src(p)
     bf = workdir / f"step4_{p}.blocks"
     bf.write_text("".join(f"{8+k} {b.encode().hex()}\n" for k, b in enumerate(blocks))

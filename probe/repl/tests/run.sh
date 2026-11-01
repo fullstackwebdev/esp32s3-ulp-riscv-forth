@@ -27,7 +27,10 @@ export IDF_PATH=/home/user/research/esp32/esp-idf
 # compile error left the previous host_suite in place, the suite ran it, and the run reported 14/14 PASS on a
 # tree that would not compile — measured while removing FAULT, where the assertion error was invisible until
 # the pullout ran the assert on a re-run. Same rule as "a green suite must never be achieved by recording a
-# gap": it must also never be achieved by running the wrong binary.
+# GUARDRAIL: a clean clone has no artifacts/ directory, and every gcc -o below then fails with
+# "cannot open output file artifacts/host_suite" - measured from a fresh clone, where the suite reported 0 PASS and 0
+# FAIL, i.e. it looked like a green run of nothing. Create the directories the suite writes into.
+mkdir -p artifacts .auto/tmp
 gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
     -o artifacts/host_suite src/uforth.c || { echo "BUILD FAILED: host_suite will not compile" >&2; exit 1; }
 # GUARDRAIL: the capacity test compiles the phases at the SHIPPING memory size (MEMSZ 1936). Building it at the

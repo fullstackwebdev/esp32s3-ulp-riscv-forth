@@ -30,14 +30,47 @@ def check(name, ok, detail=""):
     return ok
 
 
-def host_half():
+def host_stack_balance(cycles=5):
+    """Per-cycle stack balance on the HOST, one cycle per invocation.
+
+    GUARDRAIL: this is the zero-byte answer to the depth gap. Underflow is silent and literal pushes never report
+    overflow, so no Forth-level probe can show balance on the chip; pushing through a colon word DOES report it, and each
+    cycle measured from a fresh start gives the cycle's own net stack effect.
+    GUARDRAIL: one cycle per FILE. The host reports only the first error per file, so five cycles in one file all
+    reported that single line and the offsets marched backwards by 3 per cycle - the check was wrong, not the machine.
+    """
+    blocks = phase_src(1)
+    bf = wd / "bal.blocks"
+    bf.write_text("".join(f"{8+k} {b.encode().hex()}\n" for k, b in enumerate(blocks))
+                  + f"2 {(' '*128).encode().hex()}\n" + f"{DATA(1)} {PAT(1).encode().hex()}\n")
+    deltas = []
+    for i in range(cycles):
+        head = [": P 1 ;", "SEAL", "2 OVL"] + [f"{8+k} LOAD" for k in range(len(blocks))] + ["RUNPH1"]
+        start_line = len(head) + 1                      # 1-based line number of the first P
+        dr = wd / f"bal{i}.fs"
+        dr.write_text("\n".join(head + ["P"] * 20) + "\n")
+        res = subprocess.run(["artifacts/host_blk", "-B", str(bf), "-k", "src/p39_prelude.fs",
+                              "src/p39b_overlay.fs", str(dr)], capture_output=True)
+        errs = [int(m.group(1)) for m in re.finditer(rf"bal{i}\.fs:(\d+): error",
+                                                     res.stderr.decode("latin-1", "replace"))]
+        deltas.append((min(errs) - start_line) if errs else None)
+    return deltas
+
+
+def host_half(break_mode=None):
+    cycles_used = 5
     exp = {p: host_expect(p, wd) for p in range(1, 16)}
+    if break_mode == "oracle":                     # deliberate break: make two phases share a signature
+        exp[7] = list(exp[6])
     check("host: 15 distinct per-phase signatures", len(set(map(tuple, exp.values()))) == 15,
           f"p1={exp[1]} p15={exp[15]}")
+    off = host_stack_balance()
+    check("host: per-cycle stack balance (identical overflow offset every cycle)",
+          len(off) == cycles_used and len(set(off)) == 1, f"per-cycle offsets {off}")
     return 0 if all(ok for _, ok in results) else 1
 
 
-def device_half():
+def device_half(brk=None):
     exp = {p: host_expect(p, wd) for p in range(1, 16)}
     with Dev() as d:
         d.cmd("0 BLOCK CONSTANT W")
@@ -103,6 +136,9 @@ def device_half():
                 check(f"cycles: phase {p} from image", False, f"{got} vs {exp[p]}")
                 break
         check("cycles: 10 further dump+adopt cycles (6..15)", cyc_ok)
+        if brk == "leak":                     # deliberate break: leak three window addresses before the check
+            for _ in range(3):
+                d.cmd(f"{IMG_AREA} 3 BLKXFER .")
         first = d.cmd(". 32 EMIT", timeout=8.0)
         check("cycles: no window address left on the stack", "1808" not in first, first.strip()[:24])
 
@@ -121,4 +157,5 @@ def device_half():
 
 
 if __name__ == "__main__":
-    sys.exit(host_half() if "--host" in sys.argv else device_half())
+    brk = sys.argv[sys.argv.index("--break") + 1] if "--break" in sys.argv else None
+    sys.exit(host_half(brk) if "--host" in sys.argv else device_half(brk))
