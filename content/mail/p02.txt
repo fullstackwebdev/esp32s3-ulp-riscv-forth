@@ -1,0 +1,8 @@
+From: Marek
+Subject: the block store lost a block
+Date: Tue 4 Nov, 11:40
+Block 27 answered ERR_CRC twice, then read fine after
+a save. I do not think the flash is going: the write
+probably landed while a second task was draining the
+ring. I kept the trace if you want to look at it.
+-- Marek

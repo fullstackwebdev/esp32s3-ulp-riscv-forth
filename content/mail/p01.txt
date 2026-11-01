@@ -1,0 +1,8 @@
+From: Dana
+Subject: power budget for the next build
+Date: Tue 4 Nov, 09:12
+The pool is the limit, not the store. With the block
+window kept back there is about a thousand bytes of
+phase space left, and I have the calculator squeezed
+into it. Tell me if mail needs the same treatment.
+-- Dana
