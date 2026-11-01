@@ -2123,28 +2123,39 @@ Two facts fell out of building it, both now pinned:
   (measured: HERE stayed 786, block 64 refused). One `0 2 BLKXFER` abort plus one retry is the documented escape; the
   runner does both, or the corpus fails for a reason unrelated to what it tests.
 
-**J-110 · Branch `dispatcher`: 1 193 B of window measured, and the race that explains every stalled chain.**
-The operator asked for unlimited chains with the biggest consistent window. Both are now measured rather than argued.
+**J-110 · Branch `dispatcher`: 1 193 B of window, 2.1 ms per hop, and the two bugs that hid behind a 10 ms tick.**
+Both halves of the operator's request are now numbers instead of arguments.
 
-**Window.** The window is what the resident launcher leaves, so a dispatcher-only launcher (`examples/boot.fs`:
-`CHAIN`/`PICKX`/`SWITCH`/`GO` + two cells, 134 B of code + 24 B of headers) leaves **1 193 B** against the menu
-launcher's **254 B** — 4.7×.
+**Window.** `examples/boot.fs` (dispatcher only: `CHAIN`/`PICKX`/`SWITCH`/`GO` + two cells = 134 B of code, 24 B of
+headers) leaves **1 193 B** where the full menu launcher leaves 254 B — 4.7×.
 
-**Unlimited.** `tests/dispatcher.py` builds 24 generated phases and requires each to run in order and the line to
-return: **24 hops, 739 ms, 30.8 ms/hop, counter 24, no refusals**. The ceiling is the store (128 blocks), not the
-design.
+**Unlimited.** `tests/dispatcher.py` builds 24 generated phases and requires each to run in order and the line to return:
+**24 hops, 50 ms, 2.1 ms/hop, counter 24, no refusals.** The ceiling is the store (128 blocks), not the design.
 
-**The race.** Every stall we chased — the "fourth hop", adopt_sum going red intermittently — is one flag. The HP services
-a block request only on a 0→1 edge it *sampled* (polling ~10 ms), and a raw `BLKXFER` does not raise `blk_req`, so an
-ULP that clears and re-raises `blk_out` between two polls is never serviced: it waits out BLKWAIT (~845 ms), gets
-BK_NOSERVER, leaves the flag set, and every later adopt answers BK_BUSY. The launcher ignored that status and
-`EXECUTE`d the stale block window — the 41 Hz re-entry.
+**Then the operator said "make it faster than 20 ms" — and that request exposed two real bugs.**
 
-Fixed in `.fs`, both measured: `PICKX` checks the status, unlatches and returns `NOOP` (a failed adopt now **stops** the
-chain); `SWITCH` waits **20 ms** per hop so the HP can sample the flag at 0. Before: stall at hop 2. After: 24 hops, and
-`adopt_sum` stable across three consecutive runs. The `.c` fix (sequence number instead of an edge) is the real one and
-needs permission — the `blk_req` variant was measured at +16 B of pool, over the gate.
+*F-132, the handshake.* The HP serviced a block request only on a 0→1 **edge it sampled** once per tick; a raw `BLKXFER`
+does not raise `blk_req`, so an ULP that re-raised the flag between two polls was never answered: 845 ms of BLKWAIT,
+`BK_NOSERVER`, flag left set, everything after that `BK_BUSY`. That is the "fourth hop" and the 41 Hz re-entry. Fixed by
+testing the **pending level** (`blk_out == 1 && mailbox[2] == 0`) — zero ULP bytes — plus publishing `blk_out` *after*
+the mailbox, because at boot mailbox[2] is 0 and a half-posted request got answered with power-on garbage (`ERR_CRC` on
+the first LOAD).
 
-Two side effects worth keeping: the linter learned that **`'` pushes an xt and skips its operand** (it was reporting a
-phantom underflow), and the branch added a **declared window floor** (`MIN_WINDOW = 200`) that the build refuses to
-violate — measured drift in one afternoon had been 346 → 290 → 237 B, silently.
+*F-131, the canary.* `canary_paint()` wrote 0xA5 from a hardcoded `0x1EAC`, and **two bytes** of new code pushed
+`blk_out`/`blk_req` past it. Those are the only ULP globals zeroed at boot and never rewritten, so they read
+`0xA5A5A5A5` for ever — and the new level test believed it: **12 028 phantom requests in 2 s**, trampling the transfer
+window under a real `LOAD`. Symptom: `ERR_CRC` on the first block read after reset in 2–3 of 12 trials, then NAME?
+cascades, with a re-`LOAD` clean. Fixed by deriving the paint base from the pool budget the flash gate enforces, by
+testing `blk_out == 1` rather than "nonzero", and by a boot assertion that names the fault. 18/18 trials clean after.
+
+*F-133, the log line.* One `printf` per adopt is 4.8 ms of UART at 115200 and the block task cannot poll while it
+writes: it was 4.5 of the 5.1 ms a hop cost. Now behind `#v 1`, quiet by default (failures stay loud). With the
+hot-path spin (8 × 150 µs after a service, instead of a whole tick) the hop is **2.1 ms**.
+
+Also on this branch: the window is **declared** (`MIN_WINDOW = 200` in `cli.library()`, refused if violated — it had
+drifted 346 → 290 → 237 B silently); `connect()` proves the block server answers before handing over the port; the
+linter learned that `'` pushes an xt and skips its operand; and phase names must avoid resident hash collisions
+(`: P1` refused, `: PHASE1` compiled).
+
+**Rejected:** `CONFIG_FREERTOS_HZ=1000` reached 2.2 ms but exposed an unrelated intermittent garbage path (5 failures in
+11 trials at 1 kHz vs 0 in 6 at 100 Hz). One subsystem's latency is not worth the whole system's tick rate.

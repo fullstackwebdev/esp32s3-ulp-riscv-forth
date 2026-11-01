@@ -124,33 +124,39 @@ at 2 blocks each is 48 of 128 blocks.
 
 ### Why every chain stalled before this: one flag, sampled
 
-`BLKXFER` is a mailbox handshake, and the HP services a request **only on a 0→1 edge it sampled**:
+`BLKXFER` is a mailbox handshake, and the HP serviced a request **only on a 0→1 edge it sampled**, once per FreeRTOS
+tick (10 ms at `CONFIG_FREERTOS_HZ=100`):
 
 ```c
-int out_now = ulp_repl_blk_out;
-int fresh = out_now && !blk_out_prev;      /* polling every ~10 ms */
+int fresh = out_now && !blk_out_prev;      /* "a request I happened to SEE arrive" */
 ```
 
-A raw `BLKXFER` does not raise `repl_blk_req`, so if the ULP clears and re-raises `blk_out` between two polls the HP
-sees `1 → 1`, decides "not fresh", and **never services it**. The ULP then waits out `BLKWAIT` (~845 ms), returns
-`BK_NOSERVER`, and *deliberately leaves `blk_out` set* — after which every adopt answers `BK_BUSY` instantly. The
-launcher used to ignore that status and `EXECUTE` whatever was in the block window: the "phase body re-enters at 41 Hz"
-we chased.
+A raw `BLKXFER` does not raise `repl_blk_req`, so if the ULP cleared and re-raised `blk_out` between two polls the HP
+saw `1 → 1`, decided "not fresh", and **never serviced it**. The ULP then waited out `BLKWAIT` (~845 ms), returned
+`BK_NOSERVER`, and *deliberately left `blk_out` set* — after which every adopt answered `BK_BUSY` instantly. The
+launcher ignored that status and `EXECUTE`d whatever was in the block window: the "phase body re-enters at 41 Hz" we
+chased.
 
-Two fixes, both measured:
+Three changes, all measured, none of them a delay:
 
-* **`.fs`** — `PICKX` checks the status, unlatches (`0 2 BLKXFER`) and returns `NOOP`, so a failed adopt **stops the
-  chain** instead of executing stale bytes; and `SWITCH` waits **20 ms** after each phase so the HP can sample the flag
-  back at 0. Evidence: without the gap a chain stalled at the **second** hop (counter 1); with it, **24 hops** run
-  clean. Cost: ~20 of the 31 ms per hop, and the counter shows it.
-* **`.c`** — the real fix is a sequence number (or raising `blk_req` for op 3, measured at +16 B of pool, over the 10 B
-  gate at the time). Needs permission; until then the 20 ms gap is the contract, and every harness that pokes `BLKXFER`
-  directly must carry it too (`tests/adopt_sum.py` went from *intermittently* failing 19/19 to stable).
+| change | where | effect |
+|---|---|---|
+| test the **pending level** `blk_out == 1 && mailbox[2] == 0` | HP (`.c`) | a missed poll can no longer lose a request — **0 ULP bytes** |
+| publish `blk_out` **after** the mailbox words | ULP (`.c`) | a half-posted request can never be seen |
+| keep polling 8 × 150 µs after a service (`hot`) | HP (`.c`) | the next chained request is ~100–300 µs away, not a tick |
+| `PICKX` checks the status and returns `NOOP` | `.fs` | a failed adopt **stops** the chain instead of running stale bytes |
+| the per-adopt `img: adopted …` line is behind `#v 1` | HP (`.c`) | it was 4.5 of the 5.1 ms a hop cost |
+
+**30.8 ms/hop → 2.1 ms**, i.e. 24 hops in 50 ms instead of 739 ms, and `tests/dispatcher.py` now asserts the *latency*
+(under 8 ms) so a tick wait creeping back fails the suite rather than being felt by a user.
+
+`cli.connect()` also proves the block server answers a read before returning: the ULP is armed ~500 ms before the main
+core creates the block task, so a caller could previously act while `blocksrv` did not exist yet.
 
 ### Hops are not free, and names collide
 
-* **~31 ms per hop**, 20 of which is the gap. A 24-phase program therefore takes ~0.75 s to walk. Fine for staged
-  programs, wrong for per-frame work.
+* **~2.1 ms per hop**, of which ≤1 ms is the HP's poll. A 24-phase program walks in 50 ms. Fine for staged programs,
+  still wrong for per-frame work.
 * **Phase names must not collide with resident names.** The dictionary stores a 12-bit hash and refuses a collision with
   the same `NAME?` a missing word produces: `: P1` was **refused** while `: PHASE1` compiled. With ~60 resident words
   that is ~2–3 % per name, and a paged design multiplies the number of names — so this grows teeth as phases multiply.

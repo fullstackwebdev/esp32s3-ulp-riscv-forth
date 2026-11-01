@@ -9,13 +9,14 @@ This formalises a throwaway probe. It answers two questions with numbers instead
   2. **How many hops can a chain actually take?** It builds N generated phases (each bumps a resident cell and names the
      next), runs the chain, and requires the counter to equal N and the line to RETURN.
 
-GUARDRAIL: every phase waits 20 ms after running (`EXECUTE 20 MS` in SWITCH). That is not pacing, it is the fix for a
-race: the HP services a block request only on a 0->1 EDGE it *sampled* (`fresh = out_now && !blk_out_prev`, polling every
-~10 ms), and a raw BLKXFER does not raise `repl_blk_req`. If the ULP clears and re-raises `blk_out` between two polls the
-HP sees 1 -> 1, decides "not fresh", and never services it: the ULP waits out BLKWAIT (~845 ms), returns BK_NOSERVER,
-leaves `blk_out` set, and every later adopt answers BK_BUSY. Measured before the gap: a chain stalled at the SECOND hop
-(PA=1, no return). Measured after: 24 hops, 30.8 ms each, PA=24. The proper fix is a sequence number in the mailbox
-(`.c`, needs permission); this is the `.fs` workaround, and it costs ~20 of the 31 ms per hop.
+GUARDRAIL: the hop cost is now ~2.1 ms and nothing in the launcher waits for it. It used to be 30.8 ms with a 20 ms
+"hop gap", because the HP serviced a block request only on a 0->1 EDGE it sampled once per FreeRTOS tick, and a raw
+BLKXFER does not raise `repl_blk_req` - so an ULP that cleared and re-raised the flag between two polls was never
+serviced (845 ms BLKWAIT, BK_NOSERVER, flag left set, everything after that BK_BUSY). Three changes removed the gap:
+the HP now tests the PENDING LEVEL (blk_out == 1 AND mailbox[2] == 0), which no poll gap can miss; the ULP publishes
+`blk_out` AFTER the mailbox, so a half-posted request cannot be seen; and after servicing, the HP keeps polling for
+8 x 150 us (`hot`) instead of sleeping a whole 10 ms tick, because a chained phase asks again ~100-300 us later.
+Do not reintroduce a fixed gap: it hid the level bug for hours and costs more than the transfer itself.
 
 GUARDRAIL: phase names must not collide with a RESIDENT name - the dictionary stores a 12-bit hash and refuses a
 collision with the same `NAME?` a missing word produces. `: P1` was refused while `: PHASE1` compiled. With ~60 resident
@@ -86,6 +87,10 @@ def main():
                     break
         ms = (time.time() - t0) * 1000
         check(f"a chain of {HOPS} hops RETURNS", b" ok" in buf, f"{ms:.0f} ms, {ms / HOPS:.1f} ms/hop")
+        # GUARDRAIL: assert the LATENCY, not just the outcome. It was 30.8 ms/hop behind a 20 ms launcher gap and nobody
+        # noticed, because "the chain works" was the only thing tested. 8 ms is ~4x the measured 2.1 ms: a real regression
+        # (a tick wait reappearing, the per-adopt printf coming back) fails here instead of being felt by a user.
+        check("a hop costs less than 8 ms", ms / HOPS < 8.0, f"{ms / HOPS:.1f} ms/hop")
         got = dev.num("PA @ .")
         check(f"every phase ran, in order ({HOPS})", got == HOPS, f"counter {got}")
         hits = re.findall(rb"REFUSED \w+|ERR_BUSY|ERR_", buf)

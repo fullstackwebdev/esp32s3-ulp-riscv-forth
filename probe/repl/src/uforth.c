@@ -340,10 +340,18 @@ static i32 blk_xfer(u32 blk, u32 op)
     /* GUARDRAIL: one outstanding request is a hardware constraint, not a policy — P16 measured
      * two in flight corrupting silently, with a valid CRC on both. Refuse; do not queue. */
     if (repl_blk_out) return BK_BUSY;
-    repl_blk_out = 1;
     mb_set(0u, blk); mb_set(1u, op);
     mb_set(3u, (op == BLK_WRITE) ? blk_sum() : 0u);        /* the checksum travels in the mailbox */
     mb_set(2u, 0u);                                      /* 0 = pending */
+    /* GUARDRAIL: repl_blk_out is published LAST, and that ordering is the contract the host reads. It used to be set
+     * first, right after the BUSY check, which left a window where the flag said "request" while the mailbox still held
+     * the PREVIOUS request's words. Nothing noticed while the host looked for a rising EDGE (it was one tick behind by
+     * construction), but once it services the LEVEL "flag set AND mailbox[2] == 0" the window is live - and at boot
+     * mailbox[2] starts at 0, so the very first block operation after reset could be answered with whatever was in
+     * mailbox[0..3] from power-on: measured as `ERR_CRC` on the first LOAD, then a cascade of NAME? as the blocks that
+     * depended on it never defined (1 failure in 6 trials). Publish the flag after the data: a flag that says "ready"
+     * must never be visible before the thing it announces. */
+    repl_blk_out = 1;
     pl_hw(6, 0, 0);                                      /* doorbell: P23, 176 us */
     /* GUARDRAIL: read the status ONCE. It used to be read up to four times after the poll (`!mb_get`,
      * `mb_get != 1`, then again for the nack value), and the main core can rewrite that word between any
