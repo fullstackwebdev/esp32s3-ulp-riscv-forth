@@ -24,92 +24,101 @@ and `j`/`k` would have been unused.
 `READ_ST` is three cells, **4 bytes apart** (`CREATE READ_ST 0 , 0 , 0 ,`):
 
 ```
-READ_ST + 0   page   0..7      (the page the top line is on)
+READ_ST + 0   page   0..1      (the page the top line is on)
 READ_ST + 4   column 0..7      (the line within that page)
-READ_ST + 8   mark   0..56     (the top line m wrote)
+READ_ST + 8   mark   0..8      (the top line m wrote)
 ```
 
 There is no `CREATE` in the phase (R16): the phase is replaced on every adopt, so a word it defined would vanish.
 Entering the app re-adopts the phase, which reads these cells and resumes exactly where it left, mark included.
 
-## Block arithmetic
+## Blocks
 
 ```
-page base = 80 + page*8                     (START is the app's literal inside its range)
-screen line i = block 80 + RT + i,  i = 0..7
+descriptor   48          (the allocation's durable 8 blocks: 48..55)
+content      64..79      (two pages, 2 x 8 blocks)
+START        64
+page base    64 + page*8 (page 1 -> blocks 64..71, page 2 -> 72..79)
+screen line i = block 64 + RT + i,  i = 0..7
 ```
 
-`RT` is clamped to `0..56`, so the window never runs past the end of a 64-line (8-page) document.
+`RT` is clamped to `0..8` (`RMAX = NPG*8 - 8`), so the window never runs off the document: the last top line is 8, whose
+bottom row is line 16, whose block is 79 — the top of the content range. The page count is **one literal**,
+`: NPG ( -- n ) 2 ;`, which feeds both the title (`PAGE n OF NPG`) and `RMAX`; a second copy of that number is a stale
+constant waiting to happen.
 
-## Budget (measured, host engine at device geometry)
+## Budget (measured on `artifacts/host_app`, i.e. at device geometry)
+
+`host_app` is built by `probe/repl/tests/build_host_app.sh` from `src/image.h`: MEMSZ 2604, TIBSZ 96, baked HERE 786 /
+LATEST 2152. The numbers below are `HERE`/`LATEST` deltas around each file at that geometry, so nothing here is an
+estimate:
 
 | item | bytes | how |
 |---|---|---|
-| display vocabulary (12 words) | **256** (220 code + 36 headers) | `SP ESC CSI M OFF INV CLR HOME DIGIT .N AT FILL` — duplicated from `examples/menu.fs`, per docs/26 |
-| app logic (22 words) | **708** (640 code + 66 headers) | `NPG RMAX RT RSET RCLAMP RBLK RNEXT RPREV RMARK RGO RTTL RPN RTXT RALL RKEY RPOS RDRAW RGET KJK KMG KQ READ1` |
-| **image** | **964** | code 862 + headers 102, measured as the `HERE`/`LATEST` delta around the file |
-| window (docs/26) | 1022 | headroom **58 B** |
-| source | 1739 B = **25 blocks** at 92 B | fsplit, `--phase` lint clean |
+| baked app space | 1 366 | `LATEST - HERE` at boot |
+| app-store resident (registry + dispatcher) | 329 (272 code + 57 headers) | `registry.fs` then `appstore.fs` |
+| **window left per phase** | **1 037** | measured; docs/26 says 1 022 from the same subtraction with a 344 B resident — 15 B apart, so the contract's figure holds |
+| display vocabulary (12 words) | 256 (220 code + 36 headers) | `SP ESC CSI M OFF INV CLR HOME DIGIT .N AT FILL`, duplicated from `examples/menu.fs` per docs/26 |
+| app logic (23 words) | 723 (654 code + 69 headers) | `NPG RMAX RT RSET RCLAMP RBLK RNEXT RPREV RMARK RGO RTTL RPN RTXT RALL RKEY RPOS SENT RDRAW RGET KJK KMG KQ READ1` |
+| **phase image** | **979** | 874 code + 105 headers |
+| headroom | **58** | 1 037 - 979 |
+| source | 1 767 B = 25 blocks at 92 B | fsplit, `--phase` lint clean; staged, not durable |
 | cells | 3 | `READ_ST` |
 
-The image number is a *host delta*: the suite's `artifacts/host_blk` is built at MEMSZ 1936 and holds the prelude in RAM,
-so resident + phase does not fit there (`ERR_DICT`, 366 B free). The delta was measured on the same source at
-MEMSZ 3000, where the dictionary has room; MEMSZ does not change the bytes a definition compiles to. The device figure
-must still be re-measured by the integrator.
+The test adds **zero** dictionary bytes (it defines no words), which is why it fits in the 58 B that are left: a `CK`
+or `NL` helper would not have.
 
-## Cost per keystroke (this is the app's real problem, and it is the machine's, not the code's)
+## Cost per keystroke (the machine's, not the code's)
 
-A screen line is one block, and `BLOCK` is one mailbox round trip: **50.2 ms** median (CONSTRAINTS §2). Eight lines are
-eight fetches, so one redraw of one frame costs **~400 ms**. Every key redraws. The alternatives cost more, not less:
-buffering the page needs 8x128 B of RAM the window does not have (R16 forbids `CREATE`), and redrawing only the changed
-line still needs the line's block, which means paying the fetch anyway — 50 ms instead of 400 for `j`/`k`, at the price
-of a second draw path. That trade is left to the sequence's integrator, with the number attached.
+A screen line is one block and `BLOCK` is one mailbox round trip: **50.2 ms** median (CONSTRAINTS §2). Eight lines are
+eight fetches, so one redraw costs **~400 ms**, and every key redraws. The alternatives cost more than they save:
+buffering a page needs 8x128 B of RAM the window does not have (R16 forbids `CREATE`), and redrawing only the changed
+line still needs that line's block, so it saves 350 ms at the price of a second draw path. Left to the sequence's
+integrator, with the number attached.
 
-## The allocation does not fit eight pages (contract vs machine)
+A failed fetch degrades harder than it looks, because the latch stays set (CONSTRAINTS §4): the first miss costs the
+full `BLKWAIT` (`ERR_NO_SERVER`, then `ERR_BUSY` for every later call). Measured in the grid run below — line 1 reads
+`ERR -3`, lines 2..8 read `ERR -2`.
 
-`8 pages x 8 blocks = 64 blocks`. The reader's range in docs/26 (this branch) is **80..95 = 16 blocks = 2 pages**, and
-the store itself ends at 128, so page 7 addresses blocks 136..143, which do not exist:
+## Gates run from this lane (no board)
 
-| page | blocks | what is there |
-|---|---|---|
-| 1 | 80..87 | reader content |
-| 2 | 88..95 | reader content |
-| 3 | 96..103 | **shelf's range** (96..111) |
-| 4 | 104..111 | shelf |
-| 5, 6 | 112..127 | launcher source |
-| 7, 8 | 128..143 | **past the end of the store** — `BLOCK` answers `ERR_RANGE (-5)` |
-
-`content/reader/p00..p07.txt` is authored for all eight pages because the contract asks for "page N of 8" and the text is
-the deliverable. `tools/seed_pages.py` (BASE reader = 80) will refuse page 6 onward by name at block 128.
-
-The page count is **one literal**: `: NPG ( -- n ) 8 ;` feeds both the title (`PAGE n OF NPG`) and the last top line
-(`RMAX = NPG*8 - 8`), so running the two pages the allocation actually funds is `NPG` 8 -> 2 and nothing else in the
-phase. That is deliberate, because the number in the title has to be the allocation's number; a second copy of it is a
-stale constant waiting to happen. `tests/reader_logic.expected` pins the eight-page geometry (clamp 56, `label page8`),
-so the flip also regenerates that golden - which is the point: the geometry change is visible in a diff.
+* **lint**: `lint_forth.py --phase --use examples/apps/registry.fs --use examples/appstore.fs` — clean.
+* **logic**: `probe/repl/tests/reader_logic.fs` + `.expected`, run by `tests/run.sh` on `artifacts/host_app` with the
+  resident and the phase loaded ahead of it. It pins the page/line arithmetic (0..8), the clamp at both ends, the block
+  address (64/71/72/75, last 79), the `/MOD` order, the three cells, and the bookmark round trip through `READ_ST`.
+* **grid**: possible, at device geometry, with `tools/screen.py ../../examples/apps/reader/read1.fs --host
+  artifacts/host_app --prelude ../../examples/apps/registry.fs --prelude ../../examples/appstore.fs --keys q --grid`:
+  the title bar is exactly 70 columns ending in `PAGE 1 OF 2`, the text occupies rows 3..10, the footer row 22, and the
+  run ends on `q`. The *content* cannot appear in a host grid (the host's block server serves blocks 0..3; content is
+  64..79), so those eight rows draw the named errors instead — the error arm, not a golden.
+* **not run**: anything on the board, and `tests/apps/reader.py`/`parity.py` (the integrator's G2/G4).
 
 ## GUARDRAILs that could not live in the .fs
 
 The phase source is split into 92 B blocks (`tools/fsplit.py`) and each block is interpreted on its own, so:
 
-* **`tools/fsplit.py` is not comment- or string-aware.** A cut at 92 B can land *inside* a `( ... )` comment or a
+* **`tools/fsplit.py` is not comment- or string-aware.** A 92 B cut can land *inside* a `( ... )` comment or a
   `." ... "` string; the next block then starts mid-comment and compiles the comment's words. Neither `fsplit` nor the
   linter's R10 catches it (an unknown first token models as "pops nothing"). Measured here: the first draft's second
   GUARDRAIL comment was cut, block 3 began with `GUARDRAIL - KEY returns -1 ...`, and the file was silently a different
-  program. `read1.fs` now carries **one** comment block, under 92 B, at the top; anything else is in this file.
-* **A `(` inside a `( ... )` comment ends the comment** at the first `)` — the rest of the line compiles as code
-  (measured: `(1896)` in a test comment produced `LOOPS?`). No nested parentheses in a comment.
-* **`."` eats one leading space.** `." OF 8"` printed `OF 8`, which left the title bar one column short of 70; the gap is
-  now an explicit `SP`.
-* **REGISTRY CELLS ARE 4 BYTES APART.** `READ_ST 1 +` addresses byte 1 *inside* the page cell, so the page reads back as
-  `256 x` the value written and the column overwrites the page's high bytes (measured: `READ_ST @` = 1792 after storing
-  0 and 1). `examples/apps/calc/calc1.wip.fs` uses `CALC_ST 1 + @` / `2 + @` throughout — it is parked and untested, and
-  that idiom is why. Use `4 +` and `8 +`.
-* **A `BEGIN..WHILE..REPEAT` written at top level, outside a definition, is wrong**: `BEGIN` and `WHILE` are immediate
-  words that leave `HERE` and the branch operand on the *data* stack while the loop runs (measured: a counting loop
-  printed `1896`, which is `HERE`). Loops belong inside a definition — all four in `read1.fs` are.
-* **`BLOCK` returns an error CODE, not an address, when the fetch fails** (`-2` busy, `-3` no server, `-5` range,
-  `-4` CRC). `TYPE` with a negative length/address walks memory, so `RTXT` tests `DUP 0 <` first and draws `ERR n`
-  instead of a line. With page 3 and up pointed at other owners' blocks, this is what the screen will show.
+  program. `read1.fs` therefore carries **one** comment block, under 92 B, at the top.
+* **A `(` inside a `( ... )` comment ends the comment** at the first `)`, and the rest of the line compiles as code
+  (measured: `(1896)` inside a test comment produced `LOOPS?`). No nested parentheses in a comment.
+* **`."` eats one leading space.** `." OF 8"` printed `OF 8` and left the title bar one column short of 70; the gap is
+  an explicit `SP` now.
+* **REGISTRY CELLS ARE 4 BYTES APART.** `READ_ST 1 +` addresses byte 1 *inside* the page cell: the page read back as
+  `256 x` the value written and the column overwrote the page's high bytes (measured: `READ_ST @` = 1792 after storing
+  0 then 1). `examples/apps/calc/calc1.wip.fs` uses `CALC_ST 1 + @` / `2 + @` throughout — it is parked and untested,
+  and that idiom is why. Use `4 +` and `8 +`.
+* **A `BEGIN..WHILE..REPEAT` outside a definition is wrong**: `BEGIN` and `WHILE` are immediate words that leave `HERE`
+  and the branch operand on the *data* stack while the loop runs (measured: a counting loop printed `1896` = `HERE`).
+  Loops belong inside a definition — all four in `read1.fs` are. This bit the test file, not the phase.
+* **`BLOCK` returns an error CODE, not an address, when the fetch fails** (`-2` busy, `-3` no server, `-4` CRC,
+  `-5` range). `TYPE` with a negative address walks memory, so `RTXT` tests `DUP 0 <` first and draws `ERR n`.
 * **`KEY` returns -1 for "no key"** and `RGET` tests it (R8); a loop that does not draws one frame per poll — 267
   frames/s measured on the board.
+* **At device geometry a *test* line is limited too**: `host_app` is TIBSZ 96, so any test line over 95 characters is
+  refused with `line too long` before it runs. `tests/reader_logic.fs` keeps every line under 95 for that reason.
+* **`tools/screen.py --host` does not strip the fake block server's `SRV ` diagnostic** the way `tests/run.sh` does, so
+  a host golden written by `--expect` would contain a driver line the board can never produce and host/device parity
+  could never match. The reader's grid run is `--grid` only, and the suite filters `^SRV ` itself.

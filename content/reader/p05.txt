@@ -1,8 +1,0 @@
-A phase is an image, not a program. It is compiled at the
-seal, written out with a descriptor, and adopted into the
-window every time it runs. Adopting rewinds the dictionary
-to the seal and reads the image back, so a phase cannot
-keep anything in its own dictionary: the words it defined
-a moment ago are gone. What survives is the registry, a
-few cells below the seal, and that is why an app returns
-to the place it left. A hop between phases measures 2.1 ms.

@@ -11,12 +11,12 @@
 : .N ( n -- ) 100 /MOD DROP DUP 10 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;
 : AT ( r c -- ) SWAP ESC CSI .N 59 EMIT .N 72 EMIT ;
 : FILL ( -- ) 0 BEGIN DUP 70 < WHILE SP 1+ REPEAT DROP ;
-: NPG ( -- n ) 8 ;
+: NPG ( -- n ) 2 ;
 : RMAX ( -- n ) NPG 8 * 8 - ;
 : RT ( -- line ) READ_ST @ 8 * READ_ST 4 + @ + ;
 : RSET ( line -- ) ( rem under quot, page first ) 8 /MOD READ_ST ! READ_ST 4 + ! ;
 : RCLAMP ( line -- line ) DUP 0 < IF DROP 0 ELSE DUP RMAX < 0= IF DROP RMAX THEN THEN ;
-: RBLK ( i -- blk ) RT + 80 + ;
+: RBLK ( i -- blk ) RT + 64 + ;
 : RNEXT ( -- ) RT 1+ RCLAMP RSET ;
 : RPREV ( -- ) RT 1- RCLAMP RSET ;
 : RMARK ( -- ) RT READ_ST 8 + ! ;
@@ -27,7 +27,8 @@
 : RALL ( -- ) 0 BEGIN DUP 8 < WHILE DUP RTXT 1+ REPEAT DROP ;
 : RKEY ( -- ) 22 1 AT ." j/k line   m mark   g go   q shelf" ;
 : RPOS ( -- ) 22 46 AT ." line " READ_ST 4 + @ 1+ .N ." /8 mk " READ_ST 8 + @ 1+ .N ;
-: RDRAW ( -- ) CLR HOME RTTL RPN RALL RKEY RPOS ;
+: SENT ( -- ) 0 EMIT ;
+: RDRAW ( -- ) CLR HOME RTTL RPN RALL RKEY RPOS SENT ;
 : RGET ( -- c ) ( -1 is no key, R8 ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
 : KJK ( c -- c ) DUP 106 = IF RNEXT THEN DUP 107 = IF RPREV THEN ;
 : KMG ( c -- c ) DUP 109 = IF RMARK THEN DUP 103 = IF RGO THEN ;

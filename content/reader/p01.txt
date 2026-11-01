@@ -1,8 +1,8 @@
-Rows three to ten are the text. Row one is an inverse bar
-with the app's name and the page number on it; row
-twenty-two carries the keys that work right now. Nothing
-is drawn below row twenty-four, because the harness
-assumes a normal terminal and this machine cannot ask it
-how big the window is. The width is seventy columns, not
-eighty: that is the launcher's own constant and every app
-inherits it, so an eighty-column layout would look ragged.
+Fetching a block is a mailbox request to the main core.
+The ULP writes a block number, sets a latch and waits; the
+answer arrives through a 128-byte window at the very top
+of the image, above the headers. On this board a fetch
+measures about fifty milliseconds, which is far more than
+a phase hop, so a screen is drawn from as few blocks as it
+can manage. The window is one buffer, so a program reads a
+line, draws it, and only then asks for the next one.
