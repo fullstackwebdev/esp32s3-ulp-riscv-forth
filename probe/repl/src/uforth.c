@@ -486,12 +486,20 @@ static VM *V = &vm_live;              /* the machine currently executing */
  * the dispatch boundary (vm_enter), where output is safe, and the line is abandoned with errf set.
  * GUARDRAIL: do not make this a silent clamp or a saturating push — a program that overflows must find out. */
 static u8 stack_ovf;
+/* GUARDRAIL: the host probes below print to stderr, so the host build needs <stdio.h> here. It compiled in the debug
+ * binary (different flags) and failed in tests/run.sh's host_suite build with "'stderr' undeclared" - a build break in
+ * the guardrail plumbing itself, which is exactly the sort of thing that stops a suite from running at all. */
+#ifdef HOST
+#include <stdio.h>
+#include <stdlib.h>   /* getenv, for the opt-in probes */
+#endif
 static void PUSH(u32 v) { if (sp < SD) { ds[sp] = v; sp++; } else {
 #ifdef HOST
     /* GUARDRAIL: host-only probe. A sticky overflow kills a running program at the END of the line, so the report names
      * neither the word nor the stack. This prints both depths and the token where it happened. */
-    fprintf(stderr, "[ovf] DATA push sp=%u rsp=%u w=%u ip=%u\n", (unsigned)sp, (unsigned)rsp,
-            (unsigned)V->W, (unsigned)V->IP);
+    { static int dbg = -1; if (dbg < 0) dbg = getenv("FTH_DBG") != NULL;
+      if (dbg) fprintf(stderr, "[ovf] DATA push sp=%u rsp=%u w=%u ip=%u\n", (unsigned)sp, (unsigned)rsp,
+                       (unsigned)V->W, (unsigned)V->IP); }
 #endif
     stack_ovf = 1; } }
 #define POP()    (ds[--sp & (SD - 1)])
@@ -501,8 +509,9 @@ static void PUSH(u32 v) { if (sp < SD) { ds[sp] = v; sp++; } else {
  * and the machine resumes at an unrelated token — the 15 FIB hang above is exactly this. */
 static void RPUSH(u32 v) { if (rsp < SD) { rs[rsp] = v; rsp++; } else {
 #ifdef HOST
-    fprintf(stderr, "[ovf] RET  push sp=%u rsp=%u w=%u ip=%u\n", (unsigned)sp, (unsigned)rsp,
-            (unsigned)V->W, (unsigned)V->IP);
+    { static int dbg = -1; if (dbg < 0) dbg = getenv("FTH_DBG") != NULL;
+      if (dbg) fprintf(stderr, "[ovf] RET  push sp=%u rsp=%u w=%u ip=%u\n", (unsigned)sp, (unsigned)rsp,
+                       (unsigned)V->W, (unsigned)V->IP); }
 #endif
     stack_ovf = 1; } }
 #define RPOP()   (rs[--rsp & (SD - 1)])
@@ -1891,7 +1900,9 @@ static int load(const char *file)
 #ifdef HOST
         /* GUARDRAIL: host-only. Prints the stack depths at the end of every line, which is what turns "ERR_STACK at
          * the end of a frame" into "THIS word leaves N cells behind" without a chip session. */
-        fprintf(stderr, "[line] sp=%u rsp=%u  %.*s\n", (unsigned)sp, (unsigned)rsp, (int)(n > 40 ? 40 : n), line);
+        { static int dbg = -1; if (dbg < 0) dbg = getenv("FTH_DBG") != NULL;
+          if (dbg) fprintf(stderr, "[line] sp=%u rsp=%u  %.*s\n", (unsigned)sp, (unsigned)rsp,
+                           (int)(n > 40 ? 40 : n), line); }
 #endif
         if (errf) {
             fprintf(stderr, "%s:%d: error\n", file, ln);

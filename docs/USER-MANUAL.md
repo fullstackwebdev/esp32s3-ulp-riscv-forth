@@ -172,3 +172,25 @@ Welcome to eight kilobytes. It is more room than it sounds — and less than you
 * The first frame of a full-screen app: `ALT HIDE CLR HOME …`, and always end with `NORM SHOW` so the
   operator's terminal is restored even if the user walks away.
 * Single-slot keybox: a keystroke that arrives while the previous one is unread is **dropped**, not queued.
+
+---
+
+## For anyone writing Forth for this machine
+
+Run the linter before you flash anything:
+
+```
+python3 probe/repl/tools/lint_forth.py examples/tui_min.fs
+python3 probe/repl/tools/lint_forth.py --selftest      # proves each rule fires on the bug it came from
+```
+
+| rule | what it catches | the bug it came from |
+|---|---|---|
+| R1 comment | a `\` comment in a block source | a block has no line boundaries: `\ poll: …` compiled as the words `poll:` and `the` |
+| R2 order | a word used before it is defined | `JK?`, `ACT?` at compile time |
+| R3 underflow | a body that pops more than it holds | `DUP 106 = … 107 = … DROP` — the second comparison ate the key |
+| R4 leak | a body that leaves items nobody wants | `ESC CSI 55 M` pushed the digit `'7'` and never emitted it: a cell per colour change |
+| R5 loop leak | a loop body that is not balanced per iteration | `BEGIN KEY DUP 0 < 0= UNTIL` kept every `-1`, thousands per second |
+
+Declare stack effects and the linter can prove things: `: WAIT ( -- c ) … ;`. A definition without a declaration is
+assumed `( -- )`, which is what most are.

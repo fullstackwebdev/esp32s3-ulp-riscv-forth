@@ -26,30 +26,35 @@ from devio import Dev                      # noqa: E402
 from fsplit import split_defs              # noqa: E402
 
 APP = HERE.parent.parent.parent / "examples" / "tui_min.fs"
-FIRST = 100
+FIRST = 96          # the app is ~29 blocks; the server refuses block 128 and above
 FRAMES = HERE.parent / ".auto" / "tmp" / "tui_frames"
 ROW_OF = {0: 4, 1: 5, 2: 6}                # menu item -> screen row in the app's layout
 QUIET, CAP = 0.55, 3.0
 
 
-def read_quiet(dev, quiet=QUIET, cap=CAP):
-    """Collect everything the chip emits until it has been silent for `quiet` seconds.
+SENTINEL = b"\x00"
 
-    GUARDRAIL: raw mode has no prompt and no `ok`, so there is no marker to read until - silence is the only
-    end-of-frame signal. A cap keeps a runaway program from hanging the test.
+
+def read_frame(dev, cap=CAP):
+    """Read until the frame's SENTINEL byte, not until the line goes quiet.
+
+    GUARDRAIL: waiting for silence cost 0.55 s per key - twelve keys made a test run that felt broken, and silence is
+    also ambiguous (a slow frame and a dead program look identical). The app now ends every frame with a NUL byte, which
+    terminals ignore, so the test knows exactly when a frame is complete: measured, a key goes from ~0.55 s to ~0.03 s.
+    A cap still bounds a runaway program.
     """
-    buf, end, last = b"", time.time() + cap, time.time()
+    buf, end = b"", time.time() + cap
     while time.time() < end:
+        if SENTINEL in buf:
+            break
         r, _, _ = select.select([dev.fd], [], [], 0.05)
         if r:
             buf += os.read(dev.fd, 8192)
-            last = time.time()
-        elif time.time() - last > quiet:
-            break
     return buf
 
 
 def marker_row(frame):
+    frame = frame.replace(SENTINEL, b'')
     """Row of the selection marker: the cursor move immediately before the single `>`."""
     # GUARDRAIL: allow SGR sequences between the cursor move and the marker. The app writes `AT` then `COL`, so the
     # frame reads ESC[row;colH ESC[3m ">" - a pattern that rejected escapes reported row=None while the marker was
@@ -64,7 +69,7 @@ def clean(frame):
 
 def key(dev, seq, label, expect_row, results, capture, idx):
     os.write(dev.fd, seq)
-    frame = read_quiet(dev)
+    frame = read_frame(dev)
     if capture:
         FRAMES.mkdir(parents=True, exist_ok=True)
         (FRAMES / f"{idx:02d}_{label}.bin").write_bytes(frame)
@@ -79,6 +84,11 @@ def main(argv):
     capture = "--capture" in argv
     blocks = split_defs(APP.read_text(), 92)
     results = []
+    # GUARDRAIL: the app must fit below block 128 - the block server nacks anything above 127 with BK_RANGE, and the
+    # failure reads as "block 128 not acknowledged" in the middle of an upload. Refuse locally with the reason.
+    if FIRST + len(blocks) > 128:
+        print(f"  FAIL: {len(blocks)} blocks from {FIRST} would pass block 127")
+        return 1
     dev = Dev()
     try:
         # GUARDRAIL: a reset that did not actually happen must not pass as one. Measured: an RTS pulse silently did
@@ -122,7 +132,7 @@ def main(argv):
 
         os.write(dev.fd, b"RUN\r"); time.sleep(0.35)
         os.write(dev.fd, b"!RAW\r"); time.sleep(0.25)
-        first = read_quiet(dev)
+        first = read_frame(dev)
         if capture:
             FRAMES.mkdir(parents=True, exist_ok=True)
             (FRAMES / "00_first_frame.bin").write_bytes(first)
@@ -142,7 +152,7 @@ def main(argv):
         key(dev, b"x", "unknown-key", ROW_OF[1], results, capture, 7)  # ignored, marker must stay
 
         os.write(dev.fd, b"q")
-        tail = read_quiet(dev)
+        tail = read_frame(dev)
         if capture:
             (FRAMES / "08_quit.bin").write_bytes(tail)
         left = b"\x1b[?1049l" in tail

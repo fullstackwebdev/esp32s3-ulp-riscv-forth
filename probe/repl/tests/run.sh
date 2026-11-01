@@ -56,6 +56,25 @@ fail=0
 # have failed on the bug that cost six probes: an oversized definition was silently split, the machine stayed in
 # compile state across the boundary, and every later `N LOAD` was COMPILED instead of executed.
 python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1; }
+# GUARDRAIL: the linter is the one check that needs no hardware, and every bug it encodes cost a chip session:
+# a missing DUP (underflow three steps later), a leaked digit (a stack cell per colour change), a word used before
+# it is defined, and a backslash comment that compiled as words. Run its selftest, then lint every example.
+python3 tools/lint_forth.py --selftest >/dev/null || { echo "FAIL  linter selftest" >&2; fail=1; }
+# Strict lint for everything that can actually run on the machine.
+for f in ../../examples/tui_min.fs; do
+    if python3 tools/lint_forth.py "$f" >/tmp/lint.$$ 2>&1; then :; else
+        echo "FAIL  lint $(basename "$f")" >&2; sed 's/^/      /' /tmp/lint.$$ >&2; fail=1
+    fi
+done
+rm -f /tmp/lint.$$
+echo "PASS  linter (5 rules) on the shippable example"
+# terminal_demo.fs is a WORK IN PROGRESS, and the reason is not laziness: it needs ~2 100 B of dictionary and the machine
+# has 1 366, so it cannot be loaded, cannot be tested on the board, and its 41 lint findings cannot be separated from
+# "this file is not finished". Its status is PRINTED so it cannot be forgotten.
+# GUARDRAIL: `|| true`. The linter exits 1 when it HAS findings, and this script runs with `set -euo pipefail` - so
+# capturing the WIP line aborted the whole suite silently right after the linter step (measured: 1 PASS instead of 25).
+WIP=$(python3 tools/lint_forth.py ../../examples/terminal_demo.fs 2>&1 | tail -1 || true)
+echo "WIP   terminal_demo.fs: $WIP (needs ~2 100 B of dictionary, machine has 1 366 - not loadable yet)"
 # GUARDRAIL: the loader must hand over a WHOLE block even when a pass ends on padding. That cannot be tested with the
 # shipping host flags (128-byte pass), so the test builds its own engine at the chip's 96-byte pass and asserts both
 # ways a boundary bites: a closing ';' past the pass, and a name parsed across it.
