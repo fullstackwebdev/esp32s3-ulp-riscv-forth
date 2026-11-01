@@ -31,6 +31,8 @@
 #include "esp_task_wdt.h"
 #include "ulp_riscv.h"
 #include "ulp_main.h"
+#include "flash_store.h"
+#include "esp_system.h"
 
 static void seed_poll(void);   /* defined after blkfile[]; called from the UART pump */
 
@@ -114,6 +116,13 @@ static uint32_t blk_sz;      /* transfer size, published by the ULP */
 static uint32_t stall_ms;
 static uint32_t apply_stall_ms;   /* test-only: stall INSIDE the op-3 critical section, after the age check */
 static int blk_out_prev;      /* edge detector for the ULP's outstanding-request flag */
+/* GUARDRAIL: `#u` showed the ULP silent while the HP console answered, which cannot distinguish "the ULP never asked"
+ * from "the HP never answered". This ring records the last 16 requests this task actually SERVICED (op, blk, ms since
+ * boot). It lives in .bss, NOT RTC memory: RTC slow RAM is fully owned by the ULP pool (adding 192 B there overflowed
+ * rtc_slow_seg by 188 B), and `#u` is answerable DURING the hang because the HP console stays alive - measured. */
+static uint32_t req_log[16][3];   /* op, blk, ms */
+static uint32_t req_idx;
+static uint32_t req_total;
 /* GUARDRAIL: when this task first SAW the request. The ULP's wait (BLKWAIT 2 000 000 iterations) is ~845 ms MEASURED
  * on hardware, and on a timeout the ULP deliberately leaves blk_out set - so the flag alone cannot distinguish "still
  * waiting" from "gave up". A destructive op (image load) must therefore be applied only inside a conservative fraction
@@ -121,6 +130,54 @@ static int blk_out_prev;      /* edge detector for the ULP's outstanding-request
  * Failure mode is a named nack, never silent corruption. */
 static uint32_t edge_ms;
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
+/* GUARDRAIL: blkfile is now a CACHE of the flash store, not the store. Placing it in flash is what makes a paged program
+ * survive reset; keeping the array keeps the 16 existing direct indexes correct, but every WRITE must be committed or the
+ * data dies with the power. `store_ok` is false when the superblock failed validation, so writes fail by NAME instead of
+ * quietly living only in RAM - which would look like a working store that forgets everything at reset. */
+static int store_ok;
+
+/* GUARDRAIL: a write that must NOT touch flash still has to be recorded, or the next `#f` silently drops it - the
+ * coherence bug class that made an image's last partial block look corrupt after a reboot. */
+static int blkfile_dirty;   /* declared before use: C needs it above blk_dirty, not below */
+static void blk_dirty(uint32_t blk)
+{
+    (void)blk;
+    blkfile_dirty = 1;
+}
+
+/* GUARDRAIL: BISECT_NO_FLASH_WRITE isolates "any flash write" from everything else: main (no store) passed 15/15, this
+ * branch with this defined passed 15/15 twice, and with it undefined it hangs at phase 1-3 - so a flash erase/program is
+ * the trigger. It is now UNDEFINED again (writes live) and this switch must stay undefined in any shipping build. */
+/* #define BISECT_NO_FLASH_WRITE 1 */
+
+static void blk_commit(uint32_t blk)
+{
+    blkfile_dirty = 1;                 /* recorded, so `#f` would still commit it in a real build */
+#if defined(BISECT_NO_FLASH_WRITE)
+    (void)blk;
+#else
+    if (!store_ok) return;             /* already reported at boot; do not spam per block */
+    int r = fs_write(blk, blkfile[blk]);
+    if (r != FS_OK) printf("store: WRITE FAILED block %u: %s\n", (unsigned)blk, fs_strerror(r));
+#endif
+}
+
+static void store_boot(void)
+{
+    int r = fs_init();
+    if (r != FS_OK) {
+        printf("store: REFUSED %s\n", fs_strerror(r));
+        store_ok = 0;
+        return;
+    }
+    store_ok = 1;
+    for (uint32_t b = 0; b < BLK_N && b < fs_block_count(); b++) {
+        int rr = fs_read(b, blkfile[b]);
+        if (rr != FS_OK) { printf("store: READ FAILED block %u: %s\n", (unsigned)b, fs_strerror(rr)); store_ok = 0; return; }
+    }
+    printf("store: flash %u blocks x %u B (%u blocks/sector cache)\n",
+           (unsigned)fs_block_count(), (unsigned)fs_block_size(), 32u);
+}
 /* ---- ULP stack high-water probe (row 10 of the A/B) ---------------------------------------------------------
  * The ULP stack grows down from ulp___stack_top (0x50001ff0) into .bss, so an overflow corrupts engine state
  * instead of faulting - that is how a 336 B chain silently broke block I/O earlier. The main core can WRITE RTC
@@ -208,7 +265,7 @@ static void seed_poll(void)
                     else if (blk < BLK_N) blkfile[blk][w >> 1] = (uint8_t)((hi << 4) | v);
                     w++; k++;
                 }
-                if (!bad && blk < BLK_N) printf("seed: block %u <- %u bytes\n", blk, w / 2u);
+                if (!bad && blk < BLK_N) { blk_commit(blk); printf("seed: block %u <- %u bytes\n", blk, w / 2u); }
                 else                     printf("seed: REJECTED (bad hex, or block >= %d)\n", BLK_N);
                 fflush(stdout);
                 n = 0;
@@ -288,6 +345,7 @@ static void seed_poll(void)
                             d2[13] = (uint8_t)rs; d2[14] = (uint8_t)(rs >> 8);
                         }
                     }
+                    for (i2 = v[0]; i2 <= blk && i2 < BLK_N; i2++) blk_commit(i2);   /* last block is partial */
                     printf("dump: code %u + hdr %u = %u B, descriptor packed -> %u blocks from block %u, sum %u\n",
                            (unsigned)(v[2] - v[1]), (unsigned)(v[4] - v[3]), payload,
                            (20u + payload + 127u) / 128u, v[0], sum);
@@ -305,6 +363,167 @@ static void seed_poll(void)
                 while (ln[k] >= '0' && ln[k] <= '9') ms = ms * 10u + (unsigned)(ln[k++] - '0');
                 apply_stall_ms = ms;
                 printf("stall: op-3 critical section will sleep %u ms after the age check\n", ms);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: when the ULP stops answering but the HP console does not, the only way to name the stall is the
+             * shared window. `#u` dumps every field the bridge exposes, so "silent ULP" becomes a concrete state (pending
+             * command, full output ring, latched block layer) instead of a guess. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'u' && (ln[2] == 0 || ln[2] == ' ')) {
+                {
+                    uint32_t i3, k3 = req_idx < 16u ? 0u : req_idx & 15u;
+                    printf("info: last %u serviced requests (op blk ms):", (unsigned)(req_idx < 16u ? req_idx : 16u));
+                    for (i3 = 0; i3 < (req_idx < 16u ? req_idx : 16u); i3++) {
+                        uint32_t e = (k3 + i3) & 15u;
+                        printf(" %u/%u/%u", (unsigned)req_log[e][0], (unsigned)req_log[e][1], (unsigned)req_log[e][2]);
+                    }
+                    printf(" | total %u\n", (unsigned)req_total);
+                    fflush(stdout);
+                }
+                printf("info: ulp blk_out %u req %u off %u sz %u | cmd h%u t%u (%u B) | out h%u t%u (%u B) | wakes %u\n",
+                       (unsigned)ulp_repl_blk_out, (unsigned)ulp_repl_blk_req, (unsigned)ulp_repl_blk_off,
+                       (unsigned)ulp_repl_blk_sz, (unsigned)ulp_repl_cmd_head, (unsigned)ulp_repl_cmd_tail,
+                       (unsigned)ulp_repl_cmd_bytes, (unsigned)ulp_repl_out_head, (unsigned)ulp_repl_out_tail,
+                       (unsigned)ulp_repl_out_bytes, (unsigned)ulp_repl_wake_count);
+                /* GUARDRAIL: blk_out alone cannot say whether the HP ever SAW the edge, and the two readings have different
+                 * owners: a set blk_out with blk_out_prev=0 means this task has not polled since the request (HP-side);
+                 * both set means the request was seen and answered or dropped (ULP-side). Print both. */
+                /* GUARDRAIL: with the ULP silent and blk_out clear, "waiting on the store" is excluded - so the next
+                 * question is WHICH interpreter loop. The sys-vars answer it at zero ULP bytes: a nonzero V_LOADB means
+                 * the machine is inside LOAD, and V_STATE says whether it is compiling. Read them through mem[]. */
+                {
+                    const uint8_t *mi = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    printf("info: ulp vars: V_STATE %u V_HERE %u V_LATEST %u V_SEAL %u V_LOADB %u\n",
+                           (unsigned)(mi[0] | (mi[1] << 8)), (unsigned)(mi[4] | (mi[5] << 8)),
+                           (unsigned)(mi[8] | (mi[9] << 8)), (unsigned)(mi[12] | (mi[13] << 8)),
+                           (unsigned)(mi[16] | (mi[17] << 8)));
+                    fflush(stdout);
+                }
+                printf("info: hp view: blk_out_prev %d edge_ms %u now_ms %u | store_ok %d\n",
+                       blk_out_prev, (unsigned)edge_ms,
+                       (unsigned)(xTaskGetTickCount() * portTICK_PERIOD_MS), store_ok);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#c <desc_blk>` compares the image IN THE STORE against what is pasted in mem[], byte for byte.
+             * The loader's own checks bracket the copy; this one is for AFTER the machine has run (or wedged), where the
+             * question is "is the code executing the code that was compiled". It reads mem[] only, so it answers while
+             * the ULP is frozen inside one wake. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'c' && ln[2] == ' ') {
+                unsigned dblk = 0, k = 3;
+                while (ln[k] == ' ') k++;
+                while (ln[k] >= '0' && ln[k] <= '9') dblk = dblk * 10u + (unsigned)(ln[k++] - '0');
+                if (dblk >= BLK_N) printf("cmp: REJECTED (block)\n");
+                else {
+                    const uint8_t *d2 = blkfile[dblk];
+                    const uint8_t *mi = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    unsigned cl2 = (unsigned)d2[3] | ((unsigned)d2[4] << 8);
+                    unsigned hl2 = (unsigned)d2[5] | ((unsigned)d2[6] << 8);
+                    unsigned cs2 = (unsigned)d2[7] | ((unsigned)d2[8] << 8);
+                    unsigned hs2 = (unsigned)d2[9] | ((unsigned)d2[10] << 8);
+                    unsigned psum2 = (unsigned)d2[11] | ((unsigned)d2[12] << 8);
+                    unsigned b2 = dblk, o2 = 20, i4, mism = 0, first = 0, ssum = 0, msum = 0;
+                    for (i4 = 0; i4 < cl2 + hl2; i4++) {
+                        uint8_t sv = blkfile[b2][o2];
+                        uint8_t mv = mi[cs2 + i4];
+                        ssum = (ssum + sv) & 0xffffu; msum = (msum + mv) & 0xffffu;
+                        if (sv != mv && !mism) { first = i4; }
+                        if (sv != mv) mism++;
+                        if (++o2 == (blk_sz ? blk_sz : 128u)) { o2 = 0; b2++; }
+                    }
+                    printf("cmp: %u B payload | store sum %u, mem sum %u, descriptor %u | %u byte(s) differ%s",
+                           cl2 + hl2, ssum, msum, psum2, mism, mism ? " -> FIRST AT " : "\n");
+                    if (mism) {
+                        unsigned off = first, bb = dblk, oo = 20;
+                        oo += off; while (oo >= (blk_sz ? blk_sz : 128u)) { oo -= (blk_sz ? blk_sz : 128u); bb++; }
+                        printf("%u (mem[%u]=%u, store b%u o%u=%u)\n", off, cs2 + off, (unsigned)mi[cs2 + off],
+                               bb, oo, (unsigned)blkfile[bb][oo]);
+                    }
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#m <addr> <n>` prints n u16 cells of the ULP's mem[] from addr. It exists because a spinning
+             * phase cannot be asked anything - its own counters are the only witnesses, and reading them from the HP
+             * costs 0 ULP bytes and works while the ULP is frozen inside one wake. */
+            if (n > 4 && ln[0] == '#' && ln[1] == 'm' && ln[2] == ' ') {
+                unsigned a = 0, cnt = 1, k = 3; int vi = 0;
+                unsigned v2[2] = {0, 1};
+                while (vi < 2 && ln[k]) {
+                    while (ln[k] == ' ') k++;
+                    if (ln[k] < '0' || ln[k] > '9') break;
+                    v2[vi] = 0;
+                    while (ln[k] >= '0' && ln[k] <= '9') v2[vi] = v2[vi] * 10u + (unsigned)(ln[k++] - '0');
+                    vi++;
+                }
+                a = v2[0]; cnt = v2[1] ? v2[1] : 1u;
+                if (cnt > 16u) cnt = 16u;
+                if (a + cnt * 2u > (unsigned)ulp_repl_blk_off) printf("mem: REJECTED (range)\n");
+                else {
+                    const uint8_t *mi = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    printf("mem:");
+                    for (k = 0; k < cnt; k++) printf(" [%u]=%u", a + k * 2u, (unsigned)(mi[a + k * 2u] | (mi[a + k * 2u + 1] << 8)));
+                    printf("\n");
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#i` reports the store's state ON DEMAND. The boot refusal is printed before the serial port is
+             * opened by any tool that attaches afterwards, so in practice nobody sees it - measured as gate 3 reporting
+             * "no store line". A refusal nobody can read is not a refusal. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'i' && (ln[2] == 0 || ln[2] == ' ')) {
+                uint32_t bp = 0, se = 0, fl = 0; fs_stats(&bp, &se, &fl);
+                if (store_ok) {
+                    printf("info: store ok, %u blocks x %u B | programmed %u B, %u erase(s), %u flush(es)\n",
+                           (unsigned)fs_block_count(), (unsigned)fs_block_size(),
+                           (unsigned)bp, (unsigned)se, (unsigned)fl);
+                    /* per-sector erases: the hot sector is the one that dies first, so it must be visible */
+                    uint32_t k, hot = 0, hotn = 0;
+                    printf("info: erases/sector");
+                    for (k = 0; k < fs_sector_count(); k++) {
+                        uint32_t e = fs_sector_erases(k);
+                        printf(" %u:%u", (unsigned)k, (unsigned)e);
+                        if (e > hotn) { hotn = e; hot = k; }
+                    }
+                    printf(" | hottest sector %u (%u)\n", (unsigned)hot, (unsigned)hotn);
+                    printf("info: bc %u (before last reset %u) | erase %u us, write %u us, super %u us | reset reason %d\n",
+                           (unsigned)fs_bc(), (unsigned)fs_bc_prev(),
+                           (unsigned)fs_us(0), (unsigned)fs_us(1), (unsigned)fs_us(2),
+                           (int)esp_reset_reason());
+                }
+                else          printf("info: store REFUSED %s\n", fs_strerror(fs_init()));
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#f` flushes the sector cache and reports write amplification; `#x` formats the store. Both are
+             * main-core only and cost 0 ULP bytes. `#x` is the recovery path named by the boot refusal. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'f' && (ln[2] == 0 || ln[2] == ' ')) {
+                /* GUARDRAIL: `#f` commits everything the RAM mirror holds that flash has not seen, then flushes the
+                 * sector cache. Without the commit pass, a block written by the ULP and then flushed would be lost on
+                 * the next boot while the flush still reported success. */
+                if (blkfile_dirty) {
+                    uint32_t b;
+                    for (b = 0; b < BLK_N; b++) { int rr = fs_write(b, blkfile[b]); if (rr != 0) printf("flush: block %u %s\n", (unsigned)b, fs_strerror(rr)); }
+                    blkfile_dirty = 0;
+                }
+                int r = fs_flush();
+                uint32_t bp = 0, se = 0, fl = 0; fs_stats(&bp, &se, &fl);
+                if (r == FS_OK) printf("flush: ok | program+erase %u B, %u sector erase(s), %u flush(es)\n",
+                                       (unsigned)bp, (unsigned)se, (unsigned)fl);
+                else            printf("flush: FAILED %s\n", fs_strerror(r));
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'x' && (ln[2] == 0 || ln[2] == ' ')) {
+                int r = fs_format();
+                if (r == FS_OK) { store_ok = 1; memset(blkfile, ' ', sizeof blkfile); printf("format: ok, store empty\n"); }
+                else            printf("format: FAILED %s\n", fs_strerror(r));
                 fflush(stdout);
                 n = 0;
                 continue;
@@ -338,6 +557,7 @@ static void seed_poll(void)
                     printf("poke: REJECTED (want: #p <blk> <off> <val>)\n");
                 else {
                     blkfile[v3[0]][v3[1]] = (uint8_t)v3[2];
+                    blk_commit(v3[0]);
                     printf("poke: block %u off %u = %u\n", v3[0], v3[1], v3[2]);
                 }
                 fflush(stdout);
@@ -371,6 +591,7 @@ static void seed_poll(void)
                     printf("poke: REJECTED (want: #p <blk> <off> <val>)\n");
                 else {
                     blkfile[v3[0]][v3[1]] = (uint8_t)v3[2];
+                    blk_commit(v3[0]);
                     printf("poke: block %u off %u = %u\n", v3[0], v3[1], v3[2]);
                 }
                 fflush(stdout);
@@ -574,7 +795,10 @@ static void block_task(void *arg)
             seen++;
 #endif
             volatile uint32_t *mb = (volatile uint32_t *)(ULP_RAM_BASE + ulp_repl_mb_addr);
-            (void)0;
+            req_log[req_idx & 15u][0] = mb[1];
+            req_log[req_idx & 15u][1] = mb[0];
+            req_log[req_idx & 15u][2] = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            req_idx++; req_total++;
             volatile uint8_t  *buf = (volatile uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr + ulp_repl_blk_off);
             uint32_t blk = mb[0], op = mb[1];
             if (blk >= BLK_N) {
@@ -676,6 +900,21 @@ static void block_task(void *arg)
                         mi[cs + k2] = blkfile[b2][o2];
                         if (++o2 == blk_sz) { o2 = 0; b2++; }
                     }
+                    /* GUARDRAIL: verify AFTER pasting, not only before. The pre-copy check proves the STORE is intact;
+                     * it says nothing about what landed in mem[]. A spin that touches no memory and asks for nothing
+                     * is the signature of executing bytes that are not the ones compiled, so the pasted region must
+                     * be summed too - and a mismatch must be loud, not a silent "adopted". */
+                    {
+                        unsigned post = 0, k4;
+                        for (k4 = 0; k4 < cl + hl; k4++) post = (post + mi[cs + k4]) & 0xffffu;
+                        if (post != psum) {
+                            printf("img: REFUSED pasted code differs from the image (mem sum %u, descriptor %u)\n",
+                                   post, psum);
+                            mb[3] = 0; mb[2] = 4; answered = 1;
+                            bad = 1;
+                        }
+                    }
+                    if (bad) goto img_post;
                     mi[4] = (uint8_t)((cs + cl) & 0xffu); mi[5] = (uint8_t)(((cs + cl) >> 8) & 0xffu);
                     mi[6] = 0; mi[7] = 0;
                     mi[8] = (uint8_t)(hs & 0xffu); mi[9] = (uint8_t)((hs >> 8) & 0xffu);
@@ -688,6 +927,7 @@ static void block_task(void *arg)
                     answered = 1;
                 }
                 if (!answered) { mb[3] = 0; mb[2] = bad ? nack : 1u; }
+img_post:   ;
 img_done:   ;
             } else if (op == 0u) {               /* READ */
                 uint32_t s = 0; int i;
@@ -717,6 +957,12 @@ img_done:   ;
                     mb[2] = 4;                   /* nack: checksum mismatch -> BK_CRC (-4) */
                 } else {
                     for (i = 0; i < (int)blk_sz; i++) blkfile[blk][i] = buf[i];
+                    /* GUARDRAIL: do NOT commit to flash here. This is the one path the ULP BLOCKS ON (its write waits for
+                     * this reply), so calling flash erase+write from this task puts a 20-34 ms flash operation inside the
+                     * ULP's critical path - measured: the ULP then stopped answering its own REPL while the HP console
+                     * stayed alive (intermittent, 2 of 5 attempts). Persistence is explicit: `#f`, `#d`, seeding. The
+                     * cost of this rule is that SAVE alone does not persist, and the claim says so. */
+                    blk_dirty(blk);
                     mb[2] = 1u;
                 }
             }
@@ -764,13 +1010,21 @@ void app_main(void)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_DEFAULT,
     };
-    ESP_ERROR_CHECK(uart_driver_install(CONSOLE_UART, 1024, 1024, 0, NULL, 0));
+    /* GUARDRAIL: the RX ring must absorb a flash stall. `#b` seed lines arrive at ~263 B each and this task is the only
+     * reader; a flash erase+program inside seed_poll froze it for 34 ms measured, the 1 KB ring overflowed, bytes were
+     * lost mid-line, and the seeder still acked - the phase then compiled a truncated source (576 B image became 135 B)
+     * and EXECUTE spun in code that had been pasted past its own body. 4 KB of HP RAM, 0 ULP bytes. The harness now also
+     * verifies each ack's byte count, so a loss is a named refusal instead of a hang. */
+    ESP_ERROR_CHECK(uart_driver_install(CONSOLE_UART, 4096, 1024, 0, NULL, 0));
     ESP_ERROR_CHECK(uart_param_config(CONSOLE_UART, &cfg));
 
     printf("\nboot: ulp forth bridge, %u B image\n", (unsigned)(bin_end - bin_start));
     printf("type Forth at the prompt; 'picocom -b %d /dev/ttyACM1'\n", CONSOLE_BAUD);
     fflush(stdout);
 
+    /* GUARDRAIL: boot the store BEFORE the ULP is started, so the first block request is answered from a validated
+     * store rather than from a zeroed RAM array. A refusal here is named and printed; the console's `#x` formats. */
+    store_boot();
     ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
 
     /* Loud before anything else: if these disagree, every byte the user types is written to the wrong

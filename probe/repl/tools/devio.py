@@ -55,6 +55,23 @@ class Dev:
         time.sleep(1.0)
         self.drain(0.5)
 
+    def hard_reset_capture(self, seconds=4.0):
+        """GUARDRAIL: esptool-based reset() closes the port, so the ROM boot log - the only record of why a wedged board
+        restarted - was lost every time. Toggle EN via RTS while HOLDING the port, and read the boot text as it arrives."""
+        import fcntl, struct
+        TIOCM_DTR, TIOCM_RTS = 0x002, 0x004
+        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_DTR))
+        fcntl.ioctl(self.fd, termios.TIOCMBIS, struct.pack("I", TIOCM_RTS))   # RTS -> EN low: reset
+        time.sleep(0.15)
+        fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", TIOCM_RTS))
+        buf, end = b"", time.time() + seconds
+        while time.time() < end:
+            r, _, _ = select.select([self.fd], [], [], 0.05)
+            if r:
+                try: buf += os.read(self.fd, 4096)
+                except BlockingIOError: pass
+        return buf.decode(errors="replace")
+
     def close(self):
         if self.fd is not None:
             os.close(self.fd)
@@ -68,6 +85,21 @@ class Dev:
         self.close()
 
     # ---- raw read -------------------------------------------------------------------------------------------
+    def preflight(self, words):
+        """GUARDRAIL: an undefined word made the harness report "no number" twice, which reads like a loader fault and cost
+        two chip sessions. Ask the device about every word first: `' W .` answers an xt, or `W?` for a missing word."""
+        missing = []
+        for w in words:
+            lines = [s.strip() for s in self.cmd(f"' {w} .", timeout=3.0).splitlines() if s.strip()]
+            # GUARDRAIL: the device prints the number and `ok` on ONE line ("52 ok"), so a line must merely CONTAIN a
+            # number. Both earlier versions were wrong: "last line is numeric" and "a line of only digits". Real
+            # transcripts are the fixtures now (tests/preflight_dry.py); the fixture, not the board, was the lie.
+            if not any(re.search(r"-?\d", s) for s in lines) or any(s.endswith("?") for s in lines):
+                missing.append(w)
+        if missing:
+            raise RuntimeError(f"preflight: words missing on the device: {missing} - fix the harness, not the firmware")
+        return True
+
     def drain(self, quiet=0.5, cap=10.0):
         buf = b""
         end = time.time() + cap
@@ -85,7 +117,10 @@ class Dev:
 
     # GUARDRAIL: a refusal from the console (`line too long: ... NOT sent`) carries neither `ok` nor `?`, so it
     # timed out instead of being reported. Every console-side message must be a completion marker.
-    def cmd(self, line, timeout=5.0, allow_error=False, markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:")):
+    def cmd(self, line, timeout=5.0, allow_error=False, # GUARDRAIL: `#i`/`#u` answer with "info:" and return WITHOUT an `ok`, so the default markers never matched and a
+            # harness call waited until timeout while the answer was already in the buffer. Give the harness the real marker.
+            markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:",
+                     "info:", "mem:", "cmp:")):
         """Send one line, read until the prompt marker (ok) or an error (?), return the transcript."""
         os.write(self.fd, line.encode() + b"\r")
         buf = ""
@@ -150,21 +185,29 @@ class Dev:
         return False
 
     def seed_many(self, items):
-        """items: [(block, text), ...].
+        """items: [(block, text), ...]. Returns the blocks that were NOT seeded exactly; empty means all good.
 
-        GUARDRAIL: seeding is UART-TRANSMIT-bound, not round-trip-bound: a 128-byte block travels as 256 hex chars, so
-        ~30 ms per block is the wire, not the machine. Measured: per-line 30 ms/block; a batch-then-reverify version was
-        54 ms/block - SLOWER, because the extra verification pass cost more than the round trips it saved. So this
-        sends everything and reads ONE transcript, counting the acks, then retries only the blocks that never
-        acknowledged. That is the cheapest correct form; do not add a per-block re-verification pass.
+        GUARDRAIL: seeding is UART-TRANSMIT-bound, not round-trip-bound: a 128-byte block travels as 256 hex chars.
+        GUARDRAIL: send in SMALL BATCHES and check the ACK'S BYTE COUNT. A 10-line burst (2.6 KB) lost bytes mid-line on
+        the board even with a 4 KB RX ring - measured acks of 64/128, 116/128, 65/77 and one line missing entirely -
+        because the reader stalls ~34 ms inside a flash erase. Checking only the ack's PREFIX accepted those short blocks;
+        the phase then compiled a truncated source, its image was 135 B instead of 576, and EXECUTE jumped past the
+        pasted code into a spin that touched no memory. Count, or do not believe the ack.
         """
         items = list(items)
         pending = list(items)
-        for _ in range(3):
-            for blk, text in pending:
-                os.write(self.fd, f"#b {blk} {text.encode().hex()}".encode() + b"\r")
-            out = self.drain(0.4, 10.0 + 0.03 * len(pending))
-            pending = [(b, t) for b, t in pending if f"seed: block {b} <-" not in out]
+        BATCH = 2
+        for _ in range(5):
+            acked = {}                       # GUARDRAIL: accumulate acks across the WHOLE pass. Filtering on the last
+                                             # batch's acks alone marked already-seeded blocks as pending (-2, -21).
+            for i in range(0, len(pending), BATCH):
+                batch = pending[i:i + BATCH]
+                for blk, text in batch:
+                    os.write(self.fd, f"#b {blk} {text.encode().hex()}".encode() + b"\r")
+                out = self.drain(0.15, 6.0)
+                acked.update({int(m.group(1)): int(m.group(2))
+                              for m in re.finditer(r"seed: block (\d+) <- (\d+) bytes", out)})
+            pending = [(b, t) for b, t in pending if acked.get(b) != len(t.encode())]
             if not pending:
                 return []
         return [b for b, _ in pending]

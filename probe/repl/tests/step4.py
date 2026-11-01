@@ -49,9 +49,15 @@ def host_expect(p, workdir):
     return Dev.nums(out.split("SRV")[0])[-6:]
 
 
-def build_and_adopt(d, p, desc, blocks):
+def build_and_adopt(d, p, desc, blocks, execute=True):
+    # GUARDRAIL: execute=False lets a diagnosis stop just BEFORE the step that hangs; a probe that only watches
+    # `W @ EXECUTE` time out learns nothing about the state that produced the hang.
     """Load the phase from SOURCE, dump its image, rewind, adopt it through mailbox op 3, run its entry."""
-    d.seed_many([(2, " " * 128), (DATA(p), PAT(p))] + [(8 + k, b) for k, b in enumerate(blocks)])
+    # GUARDRAIL: refuse to build on a short seed. A silently truncated block compiles a truncated phase, and the
+    # symptom is not a seed error - it is a small image and a hang inside EXECUTE three steps later.
+    missing = d.seed_many([(2, " " * 128), (DATA(p), PAT(p))] + [(8 + k, b) for k, b in enumerate(blocks)])
+    if missing:
+        raise RuntimeError(f"seed failed for blocks {missing}: refusing to build a phase on a short store")
     # GUARDRAIL: REWIND BEFORE SEALING, but ONLY once a seal exists. After a previous phase was adopted, V_HERE is that
     # image's end, so SEAL there moved the base far above the phase's own code (measured: `#d 55 1308 1312 1418 1418`
     # = empty code and headers, then REJECTED). With bh still 0 (nothing sealed yet) the rewind would set the
@@ -75,6 +81,8 @@ def build_and_adopt(d, p, desc, blocks):
     # looked like a phase bug. `. DROP` consumes both.
     rep = d.cmd(f"{desc} 3 BLKXFER . DROP", timeout=25.0)
     ok = "adopted" in rep and d.num("HERE .") == ce and d.num("LATEST .") == hs and d.num("W @ .") == entry
+    if not execute:
+        return ok, [], repair_note(rep)
     d.cmd("W @ EXECUTE", timeout=15.0)
     return ok, [d.num(f"z{i} @ .") for i in range(1, 7)], repair_note(rep)
 
