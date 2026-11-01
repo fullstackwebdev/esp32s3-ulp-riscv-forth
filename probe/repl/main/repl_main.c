@@ -112,6 +112,7 @@ static uint32_t blk_sz;      /* transfer size, published by the ULP */
 /* GUARDRAIL: test-only stall for the op-3 race test. `#s <ms>` makes this task sleep once, so the ULP times out on its
  * next block request. Main-core only, zero ULP bytes; without it the race cannot be provoked deliberately. */
 static uint32_t stall_ms;
+static uint32_t apply_stall_ms;   /* test-only: stall INSIDE the op-3 critical section, after the age check */
 static int blk_out_prev;      /* edge detector for the ULP's outstanding-request flag */
 /* GUARDRAIL: when this task first SAW the request. The ULP's wait (BLKWAIT 2 000 000 iterations) is ~845 ms MEASURED
  * on hardware, and on a timeout the ULP deliberately leaves blk_out set - so the flag alone cannot distinguish "still
@@ -291,6 +292,19 @@ static void seed_poll(void)
                            (unsigned)(v[2] - v[1]), (unsigned)(v[4] - v[3]), payload,
                            (20u + payload + 127u) / 128u, v[0], sum);
                 }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#a <ms>` stalls INSIDE the op-3 critical section (after the age check, before the copy). It
+             * exists because the interesting failure is not "a late request" but "the request was timely and the task
+             * then stalled": an age check evaluated only on entry cannot see that. Test-only, main core, 0 ULP bytes. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'a' && ln[2] == ' ') {
+                unsigned ms = 0; int k = 3;
+                while (ln[k] == ' ') k++;
+                while (ln[k] >= '0' && ln[k] <= '9') ms = ms * 10u + (unsigned)(ln[k++] - '0');
+                apply_stall_ms = ms;
+                printf("stall: op-3 critical section will sleep %u ms after the age check\n", ms);
                 fflush(stdout);
                 n = 0;
                 continue;
@@ -592,6 +606,17 @@ static void block_task(void *arg)
                     mb[3] = 0; mb[2] = 5;
                     printf("img: REFUSED stale request (%u ms old, the ULP has given up) - nothing applied\n",
                            (unsigned)age);
+                    goto img_done;
+                }
+                if (apply_stall_ms) { vTaskDelay(pdMS_TO_TICKS(apply_stall_ms)); apply_stall_ms = 0; }
+                /* GUARDRAIL: re-evaluate the age AFTER the critical-section stall, immediately before anything is
+                 * copied. The entry check alone is not enough: a stall of 2 s inside the section happened after the
+                 * check passed, and the copy would then land in a dictionary the ULP had already been told it does not
+                 * have. The bound has to be tested where the decision is taken. */
+                age = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - edge_ms;
+                if (age > 400u) {
+                    mb[3] = 0; mb[2] = 5;
+                    printf("img: REFUSED stale request after the stall (%u ms old) - nothing applied\n", (unsigned)age);
                     goto img_done;
                 }
                 unsigned cl = (unsigned)desc[3] | ((unsigned)desc[4] << 8);

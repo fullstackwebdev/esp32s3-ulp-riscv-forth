@@ -408,3 +408,20 @@ failed three tests while behaviour was correct) — it now asserts that the defi
 **Cost: 0 ULP bytes, 0 application bytes.** Chip runs this step: 9 (two builds of the naive host, three build failures,
 and the test-iteration runs) — over the three-run budget, and the reason is recorded rather than hidden: the race test
 needed a design change, not a retry.
+
+## Step 3b: the four safety/timing items
+
+| item | result |
+|---|---|
+| **1. stall inside the critical section** | **PASS**. `#a 500` (inside the ULP's ~845 ms wait): the load is **refused conservatively** — nothing adopted, `HERE 792 == sealed`, `LATEST 1478` intact, REPL usable (`2 3 + .` = 5). `#a 2000` (past the wait): `REFUSED stale request after the stall (…)`, nothing applied. The failing comparison is the step-3a edge-triggered host, which applied the image 3 s late (`img: adopted … entry 1280` after a −3). |
+| **2. false refusals over 50 normal loads** | **PASS — 0/50** |
+| **3. timing, 50 image loads** | median **50.1 ms** (min 44.7, max 55.5) = **19.4×** the 970 ms source baseline. Prediction written first: 20–50 ms; measured at the top of that band. |
+| **4. phases 1, 8, 15 execute** | **PASS ×3** — each `[6712, 353000, 0, 57, 128, 38]`, equal to the host's numbers for the same bytes and data block. |
+
+**Design decision to note, not a failure:** the age bound is **400 ms** while the ULP waits ~845 ms, so a 400–845 ms
+hiccup on the main core turns a load into a **conservative refusal** (nack 5) rather than a late apply. That is the safe
+side of the trade, and item 2 shows it never fires on normal loads. Options if that margin is ever felt: raise the bound
+to ~700 ms (still under the measured 845 ms), or lengthen `BLKWAIT` to widen the window. Not changed here — it is a
+trade, not a bug.
+
+**Cost of step 3b: 0 ULP bytes** (pool stays 7845/7856; the `#a` hook and the post-stall re-check are main-core only).
