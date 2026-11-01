@@ -733,3 +733,26 @@ page because 112..119 is what is left.
 
 **Lesson:** "the app opens but does not come back" is a dispatcher question before it is a key question. A phase that sets
 `NXT` and returns is half a jump.
+
+## F-139 · A card whose app was never built adopted whatever an older build left in that block
+Two of the six cards had no phase: **sheet** (over the window, parked) and **gopher** (lane timed out). Their descriptor
+blocks still held bytes from earlier experiments, so pressing Enter on those cards adopted *that*: the operator saw
+"GOPHER crashes and won't let me exit". Measured directly: `40 3 BLKXFER` answered **-5 = BK_RANGE**, because the stale
+header named a block outside the store.
+
+**Fixed in the build:** `cli.py --appstore` blanks the descriptor of every card target it did not build (`CARD_DESCS =
+8, 24, 32, 40, 48`). Seeding an empty payload clears the block to spaces, so a later adopt fails the magic check and
+`PICKX` returns `NOOP` - the card refuses and the store stays usable. Measured after: desc 40 and 24 answer **-5** (refused),
+desc 48 and 56 answer **0** (built and adopting).
+
+**Lesson:** "the app is missing" and "the app is stale" look identical from a card. A build that skips an app must
+invalidate its slot, not leave the previous occupant there.
+
+## F-140 · READ executes an unknown token on the chip (`ERR_ULPCODE` / `ERR_UNNAMED`) - open
+The reader adopts cleanly (status 0), draws its bar, and then stops with `ERR_UNNAMED` after ~590 bytes. The host renders
+the same phase without complaint, so it is another host/device difference; the reader is the only phase that reads eight
+blocks under `TYPE` from a page whose lines were authored at 59 characters, so the first suspect is a row that runs past
+the seeded content and prints padding/status bytes.
+
+**Status: open, named, with the reproduction** (`/tmp` script: build reader, `#d 48`, `48 GO`, capture the stream; the
+error is `ERR_UNNAMED`, and `ERR_ULPCODE 0xNN` appeared in an earlier capture of the same phase).

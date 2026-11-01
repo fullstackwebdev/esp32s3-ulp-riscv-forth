@@ -215,6 +215,11 @@ APPSTORE = [
 ]
 APPSTORE_RESIDENT = ["examples/apps/registry.fs", "examples/appstore.fs"]
 STAGING, STAGING_BLOCKS = 120, 8         # docs/26: the source of ANY phase is staged here, 8 blocks per pass
+# GUARDRAIL: every descriptor a CARD can open, whether or not this build produces it. The shelf maps slot -> descriptor
+# (8 calc, 24 sheet, 32 mail, 40 gopher, 48 reader) and a card for an app that was never built would otherwise adopt
+# whatever an older build left in that block - measured as "GOPHER crashes and won't let me exit", adopt answering
+# BK_RANGE (-5) because the stale header named a block outside the store. Anything here without a build gets blanked.
+CARD_DESCS = (8, 24, 32, 40, 48)
 # The window is DECLARED, not inherited. It is what is left above the seal after the resident launcher and its headers,
 # and every phase must fit in it. Measured drift in one afternoon: 346 -> 290 -> 237 B as the launcher grew, and at
 # 237 B a working 222 B program stopped fitting - which read as "the demo broke", not as "the budget moved". A floor
@@ -527,6 +532,21 @@ def appstore(dev, root, only=()):
             return None
         built.append((name, desc, image))
         say(f"  {name:<7} desc {desc:<3} {image:>5} B of {win}  entry {ent}", DM)
+    # GUARDRAIL: POISON the descriptor of every app this build did not write. A card can point at a block that still holds
+    # an image from an older build (or a different table), and the adopt then either jumps into stale code or fails with
+    # BK_RANGE if the stale header names a block outside the store - measured as "GOPHER crashes and won't let me exit",
+    # because gopher has no phase yet and block 44 held leftovers. Seeding an EMPTY payload blanks the block (the seeder
+    # fills with spaces first), so any later adopt fails the magic check and PICKX returns NOOP instead.
+    want = {desc for _n, _r, desc, _e in APPSTORE}
+    poisoned = []
+    for desc in CARD_DESCS:
+        if desc in want and any(d == desc for _n, d, _i in built):
+            continue
+        dev.seed_many([(desc, "")])
+        poisoned.append(str(desc))
+    if poisoned:
+        dev.cmd("#f", timeout=30.0, allow_error=True)
+        say(f"  no phase built - descriptors blanked so those cards refuse cleanly: {', '.join(poisoned)}", DM)
     dev.cmd("#f", timeout=30.0, allow_error=True)
     return built
 

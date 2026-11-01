@@ -405,6 +405,17 @@ def lint_definitions(src, base=None):
                                      f"{name}: `{off} + {toks[i]}` is an unaligned 32-bit access - a cell is 4 bytes and "
                                      f"there is no CELLS word; write `{off * 4 if off < 8 else off} +` (or the byte "
                                      f"offset as a multiple of 4). It traps on rv32 and works on the host"))
+        # GUARDRAIL: R20. `10 EMIT` is a bare LF: on a real terminal that moves DOWN and keeps the column, so a definition
+        # that builds rows with LF alone draws every row starting where the last one ended, and the terminal wraps - the
+        # operator's screen showed split borders and `rw/cl` merged into `0/0`. The shelf had `: NL 10 EMIT ;` while mail
+        # had `13 EMIT 10 EMIT`. Flag a body that emits 10 without also emitting 13 (a CR before the LF, in any order).
+        if "10" in toks and "EMIT" in toks and "13" not in toks:
+            for i in range(len(toks) - 1):
+                if toks[i] == "10" and toks[i + 1] == "EMIT":
+                    findings.append((lineno, "R20 newline",
+                                     f"{name}: `10 EMIT` is a bare LF - a terminal keeps the COLUMN on LF, so rows start "
+                                     f"where the last one ended and wrap. Emit CR first: `13 EMIT 10 EMIT`"))
+                    break
         infinite = any(toks[i - 1] == "0" and toks[i] == "UNTIL" for i in range(1, len(toks)))
         skip = 0
         tick = False
@@ -680,6 +691,9 @@ GOOD_BLOCKS = ": A 1 ; 40 CONSTANT X : B 2 + . ;"
 # GUARDRAIL: the fixture that would have caught the SAVE table entry: a body that CONSUMES the status is correct code
 # (p_blk_save pushes it), so it must lint clean. With SAVE modelled as (0, 0) this fixture reports R3 underflow.
 GOOD_SAVE = ": W ( -- ) UPDATE SAVE DROP ;"
+# GUARDRAIL: R20's two directions - the shelf's bug (`10 EMIT` alone) and the correct pair mail had all along.
+BAD_NL = ": NL ( -- ) 10 EMIT ;"
+GOOD_NL = ": NL ( -- ) 13 EMIT 10 EMIT ;"
 # GUARDRAIL: R19's two directions. `2 + @` is a trap on rv32 (the mail phase's bug); `8 + @` is a legal cell offset.
 BAD_ALIGN = ": C ( -- ) STATE 2 + @ . ;"
 GOOD_ALIGN = ": C ( -- ) STATE 8 + @ . ;"
@@ -723,6 +737,14 @@ def selftest():
     hit = any(r == "R19 alignment" for _, r, _ in f)
     ok = ok and hit
     print(f"  {'caught' if hit else 'MISSED'}  UNALIGNED cell offset           R19 alignment"
+          + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
+    f = lint_definitions(GOOD_NL)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  CR LF newline (mail's form)   {f[:1] if f else ''}")
+    f = lint_definitions(BAD_NL)
+    hit = any(r == "R20 newline" for _, r, _ in f)
+    ok = ok and hit
+    print(f"  {'caught' if hit else 'MISSED'}  LF without CR (the shelf's)       R20 newline"
           + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
     f = lint_definitions(GOOD_SAVE)
     ok = ok and not f
