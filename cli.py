@@ -734,8 +734,13 @@ def main():
                     dev.cmd("#f", timeout=30.0, allow_error=True)
                     say(f"  content seeded: {', '.join(seeded)}", DM)
                 # the shelf is the entry point: it OPENs an app with slot -> descriptor and returns via SHELF (56)
+                # GUARDRAIL: enter through the DISPATCHER (`56 GO` = the shelf's descriptor), not `RUNSHELF`. The shelf
+                # and every app are phases: a phase sets NXT and RETURNS, and the loop that adopts the next descriptor
+                # lives in `SWITCH`. Calling RUNSHELF directly ran the shelf with nothing dispatching - `Enter` set NXT
+                # and the shelf exited into the REPL, and an app's `q` (`SHELF CHAIN`) set NXT=56 with nobody to adopt it,
+                # so "q does not go back". Measured by the operator: entering worked, returning never did.
                 if a.term is None:
-                    a.term = "RUNSHELF"
+                    a.term = "56 GO"
             else:
                 return 1
         if a.library:

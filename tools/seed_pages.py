@@ -36,7 +36,11 @@ CONTENT = ROOT / "content"
 # version still said mail 40 / gopher 60 / reader 80 - the pre-repartition numbers - so a dry run planned to write mail
 # across 40..63 and would have seeded it into calc2's and sheet's descriptor blocks. Only apps with AUTHORED PAGES belong
 # in this table: the calculator and the shelf have none (their state is cells), and the sheet's block is data, not pages.
-BASE = {"mail": 80, "gopher": 104, "reader": 64}
+# GUARDRAIL: a descriptor is `ceil((20 + image) / 128)` blocks, which is 9 once an image passes 876 B - and the shelf's is
+# 1032 B, so its descriptor at 56 runs to block 64 and COLLIDED with reader content there (measured: `56 GO` adopted
+# nothing and the store returned to the REPL immediately). Content starts at 72 so every descriptor in the table has its
+# full 9 blocks; gopher keeps one page because 112..119 is what is left.
+BASE = {"mail": 88, "gopher": 112, "reader": 72}
 PAGE_BLOCKS = 8          # a page is 8 blocks
 LINE_WIDTH = 70          # the shared display width (examples/menu.fs: FILL is 70)
 STORE_BLOCKS = 128

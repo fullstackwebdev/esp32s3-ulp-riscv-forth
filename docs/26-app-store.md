@@ -159,10 +159,10 @@ which is exactly right. The principle the arithmetic exposes:
 | 32–39 | mail1 descriptor | yes |
 | 40–47 | gopher1 descriptor | yes |
 | 48–55 | reader1 descriptor | yes |
-| 56–63 | shelf1 descriptor | yes |
-| 64–79 | **reader content**: 2 pages | yes |
-| 80–103 | **mail content**: 3 pages (p00 list, p01–p02 bodies) | yes |
-| 104–119 | **gopher content**: 2 pages (home + article) | yes |
+| 56–64 | shelf1 descriptor (**9 blocks**: its image is 1 032 B, so `ceil((20+1032)/128)` = 9) | yes |
+| 72–87 | **reader content**: 2 pages | yes |
+| 88–111 | **mail content**: 3 pages (p00 list, p01–p02 bodies) | yes |
+| 112–119 | **gopher content**: 1 page (home) | yes |
 | 120–127 | **staging**: the source of ANY phase is uploaded here, then `#d` writes its descriptor in its own range | no |
 
 Rules that follow: a phase lives in the range of its *descriptor* (that is what `GO` chains to); the staging range is

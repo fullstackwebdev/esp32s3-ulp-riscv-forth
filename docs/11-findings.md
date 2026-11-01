@@ -712,3 +712,24 @@ row 11 col 81`) was the clue that the defect was in the drawing, not the transpo
 **Still open on the device:** with `NL` fixed the chip's stream contains an `ESC 0` sequence the grid reader does not know,
 and the phase does not return on `q`. Both are named; the next step is to find which word emits a bare `ESC 0` (the `OFF`
 path is `ESC [ 0 m`, not `ESC 0`) and whether the `q` is being consumed before the key loop reads it.
+
+## F-138 · The store was entered with `RUNSHELF` instead of `56 GO`, so `q` had nowhere to go
+`./cli.py --appstore` started the shelf by calling the phase's word directly. A phase **sets `NXT` and returns**; the loop
+that adopts the next descriptor is `SWITCH`, i.e. `GO`. Called directly there was no dispatcher, so:
+
+* `Enter` worked by accident - `OPEN` set `NXT` and the shelf's loop (`... NXT @ UNTIL`) exited, which *looked* like opening;
+* `q` in an app (`SHELF CHAIN`) set `NXT = 56` and **nothing adopted it**, so the operator saw exactly "q does not go back".
+
+Entering with `56 GO` (the shelf's own descriptor) makes both real: `Enter` sets `NXT` to the app, `SWITCH` adopts it, the
+app's `q` sets `NXT = 56`, and `SWITCH` adopts the shelf again.
+
+**Verified through a pty** (`probe/repl/tests/appstore.py`, now in `tests/device.sh`): 12/12 checks - the shelf draws five
+cards, exactly one card title is inverse (plus the bar), `j` keeps it at one, `Enter` opens MAIL, `q` returns to
+`APP STORE`, and leaving lands back at the prompt with no `ERR_` anywhere.
+
+**Also: the shelf's image (1 032 B) needs a NINE-block descriptor** (`ceil((20+1032)/128)`), which ran past block 63 into
+reader content at 64. Content now starts at 72 so every descriptor in the table has its full nine blocks; gopher keeps one
+page because 112..119 is what is left.
+
+**Lesson:** "the app opens but does not come back" is a dispatcher question before it is a key question. A phase that sets
+`NXT` and returns is half a jump.
