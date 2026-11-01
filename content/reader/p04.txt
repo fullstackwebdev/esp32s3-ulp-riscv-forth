@@ -1,0 +1,8 @@
+LOAD does not interpret a block by itself. It fetches the
+block into the window and arms the interpreter's source
+switch, and the next token comes from the block instead of
+the console line. One pass of that buffer delivers 95
+bytes, so a block is cut at 92 and a cut is legal only
+where the machine stands between definitions: never inside
+a colon body, never after a colon or a CREATE that is
+still waiting for the name it will store.

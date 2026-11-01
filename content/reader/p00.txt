@@ -1,0 +1,8 @@
+A page on this machine is eight blocks of the store, and
+each block is one line of the screen. The block holds 128
+bytes; the line is 70 columns, so a line is text followed
+by padding, and the padding is part of the page too.
+That is not generosity, it is a unit small enough to fetch
+one line, draw it, and forget it before the next arrives.
+The screen you are reading now draws eight of those
+blocks, then waits for a key and does the arithmetic again.

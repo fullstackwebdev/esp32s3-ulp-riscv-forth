@@ -1,0 +1,8 @@
+The store is 128 blocks of 128 bytes, sixteen kilobytes,
+split by an allocation table rather than by need. A
+descriptor is durable and costs blocks of its own; the
+source of a phase is transient, needed only while the
+upload is compiling it, so it does not have to be paid for
+twice. Seeding a line blanks its block with spaces first,
+so a short line is padded to the screen width by the store
+itself. A flush is what makes any of it survive a reset.

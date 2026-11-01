@@ -1,0 +1,8 @@
+The engine keeps its whole memory image in the ULP's RTC
+slow RAM, of which 7 856 bytes are usable. Code grows up
+from a dictionary base at byte 56, headers grow down from
+the top of the image, and the gap between the two is all
+the space any program may spend. A header is three bytes:
+a thirteen-bit hash, a ten-bit code pointer, one immediate
+flag. A token is two bytes and a literal six. There is no
+room for a name in the dictionary, so a word is its hash.

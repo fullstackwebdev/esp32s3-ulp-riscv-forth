@@ -1,0 +1,8 @@
+This screen is the arithmetic described on the pages
+before it. The top line is page times eight plus the line
+within the page, and the line at the top of the text is
+fetched as block eighty plus that number. j and k move the
+top line by one, clamped so the window never runs off the
+end; m writes that line into a registry cell; g reads the
+cell back and restores both the page and the line.
+Nothing here is compiled in except the keys and the bar.
