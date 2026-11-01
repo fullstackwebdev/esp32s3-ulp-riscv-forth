@@ -33,8 +33,8 @@ There is also a bigger, faster chip in the same package doing errands for it: it
 ./cli.py --library
 ```
 
-That compiles a **resident launcher** (25 blocks, sealed at 1 686) and two programs as images above the seal — colour
-bars, 162 B, and a spinner, 222 B — then hands the terminal to the menu. The menu appears **~6.5 s after launch**:
+That compiles a **resident launcher** (26 blocks, sealed at 1 724) and two programs as images above the seal — colour
+bars, 162 B, and a **gauge that is three phases** (100 + 112 + 188 B, chained) — then hands the terminal to the menu. The menu appears **~6.5 s after launch**:
 2.3 s is a real hardware reset plus the freshness check, and 4.3 s is 34 blocks compiled on a 19 MHz chip one round trip
 at a time (the build prints `compiling N/34 blocks` so it never looks wedged). `j`/`k` pick a program, **Enter runs
 it** (35–43 ms, measured), `q` comes back to the menu, and **`q` on the menu ends the run** and gives your port back —
@@ -45,10 +45,11 @@ store and survive a reset.
 always gets your terminal back *and* stops the program — it sends the app its own quit key and waits for the
 interpreter's ` ok`, up to three times, because the menu runs the demo and each `q` leaves one level.
 
-The bars draw eight rows of blocks, each in its own colour, and redraw on every key press. The spinner **rotates**
-`| / - \` at about four frames per second (that is `MS 250` doing its job) with its phase number beside it. Both leave
-on `q`, and the menu paints exactly one row red — the selected one. `MS` is a busy-wait on this machine: nothing else
-happens during it, so keep sleeps short.
+The bars draw eight rows of blocks, each in its own colour, and redraw on every key press. The **gauge** is the
+interesting one: it is three separate images that hand off to each other, so its code (400 B) is **larger than the 290 B
+of RAM a single image can occupy** — phase 1 draws the frame, phase 2 the bars, phase 3 the step counter and the total.
+It runs all three in ~150 ms and returns to the menu. Both leave on `q`, and the menu paints exactly one row red — the
+selected one.
 
 What makes it work: the code that *performs* the switch sits below the seal, so replacing everything above it never
 replaces the caller. What it cost to learn: see `docs/25-program-library.md`.

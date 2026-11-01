@@ -58,6 +58,45 @@ Reported by the operator, all real, all in `.fs`:
 * bars: **144** `#` and **8** distinct colour codes;
 * spinner: at least two of `| / - \` seen while idle.
 
+## Chaining images as phases: the Forth way, measured
+
+A program can be **several images**. One image is one phase and must fit the window above the seal; the whole program
+need not. The mechanism is a tail call by variable — no descriptor change, no scheduler, no `.c`:
+
+```
+CREATE NXT 0 ,                                    \ the continuation cell (resident, below the seal)
+: CHAIN ( desc -- ) NXT ! ;                       \ a phase's last act: name the NEXT phase, or 0
+: ADOPT ( desc -- xt ) RW 3 BLKXFER DROP @ ;
+: SWITCH ( desc -- ) NXT ! BEGIN NXT @ WHILE NXT @ ADOPT 0 NXT @ EXECUTE REPEAT ;
+```
+
+* the launcher hands `SWITCH` the **first** descriptor (what `PICK` does);
+* `SWITCH` clears `NXT` before every `EXECUTE`, so a phase that says nothing **ends the chain** — the safe default;
+* a phase that wants to continue ends with `62 CHAIN` — one token, and the value is the next descriptor;
+* state shared between phases lives **below the seal** (`PA` is the counter the gauge increments): the window is
+  replaced on every adopt, so anything a phase leaves there is gone.
+
+### Measured on the device (`tests/tui_cli.py`, `60 SWITCH`)
+
+| | |
+|---|---|
+| window above the seal | **290 B** |
+| gauge: 3 phases | 100 + 112 + 188 = **400 B** = **1.38 × the window** |
+| the chain | adopts 60 → 62 → 64 → ends, **152 ms** for all three, ends with "phases done" and the menu back |
+| the price | every resident byte is a byte no phase can use — the launcher grew to 26 blocks and the window fell from 346 B to 290 B |
+
+That last line is the real trade and the reason overlays were banked at a 690 B window: **the launcher and the phases
+compete for the same RAM.** Chaining still wins where the program is bigger than the menu — which is the case that
+motivated this.
+
+### Still open (named, not hidden)
+A **fourth** hop stalls: with a 4th image chained after the 3rd, the machine adopted 60, 62, 64 and then re-entered
+phase 3's body at ~41 Hz with `blk_out` latched, `V_LOADB` 0 and 64 B of unread commands in the ring. A three-phase
+chain is solid; the fourth hop is not, and the shipped library is three phases. Next question: whether the adopt is
+being refused silently after two `EXECUTE` levels (the dump prints nothing) or the block layer latches on the third
+rewind. Measured facts to start from: `#u` while it spins shows `blk_out 1 req 0 off 2476`, and `V_HERE 1762
+V_LATEST 2023` — i.e. the dictionary is the sealed one, not the pasted one.
+
 ## The guard that fired on ordinary use (fixed, measured)
 
 `docs/25` first recorded this as an open defect:

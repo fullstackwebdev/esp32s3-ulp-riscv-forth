@@ -2049,3 +2049,33 @@ Two fixes, both about the same rule - *wait only for what must arrive*:
 The test now *creates* the failing condition instead of being saved by a race: it drains the console to silence before
 the final `q` ("the console goes quiet before exit: 0 B"), and it starts a second run, interrupts it mid-animation with
 Ctrl-C, and requires a usable machine afterwards. Device: 69 checks across six files.
+
+**J-107 · Chaining images as phases: 400 B of program in a 290 B window, and the fourth hop that stalls.**
+The operator asked for the Forth way to break the app-space ceiling by chaining images, not for a scheduler. It is a
+**tail call by variable**: a resident cell `NXT`, a one-token `CHAIN` (`NXT !`) as a phase's last act, and
+
+    : SWITCH ( desc -- ) NXT ! BEGIN NXT @ WHILE NXT @ ADOPT 0 NXT ! EXECUTE REPEAT ;
+
+`ADOPT` is `RW 3 BLKXFER DROP @` — the old one-shot SWITCH body, unchanged. The launcher hands SWITCH the first
+descriptor; each phase names the next or says nothing (the dispatcher clears `NXT` before every `EXECUTE`, so forgetting
+to chain *ends* the program instead of looping it). Shared state lives **below the seal** — the window is replaced on
+every adopt, so a phase that leaves anything there loses it.
+
+Measured on the device: the gauge is three images (100 + 112 + 188 = **400 B**) in a **290 B** window — **1.38×** — and
+the chain adopts 60 → 62 → 64, draws all three panels and returns to the menu in **152 ms**. The price is exactly the
+old lesson in new clothes: **the launcher and the phases compete for the same RAM**. Adding the chain machinery, a third
+menu row and a shared counter took the launcher from 25 to 28 blocks and the window from 346 B to 237 B, which is why
+the single-phase spinner no longer fit; it is now the gauge's third phase, and the menu is two entries.
+
+Two bugs paid for on the way:
+* **`fsplit` split `... ; 40` | `CONSTANT IMGP ...`.** A block is a *line*, and every line starts with an empty stack
+  (`run_line()` does `sp = 0`), so a value can never cross a block boundary. The device said `block 87: ERR_STACK`
+  and then five `NAME?` lines naming words that were fine. The splitter now keeps the token before `CONSTANT` with it,
+  with a selftest case, and the general rule is written down: *a block must be stack-self-contained.*
+* my own harness twice: `dev.cmd` returns on the `img:` marker (so "the chain returned" was really "the line printed
+  one line"), and an isolation run reused a dirty dictionary, turning every case into `ERR_BUSY`.
+
+**Still open, named:** a *fourth* hop stalls. With a 4th image chained after the 3rd, the machine adopted 60, 62, 64 and
+then re-entered phase 3's body at ~41 Hz with `blk_out 1 req 0` latched, `V_LOADB 0` and 64 B of unread commands in the
+ring. Three phases are solid, the shipped library is three phases, and the next question is in docs/25: is the third
+adopt refused silently, or does the block layer latch on the third rewind?

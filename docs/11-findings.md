@@ -525,3 +525,39 @@ do with it.
 condition that failed - "the console goes quiet before exit: 0 B"), then checks exit status; and it starts a second
 run, presses Ctrl-C mid-animation, and requires a usable machine afterwards (22 checks).
 
+
+## F-128 · A program can be larger than its window: phases chained by a resident continuation cell (established)
+The ceiling was "one image = the window above the seal" (290 B today). Chaining makes it "one phase = the window:
+the program is as many phases as you like", using nothing but the existing adopt primitive:
+
+```
+CREATE NXT 0 ,
+: CHAIN ( desc -- ) NXT ! ;
+: ADOPT ( desc -- xt ) RW 3 BLKXFER DROP @ ;
+: SWITCH ( desc -- ) NXT ! BEGIN NXT @ WHILE NXT @ ADOPT 0 NXT ! EXECUTE REPEAT ;
+```
+
+Measured: the `gauge` demo is 3 images (100 + 112 + 188 = **400 B**) running in a **290 B** window — **1.38×** — chaining
+60 → 62 → 64 and returning to the menu in **152 ms**. State shared between phases must live below the seal, because
+each adopt replaces the window.
+
+**The trade, measured twice:** the launcher and the phases compete for the same RAM. Adding the chain machinery took the
+launcher from 25 to 28 blocks and the window from 346 B to 237 B — the single-phase 222 B spinner stopped fitting and
+became the gauge's third phase. This is the same arithmetic that banked overlays at a 690 B window (15-overlays.md).
+
+**Guarded by** `tests/tui_cli.py` ("the chained program runs its phases", "the chain ends and returns to the menu") and
+`cli.library()`, which prints `phases, total B vs window — EXCEEDS/FITS` for every multi-phase program.
+
+## F-129 · A block is a LINE, so no value may cross a block boundary (open defect in `fsplit`, fixed)
+`fsplit` cut `: SWITCH ... REPEAT ; 40` | `CONSTANT IMGP ...`. The launcher compiled, then the device answered
+`block 87: ERR_STACK` followed by five `NAME?` lines naming words that were perfectly fine five blocks earlier.
+
+Cause: `run_line()` starts every line on an EMPTY stack (`sp = 0`), and each block is loaded by its own `LOAD` line — so
+a value pushed at the end of one block is gone when the next block starts. `CONSTANT` takes its value from the stack,
+which makes `40 CONSTANT X` one indivisible unit.
+
+`fsplit.safe_after` now forbids a cut immediately before `CONSTANT`, with a selftest case. The general rule belongs in
+the splitter's docstring, and it is a family with the `CREATE`/`,` rule already there: **a block must be
+stack-self-contained.**
+
+**Guarded by** `tools/fsplit.py --selftest` (4 cases).

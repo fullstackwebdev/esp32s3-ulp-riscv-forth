@@ -82,7 +82,7 @@ def main():
         os.write(dev.fd, b"RUNP\r"); time.sleep(0.35)
         os.write(dev.fd, b"!RAW\r"); time.sleep(0.25)
         menu = read_frame(dev)
-        results.append(("menu frame", b"PROGRAM LIBRARY" in menu and clean(menu), show(menu)))
+        results.append(("menu frame", b"LIBRARY" in menu and clean(menu), show(menu)))
 
         t0 = time.time()
         os.write(dev.fd, b"\r")
@@ -91,26 +91,26 @@ def main():
         results.append(("Enter -> colour bars", b"BARS" in b1 and clean(b1), f"{t1 * 1000:.0f} ms, {show(b1, 60)}"))
 
         os.write(dev.fd, b"q")
-        m2 = read_until(dev, b"PROGRAM LIBRARY")
-        results.append(("q -> back to the launcher", b"PROGRAM LIBRARY" in m2 and clean(m2), show(m2, 60)))
+        m2 = read_until(dev, b"LIBRARY")
+        results.append(("q -> back to the launcher", b"LIBRARY" in m2 and clean(m2), show(m2, 60)))
 
         os.write(dev.fd, b"k")          # two entries: toggle to the other one
-        m3 = read_until(dev, b"PROGRAM LIBRARY")
+        m3 = read_until(dev, b"LIBRARY")
         t0 = time.time()
         os.write(dev.fd, b"\r")
-        s1 = read_until(dev, b"SPIN")
+        s1 = read_until(dev, b"ULP GAUGE")
         t2 = time.time() - t0
         # GUARDRAIL: this is the check that failed for the whole feature (docs/25). It passed the moment the resident
         # identity stopped being a sum of the LIVE resident region - `k` writes SEL, which lives in it. If this goes red
         # again, read the refusal: `REFUSED resident dictionary changed` means resident_sum() and the writer disagree
         # about what is mutable, NOT that the dictionary changed.
-        results.append(("Enter -> spinner (2nd program)", b"SPIN" in s1 and clean(s1),
+        results.append(("Enter -> gauge (chained program)", b"ULP GAUGE" in s1 and clean(s1),
                         f"{t2 * 1000:.0f} ms, {show(s1, 60)}"))
-        results.append(("k moved the marker", b"PROGRAM LIBRARY" in m3 and clean(m3), show(m3, 40)))
+        results.append(("k moved the marker", b"LIBRARY" in m3 and clean(m3), show(m3, 40)))
 
         os.write(dev.fd, b"q")
-        m4 = read_until(dev, b"PROGRAM LIBRARY")
-        results.append(("q -> launcher again", b"PROGRAM LIBRARY" in m4 and clean(m4), show(m4, 60)))
+        m4 = read_until(dev, b"LIBRARY")
+        results.append(("q -> launcher again", b"LIBRARY" in m4 and clean(m4), show(m4, 60)))
 
         os.write(dev.fd, b"q")          # quit the launcher
         time.sleep(0.3)

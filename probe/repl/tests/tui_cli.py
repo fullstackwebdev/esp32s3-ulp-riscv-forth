@@ -23,7 +23,7 @@ import os, sys, pty, re, time, select, pathlib, subprocess, signal
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 CAP = 40.0
-MENU = b"PROGRAM LIBRARY"
+MENU = b"LIBRARY"   # the launcher title; the short needle keeps the test independent of its wording
 
 
 def read_until(fd, needle, cap):
@@ -135,39 +135,31 @@ def main():
 
         os.write(master, b"k")
         moved = frame(master)
+        check("k moves the marker", MENU in moved and moved.count(b"\x1b[31m") == 1,
+              f"menu redrawn {MENU in moved}")
+
+        # GUARDRAIL: the second entry is a CHAIN of three images - the whole point of the feature. Assert the
+        # SEQUENCE, not just that something drew: phase 1's title, phase 2's bars, phase 3's "phases done", and a menu
+        # afterwards. A chain that stalls is exactly the defect measured while building this (see docs/25), and it
+        # shows up here as "no menu came back", not as an error.
         t0 = time.time()
         os.write(master, b"\r")
-        spin = frame(master)
-        t2 = (time.time() - t0) * 1000
-        # GUARDRAIL: this is the check that was missing for the whole feature (docs/25). `read_until(SPIN)` returns the
-        # moment the title appears, so it certified a program whose FIRST frame was fine and whose second was
-        # `ERR_ULPCODE`. Read for the full window instead, and read again with an idle screen.
-        idle_spin = dwell(master, 2.0)
-        hits, high = loud_errors(idle_spin)
-        check("k + Enter -> the OTHER program runs", b"SPIN" in spin and b"ERR_" not in spin,
-              f"{t2:.0f} ms; menu redrawn {MENU in moved}")
-        # GUARDRAIL: this used to require ZERO bytes, which was right while the spinner was key-paced and is wrong now
-        # that it self-advances on `MS`. The user-visible property is the RATE: 250 ms per frame is ~5/s, so 2 s of
-        # idle is a handful of frames. A pace of 267/s (what a no-op MS produced) sends 16 KB in the same window, so a
-        # byte cap catches the regression while still allowing the animation to work.
-        rate = len(idle_spin) / 2.0
-        check("spinner paces itself (no flood)", not hits and not high and 0 < len(idle_spin) < 3000,
-              f"{len(idle_spin)} B in 2 s idle ({rate:.0f} B/s)"
-              + (f", noise {hits[:4]} {high[:6]}" if (hits or high) else ""))
-
-        # GUARDRAIL: the spinner must SPIN. It used to be a counter plus a growing row of '*' - a progress bar that
-        # counted to 10 and reset, which is what the operator reported. Assert at least two different glyphs from |/ - \.
-        glyphs = {b"|", b"/", b"-", b"\\"} & {bytes([c]) for c in idle_spin}
-        check("the spinner glyph rotates", len(glyphs) >= 2, f"{sorted(glyphs)} seen")
-        # A demo must answer a key with a new frame - otherwise "it draws" could just mean "it redraws the same thing".
-        frames = []
-        for _ in range(3):
-            os.write(master, b"j")
-            frames.append(dwell(master, 0.25))
-        check("a key advances the spinner", all(b"SPIN" in f for f in frames) and len({f for f in frames}) > 1,
-              f"{len(frames)} frames, {sum(len(f) for f in frames)} B")
-        hits, high = loud_errors(b"".join(frames))
-        check("no noise from keying either", not hits and not high, f"{hits[:4]} {high[:6]}" if (hits or high) else "")
+        chain, frames = b"", 0
+        for _ in range(10):
+            piece = frame(master, 8.0)
+            if not piece:
+                break
+            chain += piece
+            frames += 1
+            if MENU in piece:
+                break
+        ms = (time.time() - t0) * 1000
+        check("the chained program runs its phases", b"ULP GAUGE" in chain and chain.count(b"#") >= 40,
+              f"{frames} frames, {len(chain)} B, {chain.count(b'#')} '#', {ms:.0f} ms")
+        check("the chain ends and returns to the menu", MENU in chain and b"phases done" in chain,
+              f"menu back {MENU in chain}, last phase drew {b'phases done' in chain}")
+        check("chaining leaves no error behind", b"ERR_" not in chain and b"REFUSED" not in chain,
+              "" if b"ERR_" not in chain else repr(chain[-120:]))
 
         os.write(master, b"q")
         frame(master)

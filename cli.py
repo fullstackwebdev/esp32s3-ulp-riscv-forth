@@ -160,8 +160,14 @@ def upload(dev, path, first_block):
     return len(bs), bad
 
 
-LIB_FIRST, DEMO_FIRST = 70, 30          # launcher source; demo source is reused for every build
-LIBRARY = (("examples/demo_bars.fs", 50, "RUNB"), ("examples/demo_spin.fs", 60, "RUNS"))
+LIB_FIRST, DEMO_FIRST = 70, 30          # launcher source; phase source is reused for every build
+# A PROGRAM is a chain of PHASES. One phase = one image = at most the window above the seal. The first phase's
+# descriptor is what the launcher is handed; every later one is reached by the phase itself calling `CHAIN`.
+LIBRARY = (
+    ("bars", (("examples/demo_bars.fs", 40, "RUNB"),)),
+    ("gauge", (("examples/gauge1.fs", 60, "GAUGE1"), ("examples/gauge2.fs", 62, "GAUGE2"),
+               ("examples/gauge3.fs", 64, "GAUGE3"))),
+)
 
 
 def library(dev, root):
@@ -191,25 +197,35 @@ def library(dev, root):
     dev.cmd("SEAL")
     base = dev.num("bh @ .")
     say(f"  launcher sealed at {base} ({n} blocks)", DM)
-    built = []
-    for path, desc, entry in LIBRARY:
-        dev.cmd("RW")                           # back to the seal, so this demo owns the space above it
-        n, bad = upload(dev, str(root / path), DEMO_FIRST)
-        if bad:
-            return None
-        cs, ce = dev.num("bh @ ."), dev.num("HERE .")
-        hs, he = dev.num("LATEST ."), dev.num("bl @ .")
-        ent = dev.num(f"' {entry} .")
-        # GUARDRAIL: a stub image is what a failed LOAD leaves behind (measured: 10 B), and EXECUTE then jumps into
-        # never-compiled bytes and spins with no error at all. The stub that actually hung the machine was 10 B, and a
-        # legitimate demo was once 92 B, so the minimum is 48 B - not the 120 B a phase-sized heuristic guessed.
-        if cs != base or ce - cs < 48 or not (cs <= ent < ce):
-            say(f"  {path}: code {cs}..{ce} ({ce - cs} B) entry {ent} - not buildable above the seal at {base}", YL)
-            return None
-        dev.cmd(f"#d {desc} {cs} {ce} {hs} {he} {ent}")
-        built.append(dict(path=path, desc=desc, cs=cs, ce=ce, entry=ent, blocks=n))
-        say(f"  {path}: {ce - cs} B of code -> block {desc}, entry {ent}", DM)
+    built, window = [], 0
+    for program, phases in LIBRARY:
+        window = dev.num("LATEST .") - base   # the space above the seal: one phase must fit in it
+        for i, (path, desc, entry) in enumerate(phases):
+            dev.cmd("RW")                       # back to the seal, so this phase owns the space above it
+            n, bad = upload(dev, str(root / path), DEMO_FIRST)
+            if bad:
+                return None
+            cs, ce = dev.num("bh @ ."), dev.num("HERE .")
+            hs, he = dev.num("LATEST ."), dev.num("bl @ .")
+            ent = dev.num(f"' {entry} .")
+            # GUARDRAIL: a stub image is what a failed LOAD leaves behind (measured: 10 B), and EXECUTE then jumps into
+            # never-compiled bytes and spins with no error at all. The stub that actually hung the machine was 10 B, and
+            # a legitimate demo was once 92 B, so the minimum is 48 B - not the 120 B a phase-sized heuristic guessed.
+            if cs != base or ce - cs < 48 or not (cs <= ent < ce):
+                say(f"  {path}: code {cs}..{ce} ({ce - cs} B) entry {ent} - not buildable above the seal at {base}", YL)
+                return None
+            dev.cmd(f"#d {desc} {cs} {ce} {hs} {he} {ent}")
+            built.append(dict(program=program, phase=i + 1, of=len(phases), path=path, desc=desc,
+                              cs=cs, ce=ce, code=ce - cs, entry=ent, blocks=n))
+            say(f"  {path}: {ce - cs} B of code -> block {desc}, entry {ent}", DM)
     dev.cmd("RW")
+    for program, phases in LIBRARY:
+        mine = [b for b in built if b["program"] == program]
+        total = sum(b["code"] for b in mine)
+        if len(mine) > 1:
+            ok = total > window
+            say(f"  {program}: {len(mine)} phases, {total} B of code vs a {window} B window"
+                f" - {'EXCEEDS' if ok else 'FITS'} ({total / window:.2f}x)", CY if ok else YL)
     say(f"  library ready: {len(LIBRARY)} programs; Enter runs one, q returns, q on the menu quits", CY)
     return built
 

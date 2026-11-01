@@ -20,18 +20,20 @@ CREATE SEL 0 ,
 : MARK ( i -- ) OFF SEL @ = IF 1 COL ." > " ELSE SP SP THEN ;
 : TOGGLE ( -- ) SEL @ IF 0 ELSE 1 THEN SEL ! ;
 : RW ( -- ) bh @ VH ! bl @ VL ! ;
-: SWITCH ( desc -- ) RW 3 BLKXFER DROP @ EXECUTE ;
-50 CONSTANT IMGB
-60 CONSTANT IMGS
+CREATE NXT 0 ,
+CREATE PA 0 ,
+: CHAIN ( desc -- ) NXT ! ;
+: ADOPT ( desc -- xt ) RW 3 BLKXFER DROP @ ;
+: SWITCH ( desc -- ) NXT ! BEGIN NXT @ WHILE NXT @ ADOPT 0 NXT ! EXECUTE REPEAT ;
 : HDR0 ( -- ) CLR HOME 1 1 AT INV FILL ;
-: TTL ( -- ) 1 3 AT INV ." ULP FORTH  PROGRAM LIBRARY" OFF ;
+: TTL ( -- ) 1 3 AT INV ." ULP FORTH LIBRARY" OFF ;
 : I0 ( -- ) 5 2 AT 0 MARK ." colour bars" ;
-: I1 ( -- ) 6 2 AT 1 MARK ." spinner" ;
+: I1 ( -- ) 6 2 AT 1 MARK ." gauge (3 phases)" ;
 : ITEMS ( -- ) I0 I1 ;
-: FOOT0 ( -- ) OFF 9 2 AT ." j/k move   Enter run   q quit" SENT ;
+: FOOT0 ( -- ) OFF 9 2 AT ." j/k Enter q" SENT ;
 : MENU ( -- ) HDR0 TTL ITEMS FOOT0 ;
 : K0 ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
-: PICK ( -- ) SEL @ IF IMGS ELSE IMGB THEN SWITCH ;
+: PICK ( -- ) SEL @ IF 60 ELSE 40 THEN SWITCH ;
 : QS ( -- ) NORM SHOW ;
 : KQ ( c -- c f ) DUP 113 = ;
 : KTGL ( c -- f ) DUP 106 = OVER 107 = OR IF DROP TOGGLE 1 ELSE DROP 0 THEN ;

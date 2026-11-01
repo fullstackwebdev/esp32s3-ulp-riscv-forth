@@ -37,7 +37,7 @@ sys.path.insert(0, str(ROOT / "probe" / "repl" / "tools"))
 
 MENU_FIRST = 70
 DEMO_FIRST = 30
-BARS_DESC, SPIN_DESC = 50, 60
+BARS_DESC, OTHER_DESC = 40, 60   # bars, and the gauge's first phase
 PORT = os.environ.get("PORT_DEV", "/dev/ttyACM1")
 
 
@@ -132,7 +132,7 @@ def main():
 
         built = {}
         for path, desc, entry in (("examples/demo_bars.fs", BARS_DESC, "RUNB"),
-                                  ("examples/demo_spin.fs", SPIN_DESC, "RUNS")):
+                                  ("examples/gauge1.fs", OTHER_DESC, "GAUGE1")):
             dev.cmd("RW", timeout=5.0)
             n, bad = cli.upload(dev, str(ROOT / path), DEMO_FIRST)
             if bad:
@@ -159,14 +159,14 @@ def main():
             check(f".N prints {n} as {want!r}", have == want, f"got {have!r}")
 
         for i, (desc, note) in enumerate(((BARS_DESC, "first"), (BARS_DESC, "same image again"),
-                                          (SPIN_DESC, "a DIFFERENT image")), start=1):
+                                          (OTHER_DESC, "a DIFFERENT image")), start=1):
             st = adopt(dev, desc)
             check(f"adopt #{i} ({note})", st == 0, f"block {desc}, status {st}")
             dev.cmd("RW", timeout=5.0)
         check("adopt leaves the identity untouched",
               ssum(dump(dev, 52, top), vseal, top) == built[BARS_DESC]["hdr_sum"])
 
-        rep = dev.cmd(f"#c {SPIN_DESC}", timeout=10.0)
+        rep = dev.cmd(f"#c {OTHER_DESC}", timeout=10.0)
         line = [l for l in rep.splitlines() if l.startswith("cmp:")]
         check("#c agrees with mem[] after an adopt", bool(line) and " 0 byte(s) differ" in line[0],
               line[0].strip() if line else "no cmp line")
@@ -176,22 +176,22 @@ def main():
         after_toggle = snap("after SEL 0->1 (the `k` key)")
         check("a live resident cell moves NO identity", after_toggle == built[BARS_DESC]["hdr_sum"],
               f"SEL {sel} -> {dev.num('SEL @ .')}, header sum {after_toggle}")
-        st = adopt(dev, SPIN_DESC)
+        st = adopt(dev, OTHER_DESC)
         check("adopt after the SEL write", st == 0, f"status {st} (this is the bug docs/25 recorded)")
         dev.cmd("RW", timeout=5.0)
         dev.cmd("0 SEL !", timeout=5.0)
 
         # A guard that cannot be tripped is not a guard: forge the identity it compares and require a named refusal.
-        want = built[SPIN_DESC]["hdr_sum"]
+        want = built[OTHER_DESC]["hdr_sum"]
         lo, hi = want & 0xff, (want >> 8) & 0xff
-        dev.cmd(f"#p {SPIN_DESC} 13 {(lo + 1) & 0xff}", timeout=5.0)
-        st = adopt(dev, SPIN_DESC)
+        dev.cmd(f"#p {OTHER_DESC} 13 {(lo + 1) & 0xff}", timeout=5.0)
+        st = adopt(dev, OTHER_DESC)
         check("a FORGED identity is refused", st != 0, f"status {st} (nack 4 = BK_CRC)")
-        dev.cmd(f"#p {SPIN_DESC} 13 {lo}", timeout=5.0)
-        st = adopt(dev, SPIN_DESC)
+        dev.cmd(f"#p {OTHER_DESC} 13 {lo}", timeout=5.0)
+        st = adopt(dev, OTHER_DESC)
         check("restoring the field makes it adopt again", st == 0, f"status {st}, descriptor {lo}/{hi}")
 
-        moved = diff(seen["after #d 50"], seen["after SEL 0->1 (the `k` key)"], 52, cs)
+        moved = diff(seen[f"after #d {BARS_DESC}"], seen["after SEL 0->1 (the `k` key)"], 52, cs)
         print(f"\n  [52,{cs}) moved by {len(moved)} byte(s) on the SEL write"
               + (f" at {moved[:8]}" if moved else "") + " - exactly what the old range summed")
         check("that is real: the resident code region DOES hold live state", bool(moved),

@@ -57,6 +57,14 @@ def safe_after(toks):
         else:
             expect_name = False
         safe.append(not in_def and not expect_name and not in_create)
+    # GUARDRAIL: a block is a LINE, and every line starts with an EMPTY stack (`run_line()` does `sp = 0`), so no block
+    # may depend on a value the previous one left. `40 CONSTANT IMGP` split as `... ; 40` | `CONSTANT IMGP ...` compiled
+    # the launcher, ran block 86, then block 87 popped from an empty stack: measured as `block 87: ERR_STACK` and five
+    # cascading `NAME?` lines that all blamed the WRONG words. CONSTANT takes its value from the stack, so the token
+    # before it belongs to it - exactly the rule already applied to a CREATE's name and its `,`.
+    for i in range(1, len(toks)):
+        if toks[i] == "CONSTANT":
+            safe[i - 1] = False
     return safe
 
 
@@ -105,7 +113,12 @@ def selftest():
     b = split_defs("4 CONSTANT C CREATE v 0 ,", 128)
     assert b == ["4 CONSTANT C CREATE v 0 ,"], b
     ok += 1
-    print(f"fsplit selftest: {ok}/3 checks pass")
+    # the stack does not cross a block boundary: `40 CONSTANT X` must never be split after the 40
+    b = split_defs(": A 1 ; 40 CONSTANT X : B 2 ;", 22)
+    assert all(not (x.endswith("40") or y.startswith("CONSTANT")) for x, y in zip(b, b[1:])), b
+    assert " ".join(b) == ": A 1 ; 40 CONSTANT X : B 2 ;", b
+    ok += 1
+    print(f"fsplit selftest: {ok}/4 checks pass")
 
 
 def main():
