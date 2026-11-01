@@ -32,6 +32,7 @@
 #include "ulp_riscv.h"
 #include "ulp_main.h"
 #include "flash_store.h"
+#include "esp_system.h"
 
 static void seed_poll(void);   /* defined after blkfile[]; called from the UART pump */
 
@@ -358,6 +359,9 @@ static void seed_poll(void)
                         if (e > hotn) { hotn = e; hot = k; }
                     }
                     printf(" | hottest sector %u (%u)\n", (unsigned)hot, (unsigned)hotn);
+                    printf("info: bc %u | erase %u us, write %u us, super %u us | reset reason %d\n",
+                           (unsigned)fs_bc(), (unsigned)fs_us(0), (unsigned)fs_us(1), (unsigned)fs_us(2),
+                           (int)esp_reset_reason());
                 }
                 else          printf("info: store REFUSED %s\n", fs_strerror(fs_init()));
                 fflush(stdout);

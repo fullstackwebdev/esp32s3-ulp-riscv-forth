@@ -68,6 +68,21 @@ class Dev:
         self.close()
 
     # ---- raw read -------------------------------------------------------------------------------------------
+    def preflight(self, words):
+        """GUARDRAIL: an undefined word made the harness report "no number" twice, which reads like a loader fault and cost
+        two chip sessions. Ask the device about every word first: `' W .` answers an xt, or `W?` for a missing word."""
+        missing = []
+        for w in words:
+            lines = [s.strip() for s in self.cmd(f"' {w} .", timeout=3.0).splitlines() if s.strip()]
+            # GUARDRAIL: the device prints the number and `ok` on ONE line ("52 ok"), so a line must merely CONTAIN a
+            # number. Both earlier versions were wrong: "last line is numeric" and "a line of only digits". Real
+            # transcripts are the fixtures now (tests/preflight_dry.py); the fixture, not the board, was the lie.
+            if not any(re.search(r"-?\d", s) for s in lines) or any(s.endswith("?") for s in lines):
+                missing.append(w)
+        if missing:
+            raise RuntimeError(f"preflight: words missing on the device: {missing} - fix the harness, not the firmware")
+        return True
+
     def drain(self, quiet=0.5, cap=10.0):
         buf = b""
         end = time.time() + cap

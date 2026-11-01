@@ -158,3 +158,27 @@ hang. Reported, not retried.
    console, `#f`), which preserves the current hazard-free path but loses "SAVE persists".
 2. After that: wear numbers, `capabilities.py`, then merge with the exact wording *"a paged program and its images survive
    reset; size is still bounded at 16 KB."*
+
+---
+
+## Step 6c: diagnosis (3 chip sessions, budget exhausted) — hang is HP-side and survives until reset
+
+**Instrumentation added (HP .bss, 6 words + 16×2 B counters, 0 ULP bytes):** breadcrumb before/after each flash call
+(`bc 1..6`), durations for erase / write / superblock, and `esp_reset_reason()` — all printed by `#i`:
+`info: bc 6 | erase 20592 us, write 13496 us, super 0 us | reset reason 1`.
+
+| probe | observation |
+|---|---|
+| Flash durations | **erase 20.6 ms, write 13.5 ms** — orders of magnitude below the 15 s silence, so a cache-disable stall cannot explain it |
+| One attempt, execute phase 1 | **No hang.** HP answered `#i`, ULP answered `2 3 + .` → `5 ok`, phase ran |
+| Next attempt (`flash_wear`) | **Hang at `W @ EXECUTE`, zero output for 15 s** — no named error, so not the ULP's 845 ms timeout path |
+| After that hang, next session | **No bytes at all** even for `bh @ .` — the console itself is gone; the wedge persists until an external reset |
+
+**Which hypothesis the data supports:** the HP side deadlocks (or starves) and takes the console with it; it is *not* a
+brief flash stall and *not* the ULP waiting (that path prints a named error). Most consistent: a resource held across the
+flash call inside `block_task` that the console/ULP bridge also needs. **Not fixed, as instructed.**
+
+**Harness lesson, third time asked for:** `tools/devio.py preflight()` now asks the device about every word the harness uses
+(`' WORD .`) and aborts naming the missing word. Writing it cost two dry-run failures on my own *fixtures* — "last line is
+numeric" and "a line of only digits" — because the device prints `52 ok` on one line. The fixtures are now verbatim
+transcripts.
