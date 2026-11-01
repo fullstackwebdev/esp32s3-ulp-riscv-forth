@@ -29,6 +29,13 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
   R11 fit       a definition that cannot fit one 92 B block. The splitter refuses it at UPLOAD time - a board round
                 trip to learn something a parser can see. Measured: two demo phases were written at 94 and 96 B and
                 only failed when the chip was already flashing.
+  R16 phase state (PHASE sources only, `--phase`) a phase may not CREATE/VARIABLE/CONSTANT its own storage. A phase
+                is REPLACED on every adopt (docs/26): its cells and its dictionary are gone the moment another phase
+                is loaded, so state kept there resets silently on the way in - which reads as "the cursor jumps home"
+                and not as a storage bug. State belongs in examples/apps/registry.fs, below the seal.
+  R18 no return (PHASE sources only, `--phase`) a phase that never names its return path (no CHAIN, no `NXT !`, no
+                SHELF) cannot be left except by resetting the machine. docs/26 anti-slop item 4: every phase returns
+                to the shelf with q/Esc, and `q` returning to a dispatcher that then has nowhere to go is a reset.
   R9 (RETIRED)  `MS does not sleep` was earned when the primitive returned the wake count (measured: twenty
                 `200 MS` in 0.05 s). MS now busy-waits on rdcycle (tests/ms_clock.py: 100 MS = +100 ms,
                 300 MS = +301 ms), so the rule's premise is gone and it was removed instead of left as
@@ -40,8 +47,9 @@ program's words. A definition without a declaration is assumed ( -- ), which is 
 word that genuinely passes values must say so, and that declaration is documentation too.
 
     tools/lint_forth.py examples/tui_min.fs        lint a file (exit 1 on findings)
+    tools/lint_forth.py --phase examples/apps/x.fs  lint a PHASE source: R1-R12 plus R16 and R18
     tools/lint_forth.py --selftest                 prove every rule fires on the bug it came from
-    tools/sink.py                                  the CORPUS: 12 programs with their expected verdicts
+    tools/sink.py                                  the CORPUS: 14 programs with their expected verdicts
 
     Run tools/sink.py after EVERY change to a rule. --selftest proves a rule fires on its own fixture; the corpus
     proves it does not fire on good code and still fires on bad code that was written before the rule existed. A rule
@@ -113,6 +121,56 @@ def tokens(text):
 
 def is_num(t):
     return bool(re.fullmatch(r"-?\d+", t))
+
+
+def code_only(src):
+    """`src` with `( ... )` declarations and `."` strings blanked out, newlines kept so line numbers stay true.
+
+    GUARDRAIL: R16 must see WORDS, not text. A phase that draws the word CREATE (`.\" CREATE\"`) or documents a cell
+    in a `( ... )` declaration would otherwise be refused for saying a name it never compiles - the false positive
+    that teaches the operator to skip the rule.
+    """
+    out = list(src)
+    i, n = 0, len(src)
+    while i < n:
+        if src[i] == "(":
+            j = src.find(")", i)
+            j = n if j < 0 else j + 1
+        elif src.startswith('."', i):
+            j = src.find('"', i + 2)
+            j = n if j < 0 else j + 1
+        else:
+            i += 1
+            continue
+        for k in range(i, j):
+            if out[k] != "\n":
+                out[k] = " "
+        i = j
+    return "".join(out)
+
+
+def lint_phase(src):
+    """R16 + R18: the two rules that only mean something for a PHASE source (docs/26), so only `--phase` runs them.
+
+    GUARDRAIL: these must NOT run on an ordinary program. 05_cells.fs legitimately CREATEs its cell, and every REPL
+    demo legitimately ends by returning to the line prompt (examples/demo_bars.fs has no CHAIN), so a default-on
+    R16/R18 is a false positive on the two files the corpus already trusts - and the operator would turn the linter
+    off. The mode is the contract: a phase is adopted into the window and replaced on the next adopt.
+    """
+    findings = []
+    code = code_only(src)
+    for m in re.finditer(r"\b(CREATE|VARIABLE|CONSTANT)\s+(\S+)", code):
+        ln = code[:m.start()].count("\n") + 1
+        findings.append((ln, "R16 phase state",
+                         f"{m.group(1)} {m.group(2)}: a phase is REPLACED on every adopt, so this storage vanishes"
+                         " with it - keep state in examples/apps/registry.fs, below the seal"))
+    # GUARDRAIL: the return path is NAMED, not inferred. `NXT !` and `CHAIN` and `SHELF` are the three ways a phase
+    # hands the next phase to the dispatcher; an EXIT only returns to the adopt loop, which then has nowhere to go.
+    if not (re.search(r"\bCHAIN\b", code) or re.search(r"\bNXT\s*!", code) or re.search(r"\bSHELF\b", code)):
+        findings.append((1, "R18 no return",
+                         "the phase names no return path (no CHAIN, no `NXT !`, no SHELF) - once adopted it can only"
+                         " be left by resetting the machine"))
+    return findings
 
 
 # ---- R7: a tiny interval analysis, only for the byte an EMIT receives -------------------------------------
@@ -523,6 +581,16 @@ BUGS = {
  "KEY without the -1 test (our flat-out spinner)":
    (""": RUNS ( -- ) BEGIN KEY DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
 """, "R8 key -1"),
+ # GUARDRAIL: R16/R18 carry a THIRD field, `phase`, because they only apply to a phase source (--phase): the selftest
+ # runs those two through lint_phase instead of the ordinary walk. Running them on everything would refuse
+ # tests/sink/05_cells.fs (a legitimate CREATE) and examples/demo_bars.fs (a demo that quits to the prompt).
+ "phase with its own storage":
+   ("""CREATE X 0 ,
+: PH1 ( -- ) 96 CHAIN ;
+""", "R16 phase state", "phase"),
+ "phase with no return path":
+   (""": PH1 ( -- ) 1 DROP ;
+""", "R18 no return", "phase"),
 }
 # The corrected versions of every bug above, in one source: it must lint SILENT, or the rules are just noise.
 GOOD = """: WAIT ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
@@ -546,13 +614,24 @@ GOOD_BLOCKS = ": A 1 ; 40 CONSTANT X : B 2 + . ;"
 GOOD_TICK = ": NOOP ; : A ( -- ) ['] NOOP EXECUTE ;"
 BAD_TICK = ": NOOP ; : A ( -- ) ['] NOXX EXECUTE ;"
 BAD_R12 = ": NOOP ; : A ( -- ) ' NOOP EXECUTE ;"
+# The corrected phase: a return path, no storage, and the two words that LOOK like storage inside text.
+# GUARDRAIL: the `." CREATE X"` string is the point of this fixture - R16 blanks strings before it looks, and the
+# version that scanned raw text refused a phase for drawing a word it never compiles.
+GOOD_PHASE = """: PH1 ( -- ) ." CREATE X" 96 CHAIN ;
+: PH2 ( -- ) 96 NXT ! ;
+: PH3 ( -- ) SHELF CHAIN ;
+"""
 
 
 def selftest():
     ok = True
-    for name, (src, rule) in BUGS.items():
+    for name, fx in BUGS.items():
+        src, rule = fx[0], fx[1]
+        mode = fx[2] if len(fx) > 2 else "lint"
         if src == "KIND_BLOCKS":
             f = check_blocks("", blocks=KIND_BLOCKS)
+        elif mode == "phase":
+            f = lint_phase(src)
         else:
             f = lint_definitions(src) + check_blocks(src)
         hit = any(r == rule for _, r, _ in f)
@@ -578,6 +657,11 @@ def selftest():
     ok = ok and hit
     print(f"  {'caught' if hit else 'MISSED'}  bare ' inside a definition         R12 tick"
           + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
+    # R16/R18 are --phase rules: the good phase must be silent. That they stay OFF by default is proven by the
+    # corpus, which keeps 05_cells.fs (a CREATE'd cell) and examples/demo_bars.fs (no CHAIN) clean without a flag.
+    f = lint_phase(GOOD_PHASE)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  good phase: return path, no storage  {f[:1] if f else ''}")
     # R11: a definition too long for one block is a lint finding, not a flash-time surprise
     f = check_blocks(": LONG " + " ".join(["1"] * 60) + " ;")
     ok = ok and any(r == "R11 fit" for _, r, _ in f)
@@ -591,6 +675,12 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
         return selftest()
     if not argv:
         print(__doc__); return 2
+    # GUARDRAIL: --phase is OFF by default. R16 refuses storage a plain program may own, and R18 refuses a program
+    # that returns to the REPL - both are correct for a phase and false positives everywhere else (docs/26).
+    phase = "--phase" in argv
+    argv = [a for a in argv if a != "--phase"]
+    if not argv:
+        print(__doc__); return 2
     base, rest = {}, []
     i = 0
     while i < len(argv):
@@ -601,7 +691,7 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
     src = open(rest[0]).read()
     # GUARDRAIL: the block checks need the splitter, and a file that cannot be split must fail HERE rather than at the
     # first upload - the chip already has a compiled dictionary when it reports it.
-    findings = lint_definitions(src, base) + check_blocks(src, base)
+    findings = lint_definitions(src, base) + check_blocks(src, base) + (lint_phase(src) if phase else [])
     for ln, rule, msg in findings:
         print(f"  {argv[0]}:{ln}: {rule}: {msg}")
     print(f"  {len(findings)} finding(s)" if findings else "  clean")

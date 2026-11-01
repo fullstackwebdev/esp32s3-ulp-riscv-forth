@@ -14,27 +14,59 @@ A phase is **replaced** on every adopt, so a phase may not own state. State live
 and resumes. "Always on" is therefore not a feature an app has to be careful about — it is the only thing the machine can
 do, and the tests assert it (enter → move → leave → return → the position cell and the drawn bytes).
 
-## Screen geometry (ANSI TUI, 80×24)
+## Screen geometry (ANSI TUI — **70 columns, the launcher's own constant**)
+
+**The machine never asks the terminal how big it is.** There is no `ioctl`/`COLUMNS` anywhere in `cli.py` or the tests, so
+the only width that exists is the one the launcher draws to: `examples/menu.fs` has
 
 ```
-row 1        title bar        inverse: "APP STORE" + right-aligned app/page state
-rows 3..20   content          the shelf draws cards; apps draw their own content
-row 24       footer           keys that work right now, and the last status word
+: FILL ( -- ) 0 BEGIN DUP 70 < WHILE SP 1+ REPEAT DROP ;      ( 70 columns )
+: HDR0 ( -- ) CLR HOME 1 1 AT INV FILL ;                     ( a 70-wide inverse bar on row 1 )
 ```
 
-Shelf = **6 cards, 3 columns × 2 rows**: card 24 wide × 7 tall, one blank row between columns and rows.
-Card layout (drawn by the resident `CARD`):
+70 is therefore the number the App Store must use — an 80-column layout would leave a ragged edge on the launcher's own
+header and could not be verified against it. **24 rows** is the harness's assumption for a golden (a normal terminal),
+not a machine fact; the launcher must never draw below row 24 and must not depend on rows it cannot see.
 
 ```
-+----------------------+     line 1  top border
-| SPREADSHEET      [1] |     line 2  title, inverse; [n] = shelf slot
-|                      |     line 3..5  live state, up to 3 lines
-| sheet  B7  q3 12x8   |     line 6  live state (never a placeholder)
-+----------------------+     line 7  bottom border
+row 1        title bar        70-wide inverse bar (HDR0), right-aligned app/page state
+rows 3..9    card band 1      3 cards across
+rows 11..17  card band 2      3 cards across
+row 20       footer           keys that work right now + the last status word
+```
+
+Card = **22 wide × 7 tall**, three per band: `22*3 + 2 gutters = 68` of the 70 columns.
+
+```
++--------------------+     row 1  top border
+| SPREADSHEET    [1] |     row 2  title, inverse, [n] = shelf slot
+|                    |     row 3  first live line
+| sheet B7           |     row 4
+| q3  12x8           |     row 5
+|                    |     row 6  (never a placeholder)
++--------------------+     row 7  bottom border
 ```
 
 **No placeholder content.** A card's lines come from its app's registry cells (cursor, count, page). "TODO", "coming
-soon", "demo" on a card is a test failure, not a style opinion.
+soon" or "demo" on a card is a test failure, not a style opinion.
+
+## The screen harness is NOT new
+
+`tests/tui_cli.py` already drives a full-screen program and reads frames: it opens a **pty**, runs `cli.py … --term`
+inside it, and reads until the **`SENT` sentinel (`0x00`)** that every frame ends with — `read_until()`, `dwell()`,
+`frame()`. That is the reader; two lessons are already baked into it (a frame has an end, or you cannot count inside it;
+and a reader that stops at the first match cannot see a flood that starts after it).
+
+So the App Store adds **one** thing on top: a projection of the already-read frame into a 70×24 cell grid, because "the
+card in slot 3 shows `B7`" is a cell assertion and counting escape bytes cannot say it. Rules:
+
+* `tools/frames.py` — the **only** frame reader (moved out of `tests/tui_cli.py`, which imports it from there).
+* `tools/screen.py` — grid projection + `--expect` golden diff, **importing** `frames`, never re-implementing the read,
+  the pty, or the lock.
+* An uninterpretable escape sequence or a byte ≥ 0x80 is **fatal and named**, never guessed into a grid that happens to
+  match a golden.
+* `tests/parity.py` — the genuinely new piece: same program and keys on the host binary and on the board, all cells
+  diffed, and a **skip is never success**.
 
 ## Keys (the only vocabulary; every screen obeys it)
 

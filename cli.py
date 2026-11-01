@@ -4,6 +4,7 @@
     ./cli.py                       interactive Forth REPL
     ./cli.py -i app.fs             upload a program (split into blocks, compiled on the chip) then REPL
     ./cli.py -i app.fs --term RUN  upload, then hand the whole terminal to the program
+    ./cli.py --geometry            print the compiler-side constants the board must agree with (no board)
 
 REPL commands (start with a dot, handled here, not by the chip):
     .help              this list
@@ -195,7 +196,19 @@ LIB_FIRST, DEMO_FIRST = 70, 30          # launcher source; phase source is reuse
 # and every phase must fit in it. Measured drift in one afternoon: 346 -> 290 -> 237 B as the launcher grew, and at
 # 237 B a working 222 B program stopped fitting - which read as "the demo broke", not as "the budget moved". A floor
 # makes that a build error with numbers.
-MIN_WINDOW = 200
+# GUARDRAIL: the floor is the App Store figure (docs/26), not a tuned one. Re-measured while the dispatcher was
+# folded into the launcher: 346 -> 290 -> 237 -> 254 B, a 92 B move in one afternoon with no test noticing, and the
+# dispatcher-only launcher (`--library` on a fresh board) now leaves a 1 193 B window per phase. 1 000 B is that
+# baseline minus the 193 B of launcher growth a floor is meant to allow. Do NOT re-tune this by feel: a change here
+# must carry a fresh `./cli.py --library` window measurement, because a floor picked from memory is the drift.
+MIN_WINDOW = 1000
+# ---- the store budget, from the numbers that own it ------------------------------------------------
+# GUARDRAIL: BLOCK and DESC_HEADER are copies of numbers defined on the BOARD side (`BLKSZ` in
+# probe/repl/src/ulp_repl.c, the descriptor prelude in main/repl_main.c's `#d`). They exist here so the build can
+# REFUSE without a dump; `--geometry` prints the compiler-side values that must equal `#u`/`#i` on the board.
+BLOCK = 128                     # probe/repl/src/ulp_repl.c: BLKSZ
+DESC_HEADER = 20                # main/repl_main.c `#d`: descriptor v2 header packed in front of the payload
+STORE_BLOCKS = 128              # main/repl_main.c: BLK_N (128 blocks x 128 B)
 # A PROGRAM is a chain of PHASES. One phase = one image = at most the window above the seal. The first phase's
 # descriptor is what the launcher is handed; every later one is reached by the phase itself calling `CHAIN`.
 LIBRARY = (
@@ -230,6 +243,123 @@ def check_chains(root):
     return True
 
 
+def geometry(root):
+    """The compiler-side constants the board must agree with: [(name, bytes, where)], or None after saying why.
+
+    GUARDRAIL: read the defines, never retype them. E-079 was an image baked at one MEMSZ and an engine compiled at
+    another; a hand-kept copy in this file is the same drift one level up, and it would make `--geometry` agree with
+    itself instead of with the board. `#u` prints blk off/sz and the ring sizes, `#i` the store's blocks x B - those
+    are the rows these are diffed against.
+    GUARDRAIL: refuse loudly on a missing or renamed define. A default (say 128 for the block size) prints a
+    geometry that looks right for the wrong reason and hides the rename - the silent default this wave bans.
+    """
+    def define(path, name):
+        p = root / path
+        if not p.exists():
+            say(f"  {path} is missing - --geometry cannot read {name}, refusing", YL)
+            return None
+        m = re.search(rf"^#define\s+{name}\s+(\d+)u?\b", p.read_text(), re.M)
+        if not m:
+            say(f"  {path} no longer defines {name} - --geometry would be a guess, refusing", YL)
+            return None
+        return int(m.group(1))
+
+    memsz = define("probe/repl/src/ulp_repl.c", "MEMSZ")
+    blksz = define("probe/repl/src/ulp_repl.c", "BLKSZ")
+    cmd = define("probe/repl/src/ulp_repl.c", "CMD_SIZE")
+    pool = define("probe/repl/main/repl_main.c", "ULP_POOL_BUDGET")
+    if None in (memsz, blksz, cmd, pool):
+        return None
+    ulp = (root / "probe/repl/src/ulp_repl.c").read_text()
+    eng = (root / "probe/repl/src/uforth.c").read_text()
+    # GUARDRAIL: header top and transfer offset are DERIVED (MEMSZ - BLKSZ), so the derivation is asserted against
+    # the engine's own source. If someone re-shapes HDRTOP/BLKADR this must say so, not print a number that used to
+    # be right - a geometry check that agrees with yesterday is worse than none.
+    if "#define P33_BLOCK 1" not in ulp:
+        say("  ulp_repl.c builds without P33_BLOCK - there is no block window, so header top and transfer offset are"
+            " not the shipping layout, refusing", YL)
+        return None
+    for line in ("#define HDRTOP BLKADR", "#define BLKADR (MEMSZ - BLKSZ)"):
+        if line not in eng:
+            say(f"  uforth.c no longer carries `{line}` - refusing rather than guessing the derivation", YL)
+            return None
+    top = memsz - blksz                 # HDRTOP = BLKADR with blocks on: the header area stops at the block window
+    return [
+        ("memory size",     memsz, "probe/repl/src/ulp_repl.c: MEMSZ"),
+        ("header top",      top,   "uforth.c: HDRTOP = BLKADR = MEMSZ - BLKSZ"),
+        ("transfer offset", top,   "uforth.c: BLKADR = MEMSZ - BLKSZ  (#u: blk off)"),
+        ("block size",      blksz, "probe/repl/src/ulp_repl.c: BLKSZ  (#u: blk sz, #i: blocks x B)"),
+        ("cmd ring",        cmd,   "probe/repl/src/ulp_repl.c: CMD_SIZE  (#u: cmd ... B)"),
+        ("pool budget",     pool,  "probe/repl/main/repl_main.c: ULP_POOL_BUDGET (flash_safe.sh refuses over it)"),
+    ]
+
+
+def print_geometry(root):
+    """Print the geometry table. Returns the rows, or None when it cannot be read (nothing is guessed)."""
+    rows = geometry(root)
+    if rows is None:
+        return None
+    say("  geometry: the compiler side - diff these against the board's `#u` and `#i`", CY)
+    for name, value, where in rows:
+        say(f"    {name:<16}{value:>6} B  {where}", DM)
+    return rows
+
+
+def registry_cells(root):
+    """(cells, bytes) declared in examples/apps/registry.fs, or None when the file is not there.
+
+    GUARDRAIL: these are RESIDENT state below the seal, so every cell costs 4 B of the window each phase is built
+    against - they belong in the budget, not in a comment. A missing registry.fs refuses: counting zero cells by
+    default would report a 20 B smaller footprint than the machine actually carries.
+    """
+    path = root / "examples/apps/registry.fs"
+    if not path.exists():
+        return None
+    cells = 0
+    for ln in path.read_text().splitlines():
+        cells += ln.split("\\", 1)[0].count(",")      # a `\` comment is not state
+    return cells, cells * 4
+
+
+def budget(built, window, launcher_blocks, cells):
+    """Print the phase budget table and return True; False means REFUSED (the reason is already on screen).
+
+    GUARDRAIL: the image is code + headers read back FROM THE BOARD, and a phase's blocks are the descriptor's real
+    payload (`20 + image bytes`), never the source length. Source length was the number that looked fine while a
+    phase failed to adopt: the descriptor carries the headers too, so a 1 100 B source can still be a 10-block
+    image. GUARDRAIL: the refusal is the point of the table - a phase over the window, or a set over 128 blocks, has
+    to fail the BUILD with a name and a number, not the board with an error nobody connects to the budget.
+    """
+    say(f"  budget: {len(built)} phase(s) against a {window} B window (floor {MIN_WINDOW} B); a phase's blocks are"
+        f" source + ceil(({DESC_HEADER} + image) / {BLOCK})", CY)
+    say(f"    {'program':<9}{'phase':>6}{'image':>8}{'window':>8}{'headroom':>10}{'blocks':>8}", DM)
+    total_code = total_img = total_blocks = 0
+    for b in built:
+        payload = DESC_HEADER + b["image"]
+        desc_blocks = -(-payload // BLOCK)                 # ceil: a partial block is still a block
+        phase_blocks = b["blocks"] + desc_blocks
+        total_code += b["code"]
+        total_img += b["image"]
+        total_blocks += phase_blocks
+        flag = "" if b["image"] <= window else "  OVER"
+        say(f"    {b['program']:<9}{b['phase']:>3}/{b['of']:<2}{b['image']:>8}{window:>8}"
+            f"{window - b['image']:>+10}{phase_blocks:>8}{flag}", CY if not flag else YL)
+    blocks = launcher_blocks + total_blocks
+    say(f"    {'totals':<9}{len(built):>3} phase(s) {total_img:>5} B image, {total_code} B of code, {blocks} block(s)"
+        f" of {BLOCK} (launcher {launcher_blocks} + phase source/descriptors {total_blocks}) of {STORE_BLOCKS}", DM)
+    say(f"    resident cells: {cells[0]} ({cells[1]} B, examples/apps/registry.fs - state below the seal)", DM)
+    for b in built:
+        if b["image"] > window:
+            say(f"  REFUSED: {b['path']} phase {b['phase']}/{b['of']} is a {b['image']} B image, {b['image'] - window}"
+                f" B over the {window} B window - move a feature into another phase (docs/26 G0)", YL)
+            return False
+    if blocks > STORE_BLOCKS:
+        say(f"  REFUSED: the phase set needs {blocks} blocks, the store has {STORE_BLOCKS} - "
+            f"{blocks - STORE_BLOCKS} over; split an app or delete a phase (docs/26 block allocation)", YL)
+        return False
+    return True
+
+
 def library(dev, root):
     """Build the program library: a resident launcher, then each demo as a behaviour image.
 
@@ -256,6 +386,9 @@ def library(dev, root):
     n, bad = upload(dev, str(root / "examples/menu.fs"), LIB_FIRST)
     if bad:
         return None
+    # GUARDRAIL: capture the launcher's block count HERE. The loop below reuses `n` for each phase, so reading it
+    # after the builds counts the LAST phase's source and reports a launcher that does not exist.
+    launcher_blocks = n
     dev.cmd("SEAL")
     base = dev.num("bh @ .")
     say(f"  launcher sealed at {base} ({n} blocks)", DM)
@@ -285,17 +418,23 @@ def library(dev, root):
                 say(f"  {path}: code {cs}..{ce} ({ce - cs} B) entry {ent} - not buildable above the seal at {base}", YL)
                 return None
             dev.cmd(f"#d {desc} {cs} {ce} {hs} {he} {ent}")
+            # GUARDRAIL: `hs` is the phase's LATEST (it grows DOWN) and `he` is the sealed LATEST, so the headers are
+            # [hs, he) and the IMAGE is code + headers. The window is `he - base` (measured before the builds): the
+            # engine's own rule is that code growing up from the seal and headers growing down must not meet, so
+            # `code + hdr > window` is exactly ERR_DICT seen from the host, one build earlier and with numbers.
+            hdr = he - hs
             built.append(dict(program=program, phase=i + 1, of=len(phases), path=path, desc=desc,
-                              cs=cs, ce=ce, code=ce - cs, entry=ent, blocks=n))
-            say(f"  {path}: {ce - cs} B of code -> block {desc}, entry {ent}", DM)
+                              cs=cs, ce=ce, code=ce - cs, hdr=hdr, image=(ce - cs) + hdr, entry=ent, blocks=n))
+            say(f"  {path}: {ce - cs} B of code + {hdr} B of headers -> block {desc}, entry {ent}", DM)
     dev.cmd("RW")
-    for program, phases in LIBRARY:
-        mine = [b for b in built if b["program"] == program]
-        total = sum(b["code"] for b in mine)
-        if len(mine) > 1:
-            ok = total > window
-            say(f"  {program}: {len(mine)} phases, {total} B of code vs a {window} B window"
-                f" - {'EXCEEDS' if ok else 'FITS'} ({total / window:.2f}x)", CY if ok else YL)
+    # GUARDRAIL: `built` entries are the SAME dicts tests/programs.py reads; `hdr`/`image` are added, nothing renamed.
+    cells = registry_cells(root)
+    if cells is None:
+        say("  REFUSED: examples/apps/registry.fs is missing - the resident cell budget cannot be counted, and zero"
+            " cells is not the truth", YL)
+        return None
+    if not budget(built, window, launcher_blocks, cells):
+        return None
     say(f"  library ready: {len(LIBRARY)} programs; Enter runs one, q returns, q on the menu quits", CY)
     return built
 
@@ -462,6 +601,8 @@ def main():
                     help="after loading, hand the terminal to the program (default word: RUN)")
     ap.add_argument("--library", action="store_true",
                     help="build the program library (resident launcher + demo images) and run the menu")
+    ap.add_argument("--geometry", action="store_true",
+                    help="print the compiler-side constants the board must agree with, then exit (needs no board)")
     ap.add_argument("--repl", action="store_true",
                     help="after --library's app exits, stay in the REPL instead of leaving (it holds the port)")
     ap.add_argument("--block", type=int, default=64, metavar="N", help="first block to use (default 64)")
@@ -470,6 +611,10 @@ def main():
     a = ap.parse_args()
     if a.library and a.include:
         ap.error("--library builds its own sources; do not combine it with -i")
+    # GUARDRAIL: --geometry answers from the SOURCE TREE, so it must return before connect(). A geometry check that
+    # needs the board it is supposed to be checked against is unusable exactly when it is wanted (a wrong image).
+    if a.geometry:
+        return 0 if print_geometry(ROOT) is not None else 1
 
     dev = connect(a.port, a.settle)
     if not dev:
