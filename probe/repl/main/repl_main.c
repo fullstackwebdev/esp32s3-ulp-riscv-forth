@@ -249,21 +249,27 @@ static void seed_poll(void)
     static int raw_mode;
     static char rawbuf[5];
     static int rawn;
+    static int raw_skip_cr;   /* the CR that ends the !RAW line is not a keystroke */
     unsigned char c;
     while (uart_read_bytes(CONSOLE_UART, &c, 1, 0) == 1) {
         if (raw_mode) {
             /* GUARDRAIL: forward a byte the moment it CANNOT be part of `!LINE`. The first version held five bytes and
              * only flushed when the buffer filled, so a single keystroke was never delivered - measured: 'j' pressed,
              * nothing drawn. The prefix test keeps the escape sequence unharmed and makes every other byte immediate. */
+            /* GUARDRAIL: swallow the CR that terminates the `!RAW` line the operator/host just sent. It arrives AFTER the
+             * line was consumed and would be delivered as key 13 (Enter) - measured: the app started, received the CR
+             * immediately, treated it as "quit" and exited before the first keystroke could be drawn. */
+            if (raw_skip_cr) { raw_skip_cr = 0; if (c == '\r' || c == '\n') continue; }
             rawbuf[rawn++] = c;
             while (rawn > 0) {
                 int is_pref = (rawn <= 5) && !memcmp(rawbuf, "!LINE", (size_t)rawn);
                 if (rawn == 5 && is_pref) { raw_mode = 0; rawn = 0; break; }   /* the escape sequence arrived */
                 if (is_pref) break;                                            /* may still become it */
-                {
-                    uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail;
-                    if (h - tl < CMD_SIZE) { CMD_BYTES[h & CMD_MASK] = (uint8_t)rawbuf[0]; ulp_repl_cmd_head = h + 1u; }
-                }
+                /* GUARDRAIL: raw keystrokes go to the KEYBOX, not to the command ring. Writing them to the ring made the
+                 * interpreter treat them as the rest of the line being executed (measured: KEY answered 75, the 'K' of the
+                 * word KEY). The keybox is the program's private channel; the ring stays the interpreter's. */
+                if (ulp_repl_keybox == 0xFFFFFFFFu) ulp_repl_keybox = rawbuf[0];
+                else { /* one slot: drop and say so once, so a lost key is visible rather than mysterious */ }
                 rawn--;
                 memmove(rawbuf, rawbuf + 1, (size_t)rawn);
             }
@@ -272,7 +278,7 @@ static void seed_poll(void)
         if (c == '\n' || c == '\r') {
             ln[n] = 0;
             if (!strcmp(ln, "!RAW")) {
-                raw_mode = 1; rawn = 0;
+                raw_mode = 1; rawn = 0; raw_skip_cr = 1;
                 printf("raw: keystrokes go to the program now; type !LINE to get the prompt back\n");
                 fflush(stdout);
                 n = 0;

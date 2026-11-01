@@ -52,7 +52,10 @@
  * keyboard) measured +102 B of .text, which put the pool at 7941 and the stack region at 251 B - below the 300 B floor
  * that the measured 240 B high-water plus margin requires. 49 B of dictionary buys keys back: pool 7892, region exactly
  * 300 B. A keyboard is worth more than 49 bytes of app space; a 251 B stack region would be silent corruption. */
-#define MEMSZ    2620          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+/* GUARDRAIL: 2620 -> 2604 pays for the KEY queue (a published cell plus the host's raw path). The stack region stays at
+ * 317 B, above the 300 B floor set by the measured 240 B high-water; the dictionary gives up 16 B instead. A working
+ * keyboard is worth more than 16 bytes of program. */
+#define MEMSZ    2604          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 #define SD        16            /* P13: peak 108 B */
@@ -152,6 +155,15 @@ volatile u32 repl_cmd_tail;      /* written by the ULP */
 volatile u32 repl_out_head;      /* written by the ULP */
 volatile u32 repl_out_tail;      /* written by the HP */
 volatile u32 repl_wake_count;
+/* GUARDRAIL: KEY needs its OWN queue. It used to read the interpreter's command ring, so a program that called KEY
+ * consumed the text of the very line that started it - measured: `KEY .` answered 75, the 'K' of "KEY", and a
+ * full-screen app could never receive a keystroke. This cell is written by the main core in raw mode and drained by
+ * pl_key; the interpreter's ring is never touched by either.
+ * GUARDRAIL: 0xFFFFFFFF means EMPTY and is initialised in .data, not .bss: .bss is not part of the ULP binary, so a
+ * zero-initialised "empty" marker would read as a real key (0x00) after a fresh load.
+ * GUARDRAIL: one slot, so a keystroke arriving while it is still full is DROPPED rather than queued. Typing into a
+ * menu cannot outrun a 6.5 ms wake; a paste can, and that loss is visible rather than silently reordered. */
+volatile u32 repl_keybox = 0xFFFFFFFFu;   /* written by the HP (raw mode), drained by pl_key */
 /* GUARDRAIL: the line/error counters are gone. Both were incremented (per line, per error) and reset at
  * boot, and NOTHING read them — not the HP, not the suite, not the bench, not any tool in the tree. Same
  * class as the depth counters and the switch counters: an increment whose value nobody reads is pure cost
@@ -195,16 +207,14 @@ void pl_emit(int c)
  * free to service the block store; a blocking KEY would hold the ULP inside one wake and starve block I/O. */
 int pl_key(void)
 {
-    u32 h = repl_cmd_head, t = repl_cmd_tail;
-    int c;
-    if (h == t) return -1;                      /* nothing typed yet */
-    c = (int)repl_cmd[t & CMD_MASK];
-    repl_cmd_tail = t + 1u;
-    return c;
+    u32 v = repl_keybox;
+    if (v == 0xFFFFFFFFu) return -1;            /* nothing typed yet */
+    repl_keybox = 0xFFFFFFFFu;                  /* consume: one keystroke, one read */
+    return (int)(v & 0xffu);
 }
 
 /* 1 when a keystroke is waiting, 0 when not. KEY? used to read a hardware register that always returned 0. */
-int pl_keyq(void) { return (repl_cmd_head != repl_cmd_tail) ? 1 : 0; }
+int pl_keyq(void) { return (repl_keybox != 0xFFFFFFFFu) ? 1 : 0; }
 
 u32 pl_hw(int op, u32 a, u32 b)
 {

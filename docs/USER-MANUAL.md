@@ -120,3 +120,24 @@ UPDATE SAVE DROP   commit a changed block
 ```
 
 Welcome to eight kilobytes. It is more room than it sounds — and less than you'd like.
+
+---
+
+## Appendix: what the machine does *not* have (measured, not guessed)
+
+| missing | work-around |
+|---|---|
+| `DO … LOOP`, `+LOOP` (`I`/`J` exist, but no loop opener) | `BEGIN … WHILE … REPEAT` |
+| `CR`, `SPACE`, `SPACES`, `AGAIN`, `CASE`, `DEPTH`, `WORDS` | `10 EMIT`, `32 EMIT`, `BEGIN … 0 UNTIL`, nested `IF` |
+| `MOD`, `/` | `10 /MOD DROP` |
+| `>` | `: > SWAP < ;` |
+| `KEY` that reads the line being typed | fixed: `KEY`/`KEY?` now read a **private keybox** the host fills with raw keystrokes (`!RAW` / `!LINE` switch the host between raw bytes and lines) |
+| blocks above **127** | the server refuses them with `ERR_RANGE` even though flash holds 160 |
+
+### Key facts for anyone writing an app
+
+* A definition must fit **92 bytes of source**; `fsplit` refuses the rest.
+* Blocks are read by `LOAD`, one per line — never two `LOAD`s on one line.
+* The first frame of a full-screen app: `ALT HIDE CLR HOME …`, and always end with `NORM SHOW` so the
+  operator's terminal is restored even if the user walks away.
+* Single-slot keybox: a keystroke that arrives while the previous one is unread is **dropped**, not queued.
