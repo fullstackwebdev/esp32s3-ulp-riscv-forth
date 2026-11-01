@@ -166,6 +166,10 @@ volatile u32 repl_wake_count;
  * zero-initialised "empty" marker would read as a real key (0x00) after a fresh load.
  * GUARDRAIL: one slot, so a keystroke arriving while it is still full is DROPPED rather than queued. Typing into a
  * menu cannot outrun a 6.5 ms wake; a paste can, and that loss is visible rather than silently reordered. */
+/* GUARDRAIL: ONE published cell is enough for keys, because the HOST queues what the program has not taken yet (see the
+ * raw path in repl_main.c). A ring here was the first idea and lost the middle byte of escape sequences instead: three
+ * bytes arriving inside one 6.5 ms wake cannot be delivered one-at-a-time through a single slot, so the HOST must hold
+ * them, and it can - it is not the constrained side. 0xFFFFFFFF means empty and lives in .data, not .bss. */
 volatile u32 repl_keybox = 0xFFFFFFFFu;   /* written by the HP (raw mode), drained by pl_key */
 /* GUARDRAIL: the line/error counters are gone. Both were incremented (per line, per error) and reset at
  * boot, and NOTHING read them — not the HP, not the suite, not the bench, not any tool in the tree. Same
@@ -206,7 +210,7 @@ void pl_emit(int c)
  * program not a terminal program. In RAW mode the host forwards bytes as they arrive (no line assembly), and the program
  * consumes them here, advancing the same ring tail the interpreter uses - safe because the interpreter is blocked inside
  * the running program, not reading tokens.
- * GUARDRAIL: return -1 when empty, never block. Forth polls with `BEGIN KEY DUP 0 < 0= UNTIL`, which keeps the wake loop
+ * GUARDRAIL: return -1 when empty, never block. Forth polls with `BEGIN KEY DUP -1 = WHILE DROP REPEAT`, which keeps the wake loop
  * free to service the block store; a blocking KEY would hold the ULP inside one wake and starve block I/O. */
 int pl_key(void)
 {
@@ -216,7 +220,6 @@ int pl_key(void)
     return (int)(v & 0xffu);
 }
 
-/* 1 when a keystroke is waiting, 0 when not. KEY? used to read a hardware register that always returned 0. */
 int pl_keyq(void) { return (repl_keybox != 0xFFFFFFFFu) ? 1 : 0; }
 
 u32 pl_hw(int op, u32 a, u32 b)

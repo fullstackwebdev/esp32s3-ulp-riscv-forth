@@ -26,7 +26,7 @@ CREATE SEL 0 ,
 : I2 6 2 AT 2 MARK 4 COL ." three" OFF ;
 : ITEMS I0 I1 I2 ;
 : FOOT 20 1 AT INV FILL 20 3 AT INV ." j/k move   q quit" OFF ;
-: K0 BEGIN KEY DUP 0 < 0= UNTIL ;
+: K0 BEGIN KEY DUP -1 = WHILE DROP REPEAT ;   \ poll: drop the "no key" -1, return the real key
 : NEXT SEL @ 1+ 3 /MOD DROP SEL ! ;
 : PREV SEL @ 2 + 3 /MOD DROP SEL ! ;
 : JK DUP 106 = IF DROP NEXT EXIT THEN 107 = IF PREV EXIT THEN DROP ;

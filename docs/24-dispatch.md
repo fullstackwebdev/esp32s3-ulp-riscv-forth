@@ -129,3 +129,22 @@ start, then **every keystroke** (`j`, `k`, arrows, Enter, an unknown key, `q`), 
 that a marker exists), that no frame contains `ERR_`, that `q` leaves the alternate screen, and that the REPL answers
 afterwards. `--capture` saves every raw frame. It also caught two bugs in itself: a reset that silently did not happen
 (now a fresh-boot assertion with an esptool fallback) and `cmd`'s echo parsed as data (now `dev.num`).
+
+---
+
+## The TUI: three real defects found, two fixed, one still open (all measured)
+
+| # | defect | evidence | state |
+|---|---|---|---|
+| 1 | ANSI words emitted only `m`, so `ESC[7m`'s digit was **pushed and never emitted**: one leaked cell per colour change | host probe: `INV` sp=1, `TITLE` sp=6, `ITEMS` sp=13 → after fix all **0** | **fixed** |
+| 2 | the key-wait loop leaked per poll: `BEGIN KEY DUP 0 < 0= UNTIL` leaves the `-1` on the stack when no key is waiting — thousands of polls per second | chip: `j`/`k` moved the menu 2 items then `ERR_STACK`; loop now `BEGIN KEY DUP -1 = WHILE DROP REPEAT` | **fixed** |
+| 3 | single-slot keybox dropped the **middle byte** of `ESC [ B`, so arrows did nothing while `j`/`k` worked | test: `j-down` PASS row 5, `arrow-down` FAIL row 5 | host now **queues 8 bytes** and feeds the box as it empties; the arrow path still raises `ERR_STACK` — open |
+
+`tests/tui_menu.py` reports 7/12 today: fresh boot, compile, first frame, `j`–`j`–`k` (rows 4→5→6→5) all PASS; the four
+chevron/quit checks FAIL. `q` and `Enter` cannot be judged until the arrow path stops erroring, because the error kills the
+program and every later key is delivered to a dead app.
+
+**Next step, precisely:** `27 STEP` with `[` and `B` fed afterwards returns immediately with SEL unchanged, which means
+`KEY` handed the arrow handler a byte it did not expect (most likely the CR of the line that started it, or a stale box
+byte from before the reset). The arrow reader must ignore anything that is not `[`/`A`/`B`/`C`/`D` instead of trusting the
+next byte to be the bracket.

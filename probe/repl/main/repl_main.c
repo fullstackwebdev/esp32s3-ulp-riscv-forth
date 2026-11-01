@@ -250,7 +250,14 @@ static void seed_poll(void)
     static char rawbuf[5];
     static int rawn;
     static int raw_skip_cr;   /* the CR that ends the !RAW line is not a keystroke */
+    static uint8_t keyq[8];   /* raw bytes waiting for the program to drain the keybox */
+    static uint32_t keyq_head, keyq_tail;
     unsigned char c;
+    /* hand the program one queued byte whenever its keybox is free */
+    if (keyq_head != keyq_tail && ulp_repl_keybox == 0xFFFFFFFFu) {
+        ulp_repl_keybox = keyq[keyq_head % sizeof keyq];
+        keyq_head++;
+    }
     while (uart_read_bytes(CONSOLE_UART, &c, 1, 0) == 1) {
         if (raw_mode) {
             /* GUARDRAIL: forward a byte the moment it CANNOT be part of `!LINE`. The first version held five bytes and
@@ -265,11 +272,14 @@ static void seed_poll(void)
                 int is_pref = (rawn <= 5) && !memcmp(rawbuf, "!LINE", (size_t)rawn);
                 if (rawn == 5 && is_pref) { raw_mode = 0; rawn = 0; break; }   /* the escape sequence arrived */
                 if (is_pref) break;                                            /* may still become it */
-                /* GUARDRAIL: raw keystrokes go to the KEYBOX, not to the command ring. Writing them to the ring made the
-                 * interpreter treat them as the rest of the line being executed (measured: KEY answered 75, the 'K' of the
-                 * word KEY). The keybox is the program's private channel; the ring stays the interpreter's. */
-                if (ulp_repl_keybox == 0xFFFFFFFFu) ulp_repl_keybox = rawbuf[0];
-                else { /* one slot: drop and say so once, so a lost key is visible rather than mysterious */ }
+                /* GUARDRAIL: raw keystrokes go to the KEYBOX, not to the command ring (writing them to the ring made the
+                 * interpreter treat them as the rest of the line being executed: KEY answered 75, the 'K' of "KEY").
+                 * GUARDRAIL: QUEUE here rather than write straight through. The ULP drains one byte per program poll, and
+                 * an arrow key is THREE bytes (ESC [ A) arriving within microseconds - with a pass-through write the
+                 * middle byte was lost and arrows did nothing while j/k worked. Holding up to 8 bytes on this side costs
+                 * nothing on the ULP and delivers sequences intact. */
+                keyq[keyq_tail % (sizeof keyq)] = rawbuf[0];
+                keyq_tail++;
                 rawn--;
                 memmove(rawbuf, rawbuf + 1, (size_t)rawn);
             }
@@ -278,7 +288,7 @@ static void seed_poll(void)
         if (c == '\n' || c == '\r') {
             ln[n] = 0;
             if (!strcmp(ln, "!RAW")) {
-                raw_mode = 1; rawn = 0; raw_skip_cr = 1;
+                raw_mode = 1; rawn = 0; raw_skip_cr = 1; keyq_head = keyq_tail = 0;
                 /* GUARDRAIL: no message here. The switch happens while a full-screen program owns the terminal, so a
                  * line of text lands in the middle of its screen (measured: "raw: keystrokes go to the program now"
                  * printed across the app's title bar). The mode is documented instead of announced; !LINE still works. */
