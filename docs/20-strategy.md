@@ -512,3 +512,37 @@ them: run `2 OVL` alone 15 times and drain; then `3 BLKXFER` alone 15 times and 
 
 **Chip runs: 4 sessions (budget 3).** Over by one: the probe and the loop shared one command, and the drain needed two
 cycles (3 and 10) as specified. Stopped.
+
+## Step 4d: the leak is named — `BLKXFER` pushes TWO values by contract, and my harness dropped one
+
+**Item 0 (no chip):** the same single-command sequence runs on the host fake without an engine trap. Op 3 is
+device-only there, so the adoption candidates are no-ops; the host run's value is that the sequence itself is safe.
+
+**Item 1 — culprit named with SINGLE runs (no repetition needed):**
+
+| command, then drain (LIFO, top first) | leftover |
+|---|---|
+| baseline, fresh board | `0` (see below) |
+| `2 OVL` | none |
+| **`3 BLKXFER .`** | **`1808`** |
+| `W @ EXECUTE` | none |
+| `8 LOAD` | none |
+| `RUNPH1` | none |
+
+`1808` is `BLKADR`, the block window. `src/p33_cases.inc` documents the primitive as **`( n op -- addr st )`**: it pushes
+the buffer address *and* the status **on purpose**, so the Forth layer never hardcodes the window address. My harness
+printed only the status and threw the address away — **the leak was in the harness, not an engine defect** (stated only
+now that the culprit is named).
+
+**Item 2 — the source-only loop drains clean.** 15 cycles of seed + `2 OVL` + 8 loads + `RUNPH1`, then a drain: first
+value `0`, no `1808`. So the load path never leaked; the earlier "clean" verdict was right for the wrong reason (it was
+never drained) and is now actually proven.
+
+**Item 3 — fixed and the loop passes.** `n 3 BLKXFER . DROP` at every call site; the 15-cycle dump/adopt loop then
+**completed all 15 cycles** (it previously died at cycle 14 with `ERR_STACK`).
+
+**What the trailing `0` is — and a limitation worth recording.** Draining with `.` prints `0` for ever instead of
+raising an error: **underflow is silent** (the engine's `POP` wraps the stack pointer and yields 0; only *overflow* raises
+`ERR_STACK`). So `.`-drain can report the first real value but cannot measure depth. A depth probe needs either a count
+of how many pushes it takes to reach `ERR_STACK`, or `sp` exposed in a cell — the latter is the honest instrument and
+costs bytes, so it needs approval.

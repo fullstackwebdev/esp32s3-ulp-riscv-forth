@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """step4b.py — STEP 4b items. `dry` costs no chip run; the rest are one session each.
 
-Item 1's sentinel needs care: this machine does NOT keep the data stack across lines (measured earlier: `40 3 BLKXFER`
-on one line then `.` on the next answered ERR_STACK). So "push 999, run a cycle, print it" cannot span lines. What IS
-measurable per cycle is stack HEALTH: after each cycle, a balanced line must still work (`1 2 + .` -> 3), and a leak
-shows up as the eventual overflow the failure reported. The first cycle where the usable-stack check fails is the
-answer to "which cycle breaks".
+Item 1's sentinel needed care, and the original reasoning was WRONG: this machine DOES keep the data stack across lines
+(`1 2 3` then `.` answers 3, then 2, then 1 - measured). The earlier "no persistence" conclusion came from
+`40 3 BLKXFER` followed by `.`, where BLKXFER's ( addr st ) pair meant the status had already been consumed and only the
+buffer address was left. What the sentinel actually measures is stack HEALTH per cycle.
 """
 import sys, re, pathlib, subprocess, statistics, time
 sys.path.insert(0, "tools")
@@ -92,7 +91,7 @@ def all_phases_and_timing():
         for _ in range(200):
             d.cmd("2 OVL")
             t0 = time.monotonic()
-            d.cmd(f"{IMG_AREA} 3 BLKXFER .", timeout=25.0)
+            d.cmd(f"{IMG_AREA} 3 BLKXFER . DROP", timeout=25.0)
             times.append((time.monotonic() - t0) * 1000)
     times.sort()
     print(f"  item3: {15 - len(bad)}/15 phases executed from images" + (f" FAILED {bad[:2]}" if bad else ""))

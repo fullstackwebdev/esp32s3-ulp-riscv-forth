@@ -85,7 +85,7 @@ class Dev:
 
     # GUARDRAIL: a refusal from the console (`line too long: ... NOT sent`) carries neither `ok` nor `?`, so it
     # timed out instead of being reported. Every console-side message must be a completion marker.
-    def cmd(self, line, timeout=5.0, allow_error=False, markers=(OK, "?", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:")):
+    def cmd(self, line, timeout=5.0, allow_error=False, markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:")):
         """Send one line, read until the prompt marker (ok) or an error (?), return the transcript."""
         os.write(self.fd, line.encode() + b"\r")
         buf = ""

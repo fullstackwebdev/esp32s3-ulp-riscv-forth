@@ -68,7 +68,11 @@ def build_and_adopt(d, p, desc, blocks):
     entry = d.num("' RUNPH1 .")
     d.cmd(f"#d {desc} {cs} {ce} {hs} {he} {entry}", timeout=20.0)
     d.cmd("2 OVL")
-    rep = d.cmd(f"{desc} 3 BLKXFER .", timeout=25.0)
+    # GUARDRAIL: BLKXFER is ( n op -- addr st ): it pushes the BUFFER ADDRESS *and* the status, by contract, so the
+    # Forth layer never hardcodes the window address. Printing only the status left one `1808` per call on the stack -
+    # measured as exactly one stray 1808 per cycle, ten after ten cycles, which overflowed the stack at cycle 14 and
+    # looked like a phase bug. `. DROP` consumes both.
+    rep = d.cmd(f"{desc} 3 BLKXFER . DROP", timeout=25.0)
     ok = "adopted" in rep and d.num("HERE .") == ce and d.num("LATEST .") == hs and d.num("W @ .") == entry
     d.cmd("W @ EXECUTE", timeout=15.0)
     return ok, [d.num(f"z{i} @ .") for i in range(1, 7)], repair_note(rep)
@@ -134,7 +138,7 @@ def item2_and_3():
     for _ in range(200):
         d.cmd("2 OVL")
         t0 = time.monotonic()
-        d.cmd(f"{IMG_AREA} 3 BLKXFER .", timeout=25.0)
+        d.cmd(f"{IMG_AREA} 3 BLKXFER . DROP", timeout=25.0)
         times.append((time.monotonic() - t0) * 1000)
     times.sort()
     worst = times[-1]
@@ -158,7 +162,7 @@ def item4():
         for _ in range(200):
             d.cmd("2 OVL")
             t0 = time.monotonic()
-            d.cmd(f"{IMG_AREA} 3 BLKXFER .", timeout=25.0)
+            d.cmd(f"{IMG_AREA} 3 BLKXFER . DROP", timeout=25.0)
             times.append((time.monotonic() - t0) * 1000)
     times.sort()
     print(f"  apply round trip over 200 loads: median {statistics.median(times):.1f} ms  "
