@@ -128,7 +128,8 @@ about it: it names the damage at boot).
 | what you see | what it means |
 |---|---|
 | `WORD?` | that word is not in the dictionary — check spelling, or define it |
-| `ERR_DICT` | the dictionary is full: 1 382 bytes of new words is the whole budget |
+| `ERR_DICT` **from a block partway through an upload** | almost always a *stale* machine, not a big app: the reset silently did not happen and the new upload is compiling on top of the last one. `cli.py` now checks for a fresh dictionary (`HERE` ~786, >900 B free) and falls back to esptool; if it still cannot get one it tells you to replug. Measured: two runs in a row both report `fresh dictionary, 1366 B free` and compile clean |
+| `ERR_DICT` with a fresh dictionary | the dictionary really is full: 1 366 bytes of new words is the whole budget |
 | `ERR_STACK` | stack underflow; the line is abandoned, the session survives |
 | `ERR_RANGE` | block number too large — the store serves **0…127** |
 | `line too long` | over 63 characters; split it |

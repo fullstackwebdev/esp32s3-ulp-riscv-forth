@@ -51,13 +51,30 @@ def connect(port, settle):
     # GUARDRAIL: after a hard reset the ULP may still be booting, and .bss carries the previous image's block state
     # (the RTC "already booted" magic survives a reset). Both showed up as a FIRST command that timed out or answered
     # ERR_STACK/ERR_DIRTY. Retry, then clear the block latch by name.
-    for _ in range(6):
+    # GUARDRAIL: a reset that did not happen must not be accepted as one. Measured, twice: an RTS pulse silently does
+    # nothing, the still-running ULP answers politely, and the next upload compiles on top of the previous app - the
+    # dictionary runs out mid-upload and the operator sees a wall of ERR_DICT from block 70 on, which looks like the app
+    # being too big. Assert a FRESH machine (baked HERE ~786 and >900 B free), and fall back to esptool's slower reset.
+    fresh = False
+    for attempt in range(4):
+        if attempt < 2:
+            dev.pulse_reset(settle)
+        else:
+            dev.reset(settle=1.2)
         try:
-            dev.cmd("2 3 + .", timeout=4.0, allow_error=True)
-            break
+            here = dev.num("HERE .", timeout=5.0)
+            free = dev.num("LATEST HERE - .", timeout=5.0)
         except Exception:
-            time.sleep(0.6)
+            continue
+        if here < 900 and free > 900:
+            fresh = True
+            break
+    if not fresh:
+        say("  the board did not come back to a fresh dictionary.", YL)
+        say("  unplug the USB cable, plug it back in, and run this again.", YL)
+        return None
     dev.cmd("0 2 BLKXFER", timeout=6.0, allow_error=True)
+    say(f"  connected: fresh dictionary, {free} B free.", DM)
     return dev
 
 
@@ -205,9 +222,16 @@ def main():
         return 2
     try:
         blk = a.block
+        failed = False
         for path in a.include:
             n, bad = upload(dev, path, blk)
             blk += n
+            failed = failed or bool(bad)
+        if failed:
+            # GUARDRAIL: do not start the program after a failed compile. The word it needs is missing, so --term would
+            # show an empty screen with no explanation - and the operator would blame the app rather than the upload.
+            say("  upload had errors - fix them above, then run again.", YL)
+            return 1
         if a.term is not None:
             term(dev, a.term)
         repl(dev, blk)
