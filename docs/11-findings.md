@@ -782,9 +782,19 @@ Verified: the chip's stream is **708 bytes with no `ERR_` at all** (was `ERR_UNN
 reader draws its page. `tests/blocks.expected`, `tests/blocks_noserver.expected` and `tests/reader_logic.expected` were
 updated by hand for the deliberate contract change (`-7/-5/-4 -> 0`, base 72, clamp 15, `last blk=87`); host suite green.
 
-**New, and named: the reader's frame loses bytes mid-stream on the chip.** A stray `5;1H` appears inside a text row and
-only two of eight rows arrive, from a frame of ~800 B - while the shelf's 1 224 B frame arrives whole. So this is not
-"frames over N bytes are lost"; it is the output ring dropping when a phase writes without the small gaps the shelf gets
-from its `AT` calls. Next step: find whether the ULP blocks or drops on a full ring (`src/ulp_repl.c`, the emit path) -
-that is the same question F-137 raised and it is still unanswered.
+**Root cause found, and it is a product rule, not a reader bug.** `pl_emit` **drops** when the ring is full - by design
+("pl_emit must never allocate or block"), and the drop COUNTER was deleted because "it counted drops for nobody"
+(`src/ulp_repl.c:180`), so the failure is silent. The ring is 128 B and the main core drains it to a 115200-baud UART, i.e.
+**11.5 B/ms**, so a 70-byte row needs ~6.1 ms of drain time. The shelf survives because its `AT`/`SPACES` arithmetic gives
+the UART that time; the reader's `TYPE 70` copy loop does not.
+
+**Fixed in the phase:** `RTXT` paces each row with **8 MS** after its `TYPE`, and `RDRAW` leaves 8 MS between the page and the
+footer. Measured on the chip: all eight rows and the footer now arrive intact (`j/k line m mark g go q shelf  line 1/8 mk 1`).
+
+**The rule, for every app (docs/26):** a phase must not write more than ~120 B without a gap of ~7 ms; a full frame is
+paced row by row. Silent drops are the failure mode, so "the screen is short" always means this before it means anything
+about the drawing.
+
+**Recommended engine change, needs permission (`.c`):** either reinstate a drop counter so `#u` can report it, or make
+`pl_emit` block while the ring is full. A silent drop is exactly the class of failure this project bans elsewhere.
 

@@ -23,12 +23,12 @@
 : RGO ( -- ) READ_ST 8 + @ RCLAMP RSET ;
 : RTTL ( -- ) 1 1 AT INV FILL 1 2 AT INV ." READER" OFF ;
 : RPN ( -- ) 1 60 AT INV ." PAGE " READ_ST @ 1+ .N SP ." OF " NPG .N OFF ;
-: RTXT ( i -- ) DUP 3 + 1 AT RBLK BLOCK DUP 0 < IF ." ERR " . ELSE 70 TYPE THEN ;
+: RTXT ( i -- ) DUP 3 + 1 AT RBLK BLOCK DUP 0 < IF ." ERR " . ELSE 70 TYPE 8 MS THEN ;
 : RALL ( -- ) 0 BEGIN DUP 8 < WHILE DUP RTXT 1+ REPEAT DROP ;
 : RKEY ( -- ) 22 1 AT ." j/k line   m mark   g go   q shelf" ;
 : RPOS ( -- ) 22 46 AT ." line " READ_ST 4 + @ 1+ .N ." /8 mk " READ_ST 8 + @ 1+ .N ;
 : SENT ( -- ) 0 EMIT ;
-: RDRAW ( -- ) CLR HOME RTTL RPN RALL RKEY RPOS SENT ;
+: RDRAW ( -- ) CLR HOME RTTL RPN RALL 8 MS RKEY RPOS SENT ;
 : RGET ( -- c ) ( -1 is no key, R8 ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
 : KJK ( c -- c ) DUP 106 = IF RNEXT THEN DUP 107 = IF RPREV THEN ;
 : KMG ( c -- c ) DUP 109 = IF RMARK THEN DUP 103 = IF RGO THEN ;

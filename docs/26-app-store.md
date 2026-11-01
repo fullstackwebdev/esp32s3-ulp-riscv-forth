@@ -274,6 +274,18 @@ that searches the filesystem for them has already lost the time it was trying to
 project, and `grep -r` from the repo root walks `probe/results/` and `.auto/tmp/` clones. Scope every search to the files
 the contract names.
 
+### A phase must pace what it writes (the ring drops, silently)
+
+`pl_emit` writes into a **128 B** output ring and **returns without writing when it is full** - by design, and the drop
+counter was removed, so a full ring loses bytes with no error anywhere. The main core drains that ring to a 115200-baud
+UART: **11.5 B/ms**, so a 70-byte row needs ~6 ms of drain time.
+
+* A phase may write ~120 B in one burst, then must leave a gap: **8 MS** per 70-column row is the measured value.
+* The shelf survives without pacing only because its `AT` calls and `SPACES` loops give the UART that time; the reader's
+  `TYPE` copy loop does not, and it lost the tail of every row until it was paced.
+* "The screen is short / a row is clipped / an escape appears inside the text" means this, before it means anything about
+  the drawing.
+
 ## Demo it
 
 ```
