@@ -277,12 +277,37 @@ def check_blocks(program, first_block):
         blocks = split_defs(src, 92)
     except SystemExit as e:                                  # fsplit's own refusal, verbatim
         raise HarnessError(str(e))
-    if first_block + len(blocks) > 128:
+    # GUARDRAIL: the source may be far larger than the staging range - it is uploaded in STAGING_BLOCKS-sized passes. The
+    # check that matters is that the staging range itself fits below 128, not that the whole source does (that refusal
+    # stopped every App Store phase at "21 blocks from block 120 passes block 127").
+    if first_block + min(len(blocks), STAGING_BLOCKS) > 128:
         raise HarnessError(f"{program.name} is {len(blocks)} block(s) from block {first_block}, which passes block 127; "
                            f"the block server refuses anything above 127 with BK_RANGE")
 
 
-def run_host(program, entry, keys, preludes=(), binary=HOST_APP, timeout=60.0):
+
+def write_block_seed(apps, dest):
+    """Turn content/<app>/pNN.txt into the host's `-B` format: one "<blk> <hex>" line per block.
+
+    GUARDRAIL: the arithmetic is the contract's (base + page*8, docs/26), imported from tools/seed_pages.py rather than
+    repeated - a second copy of page layout is a second answer to "which block is page 2".
+    """
+    sys.path.insert(0, str(REPO / "tools"))
+    import seed_pages
+    lines = []
+    for app in apps:
+        for _page, blk, text in seed_pages.pages(app):
+            # GUARDRAIL: an EMPTY line must still be seeded. The host seeder (`p1_load_blocks`) needs two fields, so
+            # "<blk> " with no hex is skipped and the block keeps the server's fixed pattern (k + 7n) - which draws as
+            # non-ASCII garbage on exactly the blank rows of a page (measured: mail p00's five empty lines). One space is
+            # enough: the engine pads the rest of the block with spaces, which is what the chip's seeder does too.
+            payload = text.encode().hex() or "20"
+            lines.append(f"{blk} {payload}")
+    dest.write_text("\n".join(lines) + "\n")
+    return len(lines)
+
+
+def run_host(program, entry, keys, preludes=(), binary=HOST_APP, timeout=60.0, content_seed=None):
     """Build the byte stream the way the chip produces it: run the engine, capture stdout, expand the message codes."""
     binary = pathlib.Path(binary)
     if not binary.exists():
@@ -300,7 +325,14 @@ def run_host(program, entry, keys, preludes=(), binary=HOST_APP, timeout=60.0):
         # its first `CALC_ST` (line 15) while the board compiled it happily, i.e. the harness could not run the thing it
         # exists to check. `host_app`'s argv order IS the compile order, so preludes go first, in the same order the
         # device uploads them.
-        cmd = [str(binary)] + [str(p) for p in preludes] + [str(program), str(driver)]
+        cmd = [str(binary)]
+        # GUARDRAIL: `-B <file>` seeds the host's fake block server ("<blk> <hex>" lines, space-padded by the engine).
+        # Without it a content phase draws the server's fixed pattern (k + 7n) and every byte is non-ASCII garbage - the
+        # harness could compile a content phase but never SHOW it. The chip seeds through tools/seed_pages.py; this is the
+        # same block content in the form the host's own seeder reads.
+        if content_seed is not None:
+            cmd += ["-B", str(content_seed)]
+        cmd += [str(p) for p in preludes] + [str(program), str(driver)]
         try:
             out = subprocess.run(cmd, input=keys, capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -421,7 +453,10 @@ def leave_device(dev, returned=False):
               file=sys.stderr)
 
 
-def run_device(program, entry, keys, first_block=64, port=PORT, preludes=()):
+STAGING_BLOCKS = 8      # docs/26: the staging range is 120..127; a source is uploaded in passes of this size
+
+
+def run_device(program, entry, keys, first_block=120, port=PORT, preludes=()):
     """Drive the program on the board, under the board lock, and return the raw byte stream of its DRAWING."""
     sys.path.insert(0, str(REPO))
     import cli                                              # noqa: E402 - cli.py inserts probe/tools on import
@@ -445,7 +480,14 @@ def run_device(program, entry, keys, first_block=64, port=PORT, preludes=()):
             raise NoBoard(f"no board on {port}: cli.connect printed the reason above (cable, port, or a stale holder)")
         try:
             with contextlib.redirect_stdout(sys.stderr):
-                _n, bad = cli.upload(dev, str(program), first_block)
+                # GUARDRAIL: preludes go to the staging range and a real phase source is 20+ blocks, so every upload here
+                # is chunked (8 blocks seeded, LOADed, then reused). Before this the device path both skipped the preludes
+                # entirely and refused any phase over 8 blocks - the harness could not run a single App Store app.
+                for pre in preludes:
+                    cli.upload(dev, str(pre), first_block, staging=STAGING_BLOCKS)
+                if preludes:
+                    dev.cmd("SEAL", timeout=30.0, allow_error=True)
+                _n, bad = cli.upload(dev, str(program), first_block, staging=STAGING_BLOCKS)
             if bad:
                 raise HarnessError(f"{program.name} did not compile on the board: {bad}")
             dev.drain(0.05, 1.0)
@@ -496,6 +538,11 @@ def main(argv):
     # `--prelude registry.fs --prelude appstore.fs` must land in exactly that order on both backends.
     ap.add_argument("--prelude", action="append", default=[], type=pathlib.Path,
                     help="a resident file loaded BEFORE the program (repeatable, order kept)")
+    # GUARDRAIL: a content phase (mail, gopher, reader) draws from the store, and the host's fake server holds a fixed
+    # pattern unless it is seeded. `--content mail` writes content/mail/pNN.txt into the host server's own `-B` format so
+    # the grid shows the real pages; without it the harness compiled the phase and then drew garbage.
+    ap.add_argument("--content", action="append", default=[],
+                    help="an app whose content/*/pNN.txt pages should be seeded into the host store (repeatable)")
     ap.add_argument("program", metavar="PROGRAM", help="the .fs source (a phase defines one word and does not run it)")
     ap.add_argument("--host", metavar="BIN", default=None, help="run on the host engine at device geometry")
     ap.add_argument("--device", action="store_true", help=f"run on the board ({PORT}, under the board lock)")
@@ -523,9 +570,25 @@ def main(argv):
     check_blocks(program, a.block)
 
     if a.host:
-        stream = run_host(program, entry, keys, preludes=a.prelude, binary=a.host, timeout=a.timeout)
+        seed = None
+        if a.content:
+            with tempfile.TemporaryDirectory(prefix="blocks.") as td:
+                seed = pathlib.Path(td) / "blocks.txt"
+                n = write_block_seed(a.content, seed)
+                print(f"  seeded {n} block(s) for {', '.join(a.content)}", file=sys.stderr)
+                stream = run_host(program, entry, keys, preludes=a.prelude, binary=a.host,
+                                  timeout=a.timeout, content_seed=seed)
+        else:
+            stream = run_host(program, entry, keys, preludes=a.prelude, binary=a.host, timeout=a.timeout)
     else:
         stream = run_device(program, entry, keys, first_block=a.block, port=a.port, preludes=a.prelude)
+    # GUARDRAIL: the HOST binary prints its own diagnostics after the run (`SRV blk0[0]=.. blk3[9]=..` proves the fake
+    # server's copy, `DISP n` counts dispatches). They are host-only - the chip emits none - and left in, they land in the
+    # grid's rows and in every golden recorded from a host run. Strip exactly those two prefixes; anything else is
+    # uninterpretable and must stay fatal (a guessed grid that happens to match a golden is the worst outcome here).
+    if a.host:
+        stream = b"\n".join(ln for ln in stream.split(b"\n")
+                            if not ln.startswith((b"SRV ", b"DISP ")))
     term = Terminal()
     term.feed(stream)
     for w in dict.fromkeys(term.warnings):                  # dedupe, keep order: a repeated warning is noise

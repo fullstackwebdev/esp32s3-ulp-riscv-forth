@@ -169,6 +169,18 @@ Rules that follow: a phase lives in the range of its *descriptor* (that is what 
 reused by every upload and must never hold anything a phase needs at run time; content ranges never move, because page N is
 `START + N*8` arithmetic.
 
+### A cell index is a MULTIPLE OF FOUR (and the host will not tell you)
+
+There is no `CELLS` word. `MAIL_ST 1 + @` is "the cell at byte +1", which is an unaligned 32-bit load: legal on the host,
+a trap on rv32 (`F-136`). Write `MAIL_ST 4 +`, `MAIL_ST 8 +`; `C@`/`C!` are bytes and are fine. Linter rule **R19
+alignment** flags a literal offset that is not a multiple of four, and the host is not an oracle for this - the chip is.
+
+### A phase that draws a whole screen in one burst loses its tail (`F-137`, open)
+
+The output ring is 128 B and a full screen is ~600 B. The device frame is correct for the rows and then ends; the footer
+never arrives. Until that is fixed, treat a full redraw as a known limit: draw row by row (the ring drains between rows)
+or draw only what changed.
+
 ### `>` does not exist on this machine, and the host server now answers the whole store
 
 * Only `<` exists (`p31_prims.inc`): a clamp is written with the operands swapped, e.g. `2 MAX <`, never `MAX >`.

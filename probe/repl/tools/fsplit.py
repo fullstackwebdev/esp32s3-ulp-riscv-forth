@@ -68,9 +68,34 @@ def safe_after(toks):
     return safe
 
 
+def strip_comments(text):
+    """Remove `( ... )` comments and `\ ... <eol>` from the text before it is cut into blocks.
+
+    GUARDRAIL: a comment is not text to send. `split_defs` split on WHITESPACE, so a block boundary could land inside a
+    `( GUARDRAIL: ... )` comment and the tail of it ("HENCE", "CANNOT", "81+I;") was then compiled as words - measured on
+    the mail phase: blocks 5, 8..16, 22, 27 reported `HENCE?`, `NL?`, `VIEW?`, `SO?`, `CANNOT?` and the phase never
+    defined its entry word. Comments also cost source blocks that the staging range has to carry, and a `\` line inside a
+    block is R1. Strip them here, once, before anything counts bytes.
+    """
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "(":
+            j = text.find(")", i)
+            if j < 0:
+                break                                  # unterminated: drop the rest rather than half-send it
+            out.append(" "); i = j + 1; continue
+        if c == "\\":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            out.append("\n"); continue
+        out.append(c); i += 1
+    return "".join(out)
+
+
 def split_defs(text, size=92):
     """Greedy fill, then BACKTRACK to the last boundary where the machine is in interpret state."""
-    toks = text.split()
+    toks = strip_comments(text).split()
     safe = safe_after(toks)
     blocks, i = [], 0
     while i < len(toks):

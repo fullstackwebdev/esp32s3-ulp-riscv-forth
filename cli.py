@@ -162,28 +162,38 @@ def connect(port, settle):
     return dev
 
 
-def upload(dev, path, first_block):
-    """Split a Forth program into legal blocks, write them, and ask the chip to compile them."""
+def upload(dev, path, first_block, staging=None):
+    """Split a Forth program into legal blocks, write them, and ask the chip to compile them.
+
+    `staging` is the number of blocks the caller's range can hold (docs/26: the staging range is 120..127 = 8). A real
+    phase source is 20-30 blocks, so it is uploaded in passes: seed the first `staging` blocks, LOAD them in file order,
+    then reuse the same blocks for the next pass. That is safe precisely because a block is a self-contained line with an
+    empty stack at its start (`run_line: sp = 0`, R10) - the same property `fsplit` guarantees when it splits. Without
+    this, every App Store phase was refused with "27 blocks from 120 would pass block 127".
+    """
     from fsplit import split_defs
     src = pathlib.Path(path).read_text()
     bs = split_defs(src, 92)
-    if first_block + len(bs) > 128:
+    if first_block + min(len(bs), staging or len(bs)) > 128:
         raise RuntimeError(f"{len(bs)} blocks from {first_block} would pass block 127, which the server refuses")
     t0 = time.time()
-    missing = dev.seed_many([(first_block + i, b) for i, b in enumerate(bs)])
-    if missing:
-        raise RuntimeError(f"block(s) {missing} did not acknowledge - is the cable loose?")
     bad = {}
-    for i in range(len(bs)):
-        # GUARDRAIL: `settle=0.004` because a LOAD answers with exactly one line. The 20 ms default per block was 0.7 s
-        # of the build's 4.8 s, spent waiting for a second line that never comes.
-        rep = dev.cmd(f"{first_block + i} LOAD", timeout=25.0, allow_error=True, settle=0.004)
-        errs = [l.strip() for l in rep.splitlines() if l.strip().endswith("?") or "ERR_" in l]
-        if errs:
-            bad[first_block + i] = errs[0]
-        # GUARDRAIL: report EVERY block, not every tenth. Seven seconds of silence is what "really slow" feels like, and
-        # the operator cannot tell a slow build from a wedged board - measured complaint, twice.
-        sys.stdout.write(f"\r  compiling {i + 1}/{len(bs)} blocks"); sys.stdout.flush()
+    win = staging or len(bs)
+    for base in range(0, len(bs), win):
+        chunk = bs[base:base + win]
+        missing = dev.seed_many([(first_block + i, b) for i, b in enumerate(chunk)])
+        if missing:
+            raise RuntimeError(f"block(s) {missing} did not acknowledge - is the cable loose?")
+        for i in range(len(chunk)):
+            # GUARDRAIL: `settle=0.004` because a LOAD answers with exactly one line. The 20 ms default per block was 0.7 s
+            # of the build's 4.8 s, spent waiting for a second line that never comes.
+            rep = dev.cmd(f"{first_block + i} LOAD", timeout=25.0, allow_error=True, settle=0.004)
+            errs = [l.strip() for l in rep.splitlines() if l.strip().endswith("?") or "ERR_" in l]
+            if errs:
+                bad[base + i + 1] = errs[0]     # 1-based SOURCE block: the store block numbers repeat across passes
+            # GUARDRAIL: report EVERY block, not every tenth. Seven seconds of silence is what "really slow" feels like,
+            # and the operator cannot tell a slow build from a wedged board - measured complaint, twice.
+            sys.stdout.write(f"\r  compiling {base + i + 1}/{len(bs)} blocks"); sys.stdout.flush()
     sys.stdout.write("\r" + " " * 40 + "\r")
     say(f"  {path}: {len(bs)} blocks, {time.time() - t0:.1f} s", DM)
     for blk, err in bad.items():

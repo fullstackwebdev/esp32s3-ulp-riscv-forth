@@ -383,6 +383,19 @@ def lint_definitions(src, base=None):
             findings.append((lineno, "R8 key -1",
                              f"{name}: reads KEY, never tests -1, and has no pacing - `nothing` counts as a keystroke,"
                              " so this loop runs flat out"))
+        # GUARDRAIL: R19. `BASE n + @` is only safe when n is a multiple of 4. A cell is 4 bytes and this machine has no
+        # `CELLS` word, so every cell index is hand arithmetic - and `BASE 1 + @` is an UNALIGNED 32-bit load, which traps
+        # on rv32 (F-78) while x86 reads it happily. Measured: the mail phase drew its rows on the host and hung on the
+        # chip at its first `MAIL_ST 1 + @`, after the title bar, with no error anywhere. Flag a literal offset that is
+        # not a multiple of 4; C@/C! are bytes and stay fine.
+        for i in range(2, len(toks)):
+            if toks[i] in ("@", "!") and toks[i - 1] == "+" and toks[i - 2].isdigit():
+                off = int(toks[i - 2])
+                if off % 4:
+                    findings.append((lineno, "R19 alignment",
+                                     f"{name}: `{off} + {toks[i]}` is an unaligned 32-bit access - a cell is 4 bytes and "
+                                     f"there is no CELLS word; write `{off * 4 if off < 8 else off} +` (or the byte "
+                                     f"offset as a multiple of 4). It traps on rv32 and works on the host"))
         infinite = any(toks[i - 1] == "0" and toks[i] == "UNTIL" for i in range(1, len(toks)))
         skip = 0
         tick = False
@@ -658,6 +671,9 @@ GOOD_BLOCKS = ": A 1 ; 40 CONSTANT X : B 2 + . ;"
 # GUARDRAIL: the fixture that would have caught the SAVE table entry: a body that CONSUMES the status is correct code
 # (p_blk_save pushes it), so it must lint clean. With SAVE modelled as (0, 0) this fixture reports R3 underflow.
 GOOD_SAVE = ": W ( -- ) UPDATE SAVE DROP ;"
+# GUARDRAIL: R19's two directions. `2 + @` is a trap on rv32 (the mail phase's bug); `8 + @` is a legal cell offset.
+BAD_ALIGN = ": C ( -- ) STATE 2 + @ . ;"
+GOOD_ALIGN = ": C ( -- ) STATE 8 + @ . ;"
 GOOD_TICK = ": NOOP ; : A ( -- ) ['] NOOP EXECUTE ;"
 BAD_TICK = ": NOOP ; : A ( -- ) ['] NOXX EXECUTE ;"
 BAD_R12 = ": NOOP ; : A ( -- ) ' NOOP EXECUTE ;"
@@ -691,6 +707,14 @@ def selftest():
     f = check_blocks(GOOD_BLOCKS)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  good blocks (must be silent)      {f[:1] if f else ''}")
+    f = lint_definitions(GOOD_ALIGN)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  aligned cell offset (4-byte)   {f[:1] if f else ''}")
+    f = lint_definitions(BAD_ALIGN)
+    hit = any(r == "R19 alignment" for _, r, _ in f)
+    ok = ok and hit
+    print(f"  {'caught' if hit else 'MISSED'}  UNALIGNED cell offset           R19 alignment"
+          + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
     f = lint_definitions(GOOD_SAVE)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  SAVE's status is consumed        {f[:1] if f else ''}")

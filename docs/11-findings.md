@@ -674,3 +674,33 @@ result, then the tape/history view) and proves the multi-phase app, which is the
 
 **Lesson:** measure the *phase* budget before writing the phase, not after. `cli.py --library` now refuses an over-window
 image, but only once the program compiles far enough to be measured — so the budget has to be arithmetic done first.
+
+## F-136 · `BASE n + @` is an UNALIGNED 32-bit load: it traps on rv32 and works on the host
+This machine has no `CELLS` word, so every cell index is hand arithmetic — and `MAIL_ST 1 + @` means "address plus ONE
+BYTE", not "the second cell". On x86 that is a legal unaligned load; on rv32 it is a trap (the same class as F-78's
+misaligned `lh`/`lw`).
+
+Measured: the mail phase **drew its rows on the host and hung on the chip**, right after the title bar, with no error
+anywhere - `MAIL_ST 1 + @` was the first cell it touched. Reading the same cells at the REPL with `1 +` hung the console
+(`got '0'` then silence); with `4 +`/`8 +` it answered `0 0 0` immediately. After the fix the device frame matches the
+host frame for every text row.
+
+**Fixed:** the offsets are multiples of four (`MAIL_ST 4 +`, `MAIL_ST 8 +`), and the linter gained **R19 alignment**: a
+literal `n + @`/`n + !` with `n % 4 != 0` is a finding, with the trap in the message. `C@`/`C!` are bytes and stay fine.
+
+**Lesson:** the host engine is not a model of the chip's *alignment*. Any test that passes on the host and hangs on the
+board should suspect an unaligned access before anything else.
+
+## F-137 · A full-screen phase overruns the 128 B output ring and loses the tail (open)
+With F-136 fixed the device draws the title, the inbox heading and both messages - then **stops**. The footer is missing
+on the chip and present on the host. `FT` alone prints correctly at the REPL, and the frame ends with `0 EMIT` (`SENT`), so
+the footer is not being suppressed by the phase: the tail of the frame is being lost on the way out.
+
+A full screen is ~600 B (bar 70 + 8 rows x 70 + footer) and the ULP's output ring is 128 B, drained to UART by the main
+core at 115200 (~52 ms for that frame). So a phase that draws a whole screen in one burst asks the ring to hold more than
+it can, and the bytes that do not fit are lost.
+
+**Status: open, named, with the arithmetic.** Next step is to find out whether the ULP drops or blocks when the ring is
+full (`src/ulp_repl.c`, the emit path), then either pace the drawing (a phase draws row by row, and the ring drains between
+rows) or make a full-screen draw cheap (draw only what changed). Do not "fix" it by growing the ring without measuring the
+32 KB that is left.
