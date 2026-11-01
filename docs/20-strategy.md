@@ -546,3 +546,26 @@ raising an error: **underflow is silent** (the engine's `POP` wraps the stack po
 `ERR_STACK`). So `.`-drain can report the first real value but cannot measure depth. A depth probe needs either a count
 of how many pushes it takes to reach `ERR_STACK`, or `sp` exposed in a cell — the latter is the honest instrument and
 costs bytes, so it needs approval.
+
+## Step 5: 15/15 phases from images PASS; timing measured; the depth probe is still broken
+
+| item | result |
+|---|---|
+| **0 host dry run of the parsers** | **PASS** for the pop parser, tested on a known stack (`1 2 3` → popped `3,2,1`; the host needed a trailing `32 EMIT` because it has no per-command framing, and `expand` because it prints error *codes*). **The depth probe could not be validated on the host** and its two failures are recorded below. |
+| **1 loop drained** | **15/15 cycles completed** with the `BLKXFER` `DROP` fix (it previously died at cycle 14). Depth **still unmeasured**; the first popped value was `1` (residue of the broken probe), **no `1808`**. |
+| **2 all 15 phases via the binary loader** | **15/15 PASS** — each phase loaded from its **binary image through mailbox op 3**, executed via the returned entry xt, and matched its host run (`p1 [8320,540800,0,65,128,0]` … `p15 [10112,798848,0,79,128,0]`). |
+| **3 apply time ×200** | **min 44.7, median 50.0, max 58.8 ms**. Proposed age bound = 845 − 58.8 − 200 = **586 ms**. **400 ms unchanged**, as instructed. |
+| **4 capacity** | **measured: 15 phases = 7 740 B = 5.0× the 1 536 B control.** With data reserved the honest figure is lower. 25 phases / 8.4× remains a **prediction** and is not quoted as measured. |
+
+### The depth probe: two instrument failures, both mine
+
+1. `1 .` pushes *and pops* in one line, so the stack never grew — the probe reported "no overflow at all" on a known
+   3-cell stack.
+2. Pushing a **literal** overflows *silently*: the `ERR_STACK` report lives in the primitive dispatch tail
+   (`src/uforth.c`, `tail:`), and `interpret()`'s literal branch calls `PUSH` directly. The probe must push through a
+   **dispatch** (a one-line colon word), which it now does — but the probe's throwaway word was not confirmed to exist,
+   so the control still failed (`None`) and the attempt spent the last session of the budget.
+
+**Consequence, stated plainly:** "the loop leaves the stack empty" is **NOT proven**. What is proven is that the loop
+completes 15 cycles of dump/adopt and that no window address is left behind (`first popped = 1`, never `1808`). The
+missing check is one line long: define a 2-character colon word, confirm `' NAME` resolves, then push through it.
