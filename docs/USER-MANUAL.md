@@ -210,6 +210,7 @@ Run the linter before you flash anything:
 ```
 python3 probe/repl/tools/lint_forth.py examples/tui_min.fs
 python3 probe/repl/tools/lint_forth.py --selftest      # proves each rule fires on the bug it came from
+python3 probe/repl/tests/dispatcher.py                  # window size and a 24-hop chain on the chip
 python3 probe/repl/tools/sink.py                       # the CORPUS: 12 programs, each with its expected verdict
 python3 probe/repl/tools/sink.py --device              # ... and run the 6 good ones on the chip
 ```

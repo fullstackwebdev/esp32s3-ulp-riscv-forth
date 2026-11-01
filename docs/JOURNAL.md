@@ -2122,3 +2122,29 @@ Two facts fell out of building it, both now pinned:
 * **the first block op after a hard reset can answer `ERR_BUSY`** — the store is still booting and the layer is latched
   (measured: HERE stayed 786, block 64 refused). One `0 2 BLKXFER` abort plus one retry is the documented escape; the
   runner does both, or the corpus fails for a reason unrelated to what it tests.
+
+**J-110 · Branch `dispatcher`: 1 193 B of window measured, and the race that explains every stalled chain.**
+The operator asked for unlimited chains with the biggest consistent window. Both are now measured rather than argued.
+
+**Window.** The window is what the resident launcher leaves, so a dispatcher-only launcher (`examples/boot.fs`:
+`CHAIN`/`PICKX`/`SWITCH`/`GO` + two cells, 134 B of code + 24 B of headers) leaves **1 193 B** against the menu
+launcher's **254 B** — 4.7×.
+
+**Unlimited.** `tests/dispatcher.py` builds 24 generated phases and requires each to run in order and the line to
+return: **24 hops, 739 ms, 30.8 ms/hop, counter 24, no refusals**. The ceiling is the store (128 blocks), not the
+design.
+
+**The race.** Every stall we chased — the "fourth hop", adopt_sum going red intermittently — is one flag. The HP services
+a block request only on a 0→1 edge it *sampled* (polling ~10 ms), and a raw `BLKXFER` does not raise `blk_req`, so an
+ULP that clears and re-raises `blk_out` between two polls is never serviced: it waits out BLKWAIT (~845 ms), gets
+BK_NOSERVER, leaves the flag set, and every later adopt answers BK_BUSY. The launcher ignored that status and
+`EXECUTE`d the stale block window — the 41 Hz re-entry.
+
+Fixed in `.fs`, both measured: `PICKX` checks the status, unlatches and returns `NOOP` (a failed adopt now **stops** the
+chain); `SWITCH` waits **20 ms** per hop so the HP can sample the flag at 0. Before: stall at hop 2. After: 24 hops, and
+`adopt_sum` stable across three consecutive runs. The `.c` fix (sequence number instead of an edge) is the real one and
+needs permission — the `blk_req` variant was measured at +16 B of pool, over the gate.
+
+Two side effects worth keeping: the linter learned that **`'` pushes an xt and skips its operand** (it was reporting a
+phantom underflow), and the branch added a **declared window floor** (`MIN_WINDOW = 200`) that the build refuses to
+violate — measured drift in one afternoon had been 346 → 290 → 237 B, silently.

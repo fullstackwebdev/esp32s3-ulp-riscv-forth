@@ -162,6 +162,11 @@ def upload(dev, path, first_block):
 
 
 LIB_FIRST, DEMO_FIRST = 70, 30          # launcher source; phase source is reused for every build
+# The window is DECLARED, not inherited. It is what is left above the seal after the resident launcher and its headers,
+# and every phase must fit in it. Measured drift in one afternoon: 346 -> 290 -> 237 B as the launcher grew, and at
+# 237 B a working 222 B program stopped fitting - which read as "the demo broke", not as "the budget moved". A floor
+# makes that a build error with numbers.
+MIN_WINDOW = 200
 # A PROGRAM is a chain of PHASES. One phase = one image = at most the window above the seal. The first phase's
 # descriptor is what the launcher is handed; every later one is reached by the phase itself calling `CHAIN`.
 LIBRARY = (
@@ -225,9 +230,17 @@ def library(dev, root):
     dev.cmd("SEAL")
     base = dev.num("bh @ .")
     say(f"  launcher sealed at {base} ({n} blocks)", DM)
-    built, window = [], 0
+    # GUARDRAIL: report the window ONCE, before building, and refuse a launcher that leaves the phases too little.
+    # `LATEST` here is the SEALED latest (the launcher's header base), so `LATEST - seal` is exactly the space a phase
+    # gets - not an estimate. `base` is the seal, read from the machine, so this cannot drift from what SEAL did.
+    built = []
+    window = dev.num("LATEST .") - base
+    say(f"  phase window: {window} B above the seal (launcher {base - 52} B of code + "
+        f"{dev.num('LATEST .')} headers)", CY if window >= MIN_WINDOW else YL)
+    if window < MIN_WINDOW:
+        say(f"  the launcher leaves {window} B, under the declared {MIN_WINDOW} B floor - move a feature into a phase", YL)
+        return None
     for program, phases in LIBRARY:
-        window = dev.num("LATEST .") - base   # the space above the seal: one phase must fit in it
         for i, (path, desc, entry) in enumerate(phases):
             dev.cmd("RW")                       # back to the seal, so this phase owns the space above it
             n, bad = upload(dev, str(root / path), DEMO_FIRST)

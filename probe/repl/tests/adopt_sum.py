@@ -28,7 +28,7 @@ refuses — that is why programs.py grew dump_state(). BLKXFER from the REPL is 
 GUARDRAIL: `RW` (the launcher's own pure rewind, `bh @ VH ! bl @ VL !`) after every adopt. An adopt leaves V_HERE at
 the image's end, so without the rewind the next upload compiles above the image and every later address is wrong.
 """
-import os, re, sys, pathlib
+import os, re, sys, time, pathlib
 
 HERE = pathlib.Path(__file__).resolve()
 ROOT = HERE.parents[3]
@@ -86,7 +86,16 @@ def blk_off(dev):
 
 
 def adopt(dev, desc):
-    """op 3 exactly as SWITCH issues it. BLKXFER is ( n op -- addr st ); the transcript is kept, not guessed."""
+    """op 3 exactly as SWITCH issues it. BLKXFER is ( n op -- addr st ); the transcript is kept, not guessed.
+
+    GUARDRAIL: sleep between adopts. The HP services a block request only on a 0->1 EDGE of `blk_out` that it SAMPLED
+    (it polls every ~10 ms), and a raw BLKXFER does not raise `repl_blk_req`. Two adopts closer together than one poll
+    look like "1 -> 1" and the second is never serviced: the ULP waits out BLKWAIT (~845 ms), returns BK_NOSERVER, and
+    leaves the flag set. Measured as this test failing INTERMITTENTLY (19/19 one run, dead at the first adopt the next)
+    while the same sequence with a 20 ms gap ran 24 hops clean (tests/dispatcher.py). The launcher carries the same gap;
+    a harness that pokes BLKXFER directly has to carry it too.
+    """
+    time.sleep(0.03)
     rep = dev.cmd(f"{desc} 3 BLKXFER SWAP DROP .", timeout=25.0, allow_error=True)
     st = None
     for line in rep.splitlines():

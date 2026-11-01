@@ -69,6 +69,10 @@ PRIMS = {
     "EMIT": (1, 0), "TYPE": (2, 0), ".": (1, 0), "MS": (1, 0), "KEY": (0, 1),
     "STATE": (0, 1), "BLOCK": (1, 1), "CREATE": (0, 0), ",": (1, 0),
     "PAUSE": (0, 0), "WAKE": (0, 0), ">R": (1, 0), "R>": (0, 1), "I": (0, 1), "J": (0, 1),
+        # GUARDRAIL: `'` (tick) PUSHES the xt of the word that follows and does NOT call it. Modelling only the push
+    # reported `' NOOP` as "NOOP needs nothing, fine" - but on a word that takes arguments it would subtract them and
+    # report a phantom underflow. The walk skips the operand instead (see `tick` below).
+    "'": (0, 1),
     "UNLOOP": (0, 0), '."': (0, 0),
 }
 CONTROL = {"IF", "ELSE", "THEN", "BEGIN", "UNTIL", "WHILE", "REPEAT", "AGAIN", "DO", "LOOP", "+LOOP", "EXIT"}
@@ -269,7 +273,15 @@ def lint_definitions(src, base=None):
                              " so this loop runs flat out"))
         infinite = any(toks[i - 1] == "0" and toks[i] == "UNTIL" for i in range(1, len(toks)))
         skip = 0
+        tick = False
         for tk in toks:
+            if tick:
+                tick = False
+                continue                      # GUARDRAIL: the operand of `'` is a NAME, not a call
+            if tk == "'":
+                depth += 1
+                tick = True
+                continue
             if skip:                # inside a dead arm: only track nesting, touch neither depth nor vocab
                 if tk in ("IF", "BEGIN"): skip += 1
                 elif tk in ("THEN", "ELSE", "UNTIL", "REPEAT"):
@@ -425,6 +437,10 @@ def check_blocks(src, base=None, blocks=None):
     for i, blk in enumerate(blocks, start=1):
         toks = tokens(blk)
         if not toks:
+            continue
+        # GUARDRAIL: `' NAME` is a push plus a NAME - the operand must not be looked up, or `' NOOP` at the start of a
+        # block reads as a call to NOOP.
+        if toks[0] == "'" and len(toks) > 1:
             continue
         first = toks[0]
         if first in (";", ",", "THEN", "ELSE", "UNTIL", "REPEAT", "AGAIN") or first in CONTROL:

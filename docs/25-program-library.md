@@ -105,6 +105,56 @@ being refused silently after two `EXECUTE` levels (the dump prints nothing) or t
 rewind. Measured facts to start from: `#u` while it spins shows `blk_out 1 req 0 off 2476`, and `V_HERE 1762
 V_LATEST 2023` — i.e. the dictionary is the sealed one, not the pasted one.
 
+## The dispatcher-only launcher: 1 193 B of window, and the race behind every stall (measured)
+
+The window is what the resident launcher leaves behind, so the biggest window comes from making the dispatcher the
+*only* resident thing. `examples/boot.fs` is that launcher — `CHAIN`, `PICKX`, `SWITCH`, `GO` and two cells, 134 B of
+code:
+
+| | full menu launcher | dispatcher only |
+|---|---|---|
+| code | 1 714 B | **134 B** |
+| headers | 168 B | **24 B** |
+| **window** | **254 B** | **1 193 B** |
+
+4.7×. And the chain runs: `tests/dispatcher.py` builds **24 generated phases** and requires every one to run and the
+line to return — measured **24 hops, 739 ms, 30.8 ms per hop, counter = 24, no refusals**. That is "unlimited
+chaining" in the sense that matters: **the count is bounded by the store (128 blocks), not by the design.** 24 phases
+at 2 blocks each is 48 of 128 blocks.
+
+### Why every chain stalled before this: one flag, sampled
+
+`BLKXFER` is a mailbox handshake, and the HP services a request **only on a 0→1 edge it sampled**:
+
+```c
+int out_now = ulp_repl_blk_out;
+int fresh = out_now && !blk_out_prev;      /* polling every ~10 ms */
+```
+
+A raw `BLKXFER` does not raise `repl_blk_req`, so if the ULP clears and re-raises `blk_out` between two polls the HP
+sees `1 → 1`, decides "not fresh", and **never services it**. The ULP then waits out `BLKWAIT` (~845 ms), returns
+`BK_NOSERVER`, and *deliberately leaves `blk_out` set* — after which every adopt answers `BK_BUSY` instantly. The
+launcher used to ignore that status and `EXECUTE` whatever was in the block window: the "phase body re-enters at 41 Hz"
+we chased.
+
+Two fixes, both measured:
+
+* **`.fs`** — `PICKX` checks the status, unlatches (`0 2 BLKXFER`) and returns `NOOP`, so a failed adopt **stops the
+  chain** instead of executing stale bytes; and `SWITCH` waits **20 ms** after each phase so the HP can sample the flag
+  back at 0. Evidence: without the gap a chain stalled at the **second** hop (counter 1); with it, **24 hops** run
+  clean. Cost: ~20 of the 31 ms per hop, and the counter shows it.
+* **`.c`** — the real fix is a sequence number (or raising `blk_req` for op 3, measured at +16 B of pool, over the 10 B
+  gate at the time). Needs permission; until then the 20 ms gap is the contract, and every harness that pokes `BLKXFER`
+  directly must carry it too (`tests/adopt_sum.py` went from *intermittently* failing 19/19 to stable).
+
+### Hops are not free, and names collide
+
+* **~31 ms per hop**, 20 of which is the gap. A 24-phase program therefore takes ~0.75 s to walk. Fine for staged
+  programs, wrong for per-frame work.
+* **Phase names must not collide with resident names.** The dictionary stores a 12-bit hash and refuses a collision with
+  the same `NAME?` a missing word produces: `: P1` was **refused** while `: PHASE1` compiled. With ~60 resident words
+  that is ~2–3 % per name, and a paged design multiplies the number of names — so this grows teeth as phases multiply.
+
 ## The guard that fired on ordinary use (fixed, measured)
 
 `docs/25` first recorded this as an open defect:
