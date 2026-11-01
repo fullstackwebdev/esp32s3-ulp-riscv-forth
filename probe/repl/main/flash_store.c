@@ -78,6 +78,12 @@ int fs_init(void)
     if (esp_partition_read(s_part, 0, &s_super, sizeof s_super) != ESP_OK) {
         s_state = FS_E_IO; return s_state;
     }
+    /* GUARDRAIL: FS_SKIP_VALIDATE exists ONLY to show what a store without a boot check does, i.e. to make gate 3's
+     * refusal demonstrably able to fail. It must never ship: with it defined a damaged superblock is accepted and every
+     * block is served from garbage, which looks like a working store full of nonsense. */
+#if defined(FS_SKIP_VALIDATE)
+    s_state = FS_OK; return FS_OK;
+#endif
     if (s_super.magic != FS_MAGIC)        { s_state = FS_E_BAD_MAGIC;    return s_state; }
     if (s_super.version != FS_VERSION)    { s_state = FS_E_BAD_VERSION;  return s_state; }
     if (s_super.crc != super_crc(&s_super)) { s_state = FS_E_BAD_CRC;    return s_state; }

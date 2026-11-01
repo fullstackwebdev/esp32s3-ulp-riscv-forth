@@ -340,6 +340,19 @@ static void seed_poll(void)
                 n = 0;
                 continue;
             }
+            /* GUARDRAIL: `#i` reports the store's state ON DEMAND. The boot refusal is printed before the serial port is
+             * opened by any tool that attaches afterwards, so in practice nobody sees it - measured as gate 3 reporting
+             * "no store line". A refusal nobody can read is not a refusal. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'i' && (ln[2] == 0 || ln[2] == ' ')) {
+                uint32_t bp = 0, se = 0, fl = 0; fs_stats(&bp, &se, &fl);
+                if (store_ok) printf("info: store ok, %u blocks x %u B | programmed %u B, %u erase(s), %u flush(es)\n",
+                                     (unsigned)fs_block_count(), (unsigned)fs_block_size(),
+                                     (unsigned)bp, (unsigned)se, (unsigned)fl);
+                else          printf("info: store REFUSED %s\n", fs_strerror(fs_init()));
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             /* GUARDRAIL: `#f` flushes the sector cache and reports write amplification; `#x` formats the store. Both are
              * main-core only and cost 0 ULP bytes. `#x` is the recovery path named by the boot refusal. */
             if (n >= 2 && ln[0] == '#' && ln[1] == 'f' && (ln[2] == 0 || ln[2] == ' ')) {

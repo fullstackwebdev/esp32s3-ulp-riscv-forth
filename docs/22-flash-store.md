@@ -103,3 +103,27 @@ line `store: flash N blocks x 128 B` or `store: REFUSED <named reason>`.
 Per-sector generation/validity (a torn *data* sector is only detected through the superblock today), wear accounting past
 the counters, and moving `blkfile[]` out of RAM entirely (32 KB) — deferred deliberately: the RAM mirror is what made this
 land without touching 16 call sites.
+
+---
+
+## Step 6: gate 3 and torn-flush measured; cost/accounting not measured
+
+| item | result |
+|---|---|
+| **0 host dry run** | **PASS** — the torn-flush classifier, validated on known inputs: `OLD`, `NEW`, `MIXED` all classified correctly. |
+| **1 gate 3, failing first** | **Shown failing**: a build with `FS_SKIP_VALIDATE` (accepts a damaged superblock) **did not refuse** after the magic was zeroed, and block 21 still answered `65` — an unvalidated store serving data. **Real build**: `#i` reports `store REFUSED superblock magic is not BLK1`, the REPL stays usable, and `#x` recovers (`format: ok, store empty`). |
+| **2 torn flush** | **PASS over 20 interrupts** — after a reset fired mid-flush, the block read back as **OLD or NEW every time, never MIXED**. |
+| **3 flush/erase accounting** | **NOT MEASURED** — my harness died inside `build_and_adopt` (`no number in reply to 'W @ .'`), so the 15-phase flush count and the wear estimate have no number. One more session would close it. |
+| **4 host suite on the branch** | **PASS — 24 / 0.** `capabilities.py` (device, 11 checks) was **not re-run on this branch**: that is a fourth chip session and the budget was three. |
+
+### A UX gap found, and fixed
+
+The boot refusal is printed **before any tool opens the serial port**, so gate 3 initially reported "no store line" — a
+refusal nobody can read is not a refusal. `#i` now reports the store's state (ok/refused + named reason + counters) on
+demand, and `#f`/`#x` keep their roles (amplification, recovery).
+
+### Deliberately unchanged
+
+- **`blkfile[]` (32 KB RAM mirror) stays.** Removing it makes the size limit real rather than mirrored, but it touches 16
+  call sites and changes the failure model — the operator has asked to discuss it before any change.
+- Sleep not enabled, no ULP bytes added (pool 7845/7856 throughout).
