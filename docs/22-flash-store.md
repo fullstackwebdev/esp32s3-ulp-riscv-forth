@@ -220,3 +220,30 @@ requests: op, block, ms) is now in `.bss` and printed by `#u`; it would not fit 
 **Branch is in a bisect configuration and must not ship** (`#define BISECT_NO_FLASH_WRITE 1`). Step 6d's next session:
 re-enable writes, catch a hang, read the request log. Then the fix is expected to be the task split already proposed —
 flash in a task that neither the ULP nor the console waits on.
+
+---
+
+## Step 6e: the spin leaves NO trace in memory — it is image code looping, not a store wait
+
+Caught the hang twice with the request log and the cell dumper live. Facts, all device:
+
+- `blk_out 0`, `req 0`, `V_STATE 0`, `V_LOADB 0` — **not** waiting on the store, **not** inside `LOAD`, **not** compiling.
+- `cmd h403 t383` = **20 bytes of input pending** (exactly the `… 3 BLKXFER . DROP` line): the ULP stops consuming input.
+- `wakes 1081 → 1081` over 2 s: the ULP **never returns to sleep** — it is inside one wake, spinning.
+- Last serviced request 7 510 ms, `now` 16 150 ms: the HP answered everything asked of it and was then idle.
+- **Two full memory scans 1.2 s apart: 864 cells, ZERO changed.** The loop touches no memory, emits nothing, and asks
+  for nothing — so it is not `S1..S6` (those increment `idx` in memory) but an infinite branch/jump inside the ULP.
+
+That last point is the useful one: a spin with no memory writes cannot be the phase's scan loops and cannot be
+`blk_xfer`'s poll (which leaves `blk_out` set). It is execution flowing into a self-jump — i.e. the code being executed is
+not the code that was compiled. On `main` the identical phase/library sequence passes 15/15, and on this branch with flash
+writes disabled it also passes, so the corruption is tied to a flash write.
+
+**Next step (cheap, mostly host):** verify what was actually pasted. The loader checks the image sum *before* the copy; a
+sum recomputed over `mem[cs..cs+cl]` *after* the copy would name "the pasted code is not what the descriptor said" — zero
+ULP bytes, and it turns "garbage executes" into a printed fact. Then compare that region byte-for-byte against the seeded
+blocks on the host.
+
+**Instruments added this step** (all HP-side, 0 ULP bytes): request ring of the last 16 serviced requests (`op/blk/ms`),
+the ULP sys-vars (`V_STATE`, `V_HERE`, `V_LATEST`, `V_SEAL`, `V_LOADB`), the HP edge-detector view, `#m <addr> <n>` cell
+dump, and `hard_reset_capture()` which keeps the ROM boot log by toggling EN while holding the port.

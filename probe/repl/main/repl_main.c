@@ -145,10 +145,10 @@ static void blk_dirty(uint32_t blk)
     blkfile_dirty = 1;
 }
 
-/* GUARDRAIL: BISECT_NO_FLASH_WRITE removes every flash write after boot while keeping the store, the boot load and the
- * block layer identical. main (no store) passes 15/15 and this branch hangs at phase 1-3, and taking the commit out of the
- * ULP-blocked path did not help - so this isolates "any flash write" from everything else. Never ship with it defined. */
-#define BISECT_NO_FLASH_WRITE 1
+/* GUARDRAIL: BISECT_NO_FLASH_WRITE isolates "any flash write" from everything else: main (no store) passed 15/15, this
+ * branch with this defined passed 15/15 twice, and with it undefined it hangs at phase 1-3 - so a flash erase/program is
+ * the trigger. It is now UNDEFINED again (writes live) and this switch must stay undefined in any shipping build. */
+/* #define BISECT_NO_FLASH_WRITE 1 */
 
 static void blk_commit(uint32_t blk)
 {
@@ -386,6 +386,49 @@ static void seed_poll(void)
                        (unsigned)ulp_repl_blk_sz, (unsigned)ulp_repl_cmd_head, (unsigned)ulp_repl_cmd_tail,
                        (unsigned)ulp_repl_cmd_bytes, (unsigned)ulp_repl_out_head, (unsigned)ulp_repl_out_tail,
                        (unsigned)ulp_repl_out_bytes, (unsigned)ulp_repl_wake_count);
+                /* GUARDRAIL: blk_out alone cannot say whether the HP ever SAW the edge, and the two readings have different
+                 * owners: a set blk_out with blk_out_prev=0 means this task has not polled since the request (HP-side);
+                 * both set means the request was seen and answered or dropped (ULP-side). Print both. */
+                /* GUARDRAIL: with the ULP silent and blk_out clear, "waiting on the store" is excluded - so the next
+                 * question is WHICH interpreter loop. The sys-vars answer it at zero ULP bytes: a nonzero V_LOADB means
+                 * the machine is inside LOAD, and V_STATE says whether it is compiling. Read them through mem[]. */
+                {
+                    const uint8_t *mi = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    printf("info: ulp vars: V_STATE %u V_HERE %u V_LATEST %u V_SEAL %u V_LOADB %u\n",
+                           (unsigned)(mi[0] | (mi[1] << 8)), (unsigned)(mi[4] | (mi[5] << 8)),
+                           (unsigned)(mi[8] | (mi[9] << 8)), (unsigned)(mi[12] | (mi[13] << 8)),
+                           (unsigned)(mi[16] | (mi[17] << 8)));
+                    fflush(stdout);
+                }
+                printf("info: hp view: blk_out_prev %d edge_ms %u now_ms %u | store_ok %d\n",
+                       blk_out_prev, (unsigned)edge_ms,
+                       (unsigned)(xTaskGetTickCount() * portTICK_PERIOD_MS), store_ok);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#m <addr> <n>` prints n u16 cells of the ULP's mem[] from addr. It exists because a spinning
+             * phase cannot be asked anything - its own counters are the only witnesses, and reading them from the HP
+             * costs 0 ULP bytes and works while the ULP is frozen inside one wake. */
+            if (n > 4 && ln[0] == '#' && ln[1] == 'm' && ln[2] == ' ') {
+                unsigned a = 0, cnt = 1, k = 3; int vi = 0;
+                unsigned v2[2] = {0, 1};
+                while (vi < 2 && ln[k]) {
+                    while (ln[k] == ' ') k++;
+                    if (ln[k] < '0' || ln[k] > '9') break;
+                    v2[vi] = 0;
+                    while (ln[k] >= '0' && ln[k] <= '9') v2[vi] = v2[vi] * 10u + (unsigned)(ln[k++] - '0');
+                    vi++;
+                }
+                a = v2[0]; cnt = v2[1] ? v2[1] : 1u;
+                if (cnt > 16u) cnt = 16u;
+                if (a + cnt * 2u > (unsigned)ulp_repl_blk_off) printf("mem: REJECTED (range)\n");
+                else {
+                    const uint8_t *mi = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    printf("mem:");
+                    for (k = 0; k < cnt; k++) printf(" [%u]=%u", a + k * 2u, (unsigned)(mi[a + k * 2u] | (mi[a + k * 2u + 1] << 8)));
+                    printf("\n");
+                }
                 fflush(stdout);
                 n = 0;
                 continue;

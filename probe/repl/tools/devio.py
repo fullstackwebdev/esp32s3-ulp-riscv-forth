@@ -120,7 +120,7 @@ class Dev:
     def cmd(self, line, timeout=5.0, allow_error=False, # GUARDRAIL: `#i`/`#u` answer with "info:" and return WITHOUT an `ok`, so the default markers never matched and a
             # harness call waited until timeout while the answer was already in the buffer. Give the harness the real marker.
             markers=(OK, "?", "ERR_", "NOT sent", "blocks from block", "adopted", "REFUSED", "poke:", "stall:", "img:",
-                     "info:")):
+                     "info:", "mem:")):
         """Send one line, read until the prompt marker (ok) or an error (?), return the transcript."""
         os.write(self.fd, line.encode() + b"\r")
         buf = ""
