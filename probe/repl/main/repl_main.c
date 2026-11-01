@@ -109,6 +109,17 @@ static void console_task(void *arg)
 #define BLK_N     128
 #define BLK_SZ    256
 static uint32_t blk_sz;      /* transfer size, published by the ULP */
+/* GUARDRAIL: test-only stall for the op-3 race test. `#s <ms>` makes this task sleep once, so the ULP times out on its
+ * next block request. Main-core only, zero ULP bytes; without it the race cannot be provoked deliberately. */
+static uint32_t stall_ms;
+static uint32_t apply_stall_ms;   /* test-only: stall INSIDE the op-3 critical section, after the age check */
+static int blk_out_prev;      /* edge detector for the ULP's outstanding-request flag */
+/* GUARDRAIL: when this task first SAW the request. The ULP's wait (BLKWAIT 2 000 000 iterations) is ~845 ms MEASURED
+ * on hardware, and on a timeout the ULP deliberately leaves blk_out set - so the flag alone cannot distinguish "still
+ * waiting" from "gave up". A destructive op (image load) must therefore be applied only inside a conservative fraction
+ * of that window; outside it, refuse loudly instead of adopting a dictionary the machine was told it does not have.
+ * Failure mode is a named nack, never silent corruption. */
+static uint32_t edge_ms;
 static uint8_t blkfile[BLK_N][BLK_SZ];   /* the ARRAY is sized for the max; blk_sz is the transfer size */
 /* ---- ULP stack high-water probe (row 10 of the A/B) ---------------------------------------------------------
  * The ULP stack grows down from ulp___stack_top (0x50001ff0) into .bss, so an overflow corrupts engine state
@@ -203,14 +214,303 @@ static void seed_poll(void)
                 n = 0;
                 continue;                       /* a seed line is consumed here, never forwarded */
             }
+            /* GUARDRAIL: `#d` builds an IMAGE of the loaded phase on the MAIN CORE, at zero ULP bytes. A Forth dumper
+             * cannot do it: given the same 690 B window it needs ~370 B for the copy loop plus the 516 B phase, measured
+             * as ERR_DICT. The main core already reads the ULP's mem[] (ULP_RAM_BASE + ulp_repl_mem_addr) and owns the
+             * block store, so it is the right place for this - no parsing, no window, no resident cost.
+             * Format:  #d <desc_blk> <code_start> <code_end> <hdr_start> <hdr_end>
+             * The four addresses come from the machine: `bh @ . bl @ . HERE . LATEST .` after SEAL.
+             * Descriptor v2 (20 B then the payload): FI(2) ver(1) code_len(2) hdr_len(2) code_start(2)
+             * hdr_start(2) payload_sum(2) resident_sum(2) entry_xt(2) reserved(3).
+             * GUARDRAIL: the ENTRY XT is part of the descriptor because a binary load cannot run what the phase's
+             * top-level text ran (hook assignment, PUMP, initial stores). The caller receives the xt and EXECUTEs it;
+             * the phase itself must define things and nothing else. */
+            if (n > 4 && ln[0] == '#' && ln[1] == 'd' && ln[2] == ' ') {
+                unsigned v[6] = {0}; int k = 3, vi = 0, bad2 = 0;
+                while (vi < 6) {
+                    while (ln[k] == ' ') k++;
+                    if (!ln[k] || ln[k] < '0' || ln[k] > '9') { bad2 = 1; break; }
+                    while (ln[k] >= '0' && ln[k] <= '9') v[vi] = v[vi] * 10u + (unsigned)(ln[k++] - '0');
+                    vi++;
+                }
+                if (bad2 || vi < 6) {
+                    printf("dump: REJECTED (want: #d <blk> <cs> <ce> <hs> <he> <entry_xt>)\n");
+                } else if (v[0] + 1u >= BLK_N || v[2] < v[1] || v[4] <= v[3]
+                           || 20u + (v[2] - v[1]) + (v[4] - v[3]) > (BLK_N - v[0]) * 128u) {
+                    printf("dump: REJECTED (range or block overflow)\n");
+                } else {
+                    const uint8_t *memimg = (const uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    /* GUARDRAIL: the descriptor SHARES the first payload block (12 B of its 128), it does not get a
+                     * block of its own. Measured: 576 B of payload is 5 blocks, and reserving a block for the
+                     * descriptor made it 6 - which is the difference between passing the <=65% gate and failing it. */
+                    unsigned i2, payload = 0, sum = 0, blk = v[0], off = 20;
+                    for (i2 = 0; i2 < BLK_SZ; i2++) blkfile[v[0]][i2] = (uint8_t)' ';
+                    /* GUARDRAIL: flush on the TRANSFER size (blk_sz, published by the ULP = 128), never on BLK_SZ.
+                     * BLK_SZ is only the array's row WIDTH (256). Flushing at 256 packed two blocks into one row, so the
+                     * ULP read the first 128 bytes and everything after was invisible - measured as image byte 0
+                     * matching while bytes at 127, 300 and 500 did not.
+                     * GUARDRAIL: this macro must stay on ONE line. Splitting it to add the comment above broke the
+                     * backslash continuation, the body became real code, and the build failed with 'by_' undeclared. */
+#define DUMP_EMIT(byte) do { uint8_t by_ = (uint8_t)(byte); sum = (sum + by_) & 0xffffu; blkfile[blk][off++] = by_; if (off == (blk_sz ? blk_sz : 128u)) { off = 0; blk++; } payload++; } while (0)
+                    for (i2 = v[1]; i2 < v[2]; i2++) DUMP_EMIT(memimg[i2]);   /* code */
+                    for (i2 = v[3]; i2 < v[4]; i2++) DUMP_EMIT(memimg[i2]);   /* headers */
+#undef DUMP_EMIT
+                    {
+                        uint8_t *d2 = blkfile[v[0]];
+                        unsigned cl = v[2] - v[1], hl = v[4] - v[3];
+                        d2[0] = 'F'; d2[1] = 'I'; d2[2] = 1;
+                        d2[3] = (uint8_t)cl;  d2[4] = (uint8_t)(cl >> 8);
+                        d2[5] = (uint8_t)hl;  d2[6] = (uint8_t)(hl >> 8);
+                        d2[7] = (uint8_t)v[1]; d2[8] = (uint8_t)(v[1] >> 8);
+                        d2[9] = (uint8_t)v[3]; d2[10] = (uint8_t)(v[3] >> 8);
+                        /* 16 bytes: FI(2) ver(1) code_len(2) hdr_len(2) code_start(2) hdr_start(2)
+                         * payload_sum(2) resident_sum(2) reserved(1). GUARDRAIL: the RESIDENT sum is a separate
+                         * field on purpose - the payload sum only proves the image arrived intact, it says nothing
+                         * about the dictionary it will be pasted onto. Editing a resident word's body without
+                         * changing its length leaves HERE and LATEST identical, so pointers alone cannot detect it. */
+                        d2[11] = (uint8_t)sum; d2[12] = (uint8_t)(sum >> 8);
+                        /* GUARDRAIL: the entry xt must be written AFTER every other descriptor field. The 16-byte
+                         * layout's old `d2[15] = 0` ("reserved") still ran after this line and zeroed the LOW byte:
+                         * measured as an image whose header said RUNPH1=1282 while the descriptor handed back 1280,
+                         * so the caller EXECUTEd the wrong address (cells stayed 0). Reserved bytes are not free real
+                         * estate - check the field map before reusing one. */
+                        d2[15] = (uint8_t)v[5]; d2[16] = (uint8_t)(v[5] >> 8);   /* entry xt, 0 = none */
+                        d2[2] = 2;                                              /* descriptor version 2 */
+                        {
+                            unsigned rs = 0, k2;
+                            for (k2 = 52u; k2 < v[1]; k2++) rs = (rs + memimg[k2]) & 0xffffu;      /* resident code */
+                            /* GUARDRAIL: v[4] is the SEALED LATEST - the base of the RESIDENT headers. v[3] is the
+                             * post-load LATEST, i.e. the image's OWN header base. Using v[3] folded the image into its
+                             * own resident checksum, and at load time the loader compared image headers against
+                             * themselves: a clean image was refused with a name collision whose two entries were
+                             * byte-identical (measured with the offsets printed). */
+                            for (k2 = v[4]; k2 < (unsigned)ulp_repl_blk_off; k2++) rs = (rs + memimg[k2]) & 0xffffu;
+                            d2[13] = (uint8_t)rs; d2[14] = (uint8_t)(rs >> 8);
+                        }
+                    }
+                    printf("dump: code %u + hdr %u = %u B, descriptor packed -> %u blocks from block %u, sum %u\n",
+                           (unsigned)(v[2] - v[1]), (unsigned)(v[4] - v[3]), payload,
+                           (20u + payload + 127u) / 128u, v[0], sum);
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#a <ms>` stalls INSIDE the op-3 critical section (after the age check, before the copy). It
+             * exists because the interesting failure is not "a late request" but "the request was timely and the task
+             * then stalled": an age check evaluated only on entry cannot see that. Test-only, main core, 0 ULP bytes. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'a' && ln[2] == ' ') {
+                unsigned ms = 0; int k = 3;
+                while (ln[k] == ' ') k++;
+                while (ln[k] >= '0' && ln[k] <= '9') ms = ms * 10u + (unsigned)(ln[k++] - '0');
+                apply_stall_ms = ms;
+                printf("stall: op-3 critical section will sleep %u ms after the age check\n", ms);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#s <ms>` stalls the block task ONCE. Test-only (main core, zero ULP bytes) and the only way
+             * to provoke the op-3 race deliberately: without it the host answers within one FreeRTOS tick and the ULP
+             * never times out, so "the host does not apply a stale request" could not be demonstrated. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 's' && ln[2] == ' ') {
+                unsigned ms = 0; int k = 3;
+                while (ln[k] == ' ') k++;
+                while (ln[k] >= '0' && ln[k] <= '9') ms = ms * 10u + (unsigned)(ln[k++] - '0');
+                stall_ms = ms;
+                printf("stall: block task will sleep %u ms on its next request\n", ms);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#p <blk> <off> <val>` pokes ONE byte in the store, so the loader's refusals can be exercised
+             * on real data instead of argued about. Test-only, main-core only, zero ULP bytes: without it there is no
+             * way to corrupt an image or forge a header hash from the console, and a refusal that has never fired is
+             * not evidence. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'p' && ln[2] == ' ') {
+                unsigned v3[3] = {0}; int k = 3, vi = 0, bad3 = 0;
+                while (vi < 3) {
+                    while (ln[k] == ' ') k++;
+                    if (!ln[k] || ln[k] < '0' || ln[k] > '9') { bad3 = 1; break; }
+                    while (ln[k] >= '0' && ln[k] <= '9') v3[vi] = v3[vi] * 10u + (unsigned)(ln[k++] - '0');
+                    vi++;
+                }
+                if (bad3 || vi < 3 || v3[0] >= BLK_N || v3[1] >= (blk_sz ? blk_sz : 128u) || v3[2] > 255u)
+                    printf("poke: REJECTED (want: #p <blk> <off> <val>)\n");
+                else {
+                    blkfile[v3[0]][v3[1]] = (uint8_t)v3[2];
+                    printf("poke: block %u off %u = %u\n", v3[0], v3[1], v3[2]);
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#l` is RETIRED. It wrote mem[] from a console command while the REPL was running: it passed
+             * only because the ULP had nothing to execute at that instant, i.e. passing by timing, which this project
+             * does not accept. A binary load now happens on mailbox op 3 (see block_task): the ULP issues the request
+             * and blocks inside blk_xfer, so the main core copies while the ULP is provably quiescent. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'l' && ln[2] == ' ') {
+                printf("load: REFUSED #l is retired - use `<desc_blk> 3 BLKXFER` from the ULP, then read the entry "
+                       "xt at the block window and EXECUTE it\n");
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#p <blk> <off> <val>` pokes ONE byte in the store, so the loader's refusals can be exercised
+             * on real data instead of argued about. Test-only, main-core only, zero ULP bytes: without it there is no
+             * way to corrupt an image or forge a header hash from the console, and a refusal that has never fired is
+             * not evidence. */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'p' && ln[2] == ' ') {
+                unsigned v3[3] = {0}; int k = 3, vi = 0, bad3 = 0;
+                while (vi < 3) {
+                    while (ln[k] == ' ') k++;
+                    if (!ln[k] || ln[k] < '0' || ln[k] > '9') { bad3 = 1; break; }
+                    while (ln[k] >= '0' && ln[k] <= '9') v3[vi] = v3[vi] * 10u + (unsigned)(ln[k++] - '0');
+                    vi++;
+                }
+                if (bad3 || vi < 3 || v3[0] >= BLK_N || v3[1] >= (blk_sz ? blk_sz : 128u) || v3[2] > 255u)
+                    printf("poke: REJECTED (want: #p <blk> <off> <val>)\n");
+                else {
+                    blkfile[v3[0]][v3[1]] = (uint8_t)v3[2];
+                    printf("poke: block %u off %u = %u\n", v3[0], v3[1], v3[2]);
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#l <desc_blk>` ADOPTS a packed image, on the main core, at zero ULP bytes - it writes the
+             * ULP's mem[] directly (the main core already reads it) and then sets V_HERE/V_LATEST, which is the same
+             * rewind the machine already trusts. Four refusals, each named, because a binary load that "mostly works"
+             * is the worst failure class here: the code carries absolute addresses, so a wrong base does not fail
+             * fast, it executes garbage.
+             *   1 FI/version      - descriptor sanity
+             *   2 resident sum    - the dictionary the image was built against must be unchanged
+             *   3 payload sum     - the image bytes in the store must be intact
+             *   4 header hashes   - a pasted header must not shadow a resident name
+             * Format: #l <desc_blk> */
+            if (n > 3 && ln[0] == '#' && ln[1] == 'l' && ln[2] == ' ') {
+                unsigned dblk = 0; int k = 3;
+                while (ln[k] == ' ') k++;
+                while (ln[k] >= '0' && ln[k] <= '9') dblk = dblk * 10u + (unsigned)(ln[k++] - '0');
+                {
+                    const uint8_t *desc = blkfile[dblk];
+                    uint8_t *memimg = (uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                    unsigned cl = (unsigned)desc[3] | ((unsigned)desc[4] << 8);
+                    unsigned hl = (unsigned)desc[5] | ((unsigned)desc[6] << 8);
+                    unsigned cs = (unsigned)desc[7] | ((unsigned)desc[8] << 8);
+                    unsigned hs = (unsigned)desc[9] | ((unsigned)desc[10] << 8);
+                    unsigned psum = (unsigned)desc[11] | ((unsigned)desc[12] << 8);
+                    unsigned rsum = (unsigned)desc[13] | ((unsigned)desc[14] << 8);
+                    unsigned hdrtop = (unsigned)ulp_repl_blk_off;
+                    int badl = 0;
+                    if (dblk >= BLK_N || desc[0] != 'F' || desc[1] != 'I' || desc[2] != 1) {
+                        printf("load: REFUSED bad descriptor (magic/version/block)\n"); badl = 1;
+                    }
+                    if (!badl && (cs < 52u || hs <= cs || hs > hdrtop || hdrtop - hs < hl)) {
+                        printf("load: REFUSED impossible geometry (code %u hdr %u top %u)\n", cs, hs, hdrtop);
+                        badl = 1;
+                    }
+                    if (!badl) {
+                        unsigned rs = 0, k2, sum2 = 0;
+                        for (k2 = 52u; k2 < cs; k2++) rs = (rs + memimg[k2]) & 0xffffu;
+                        for (k2 = hs + hl; k2 < hdrtop; k2++) rs = (rs + memimg[k2]) & 0xffffu;   /* sealed LATEST */
+                        if (rs != rsum) {
+                            printf("load: REFUSED resident dictionary changed (sum %u, image built on %u)\n", rs, rsum);
+                            badl = 1;
+                        }
+                    }
+                    if (!badl) {
+                        /* the payload lives from descriptor block, offset 16, and is a plain concatenation */
+                        unsigned blk2 = dblk, off2 = 16, k2, sum2 = 0;
+                        for (k2 = 0; k2 < cl + hl; k2++) {
+                            sum2 = (sum2 + blkfile[blk2][off2]) & 0xffffu;
+                            if (++off2 == (blk_sz ? blk_sz : 128u)) { off2 = 0; blk2++; }
+                        }
+                        if (blk2 >= BLK_N || sum2 != psum) {
+                            printf("load: REFUSED image corrupt (sum %u, descriptor %u)\n", sum2, psum);
+                            badl = 1;
+                        }
+                    }
+                    if (!badl) {
+                        /* refusal 4: any image header hash equal to a resident one would shadow a resident name */
+                        unsigned blk2 = dblk, off2 = 16 + cl, k2, j, hb[3], collision = 0;
+                        while (off2 >= (blk_sz ? blk_sz : 128u)) { off2 -= (blk_sz ? blk_sz : 128u); blk2++; }
+                        for (k2 = 0; k2 + 2 < hl; k2 += 3) {
+                            for (j = 0; j < 3; j++) {
+                                unsigned p2 = off2 + j;
+                                hb[j] = blkfile[blk2 + p2 / (blk_sz ? blk_sz : 128u)][p2 % (blk_sz ? blk_sz : 128u)];
+                            }
+                            {
+                                unsigned ih = ((unsigned)hb[2] << 4) | ((unsigned)hb[1] >> 4), k3;
+                                for (k3 = hs + hl; k3 + 2 < hdrtop; k3 += 3) {   /* resident base = sealed LATEST */
+                                    unsigned rh = ((unsigned)memimg[k3 + 2] << 4) | ((unsigned)memimg[k3 + 1] >> 4);
+                                    if (rh == ih) {
+                                        /* GUARDRAIL: name the offsets. A bare hash told us a refusal fired but not
+                                         * whether it was a real collision, a misaligned image entry, or a wrong stride
+                                         * in the resident scan - three different bugs with the same message. */
+                                        if (!collision) {
+                                            printf("load: image entry @payload %u (bytes %u %u %u) hash %u == resident @%u "
+                                                   "(bytes %u %u %u)\n", k2, hb[0], hb[1], hb[2], ih, k3,
+                                                   memimg[k3], memimg[k3+1], memimg[k3+2]);
+                                        }
+                                        collision = ih;
+                                    }
+                                }
+                            }
+                            off2 += 3;
+                            while (off2 >= (blk_sz ? blk_sz : 128u)) { off2 -= (blk_sz ? blk_sz : 128u); blk2++; }
+                        }
+                        if (collision) {
+                            printf("load: REFUSED name collision, image header hash %u shadows a resident word\n",
+                                   collision);
+                            badl = 1;
+                        }
+                    }
+                    if (!badl) {
+                        unsigned blk2 = dblk, off2 = 16, k2;
+                        for (k2 = 0; k2 < cl + hl; k2++) {          /* code first, then headers, exactly as dumped */
+                            memimg[cs + k2] = blkfile[blk2][off2];
+                            if (++off2 == (blk_sz ? blk_sz : 128u)) { off2 = 0; blk2++; }
+                        }
+                        /* GUARDRAIL: the sysvar offsets are duplicated HERE because the main core does not include
+                         * src/uforth.c (it would drag the whole engine in). They must match the enum in uforth.c:
+                         * V_STATE 0, V_HERE 4, V_LATEST 8, V_SEAL 12, V_LOADB 16, PAD 20, DICT 52. A drift here
+                         * would write the pointers into the wrong cells and the machine would execute garbage. */
+#define HP_V_HERE   4u
+#define HP_V_LATEST 8u
+                        memimg[HP_V_HERE] = (uint8_t)((cs + cl) & 0xffu);   /* little-endian, sysvars are u32 */
+                        memimg[HP_V_HERE + 1] = (uint8_t)(((cs + cl) >> 8) & 0xffu);
+                        memimg[HP_V_HERE + 2] = 0; memimg[HP_V_HERE + 3] = 0;
+                        memimg[HP_V_LATEST] = (uint8_t)(hs & 0xffu);
+                        memimg[HP_V_LATEST + 1] = (uint8_t)((hs >> 8) & 0xffu);
+                        memimg[HP_V_LATEST + 2] = 0; memimg[HP_V_LATEST + 3] = 0;
+                        printf("load: adopted code %u + hdr %u from block %u (HERE %u, LATEST %u)\n",
+                               cl, hl, dblk, cs + cl, hs);
+                    }
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             /* GUARDRAIL: everything that is NOT a seed line is forwarded into the ULP's command ring from HERE.
              * The pump used to read the UART as well, and two readers on one port steal each other's bytes:
              * measured as a mangled command (`LOAD?` where a LOAD was intended) and blocks that never arrived. */
             {
                 uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, space = CMD_SIZE - (h - tl);
                 uint32_t i;
+                /* GUARDRAIL: a line longer than the ring was forwarded PARTIALLY - `for (... && i < space ...)` cut it
+                 * and the ULP then executed a truncated command. Measured: a 71-char definition echoed as
+                 * `... 1 + REPEAT DRO` and compiled a definition that never closed, with NO error anywhere; the next
+                 * lines were then compiled into it instead of being interpreted. The interactive limit is CMD_SIZE-1
+                 * = 63 bytes (the seeder's `#b` path has its own 320-byte buffer and is unaffected). Refuse the whole
+                 * line by name: a partial command must never reach the machine. */
+                if ((uint32_t)n + 1u > space || (uint32_t)n + 1u > CMD_SIZE) {
+                    printf("line too long: %d bytes, the ring holds %u - NOT sent\r\n", n, (unsigned)(CMD_SIZE - 1u));
+                    fflush(stdout);
+                    n = 0;
+                    continue;
+                }
                 ln[n] = '\r';
-                for (i = 0; i <= (uint32_t)n && i < space; i++) CMD_BYTES[(h + i) & CMD_MASK] = (uint8_t)ln[i];
+                for (i = 0; i <= (uint32_t)n; i++) CMD_BYTES[(h + i) & CMD_MASK] = (uint8_t)ln[i];
                 ulp_repl_cmd_head = h + i;
             }
             n = 0;
@@ -251,7 +551,19 @@ static void block_task(void *arg)
     uint32_t seen = 0;
 #endif
     for (;;) {
-        if (ulp_repl_blk_req) {
+        /* GUARDRAIL: service a request only on a FRESH edge of the ULP's outstanding-request flag (or when a Forth
+         * verb raised repl_blk_req). The naive version - "service whatever blk_out advertises" - was measured twice
+         * wrong: (1) when this task is stalled past the ULP's BLKWAIT, the ULP returns BK_NOSERVER (-3) and leaves
+         * blk_out set, so the late service still ADOPTED the image the machine had been told it does not have
+         * ("img: adopted ... entry 1280" after a -3); (2) with blk_out set for ever after that timeout, the naive
+         * task re-serviced the same stale request continuously and flooded the console.
+         * An edge cannot be missed: this task polls every FreeRTOS tick (~10 ms) and BLKWAIT is ~845 ms measured. */
+        int out_now = (int)ulp_repl_blk_out;      /* read once: the other core clears it when it has the answer */
+        int fresh = out_now && !blk_out_prev;     /* a request this task actually SAW arrive */
+        blk_out_prev = out_now;
+        if (fresh) edge_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (ulp_repl_blk_req || fresh) {
+                if (stall_ms) { vTaskDelay(pdMS_TO_TICKS(stall_ms)); stall_ms = 0; }
 #if defined(BLK_DEBUG)
             if (seen < 3) {
                 volatile uint32_t *dbg = (volatile uint32_t *)(ULP_RAM_BASE + ulp_repl_mb_addr);
@@ -271,6 +583,112 @@ static void block_task(void *arg)
                  * arrived at Forth as "server busy" and the operator got a misleading name for a range
                  * error. 5 decodes as BK_RANGE, which is what it is. */
                 mb[2] = 5;                       /* nack: no such block -> BK_RANGE */
+            } else if (op == 3u) {               /* LOAD IMAGE: validate, copy into mem[], hand back the entry xt */
+                /* GUARDRAIL: this is the ONLY safe place to write mem[] from the main core. The ULP asked for it and
+                 * is spinning inside blk_xfer waiting for the answer, so it is provably not fetching tokens from the
+                 * region being written. A console command cannot make that promise (that is why `#l` is retired).
+                 * GUARDRAIL: four named refusals, coarse codes to the ULP (which has names for 4/5/6) and a precise
+                 * line to the console, because a binary load that "mostly works" executes garbage: the image carries
+                 * absolute addresses.
+                 *   magic/geometry    -> 5 (BK_RANGE)
+                 *   sealed pointers   -> 5 (BK_RANGE)   code base and header base must match THIS machine
+                 *   resident sum      -> 4 (BK_CRC)     the dictionary the image was built on
+                 *   image sum         -> 4 (BK_CRC)     the bytes in the store
+                 *   header collision  -> 6 (BK_BUFOVER) a pasted header must not shadow a resident name */
+                const uint8_t *desc = blkfile[blk];
+                uint8_t *mi = (uint8_t *)(ULP_RAM_BASE + ulp_repl_mem_addr);
+                uint32_t age = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - edge_ms;
+                if (age > 400u) {          /* 400 ms < BLKWAIT ~845 ms: past this the ULP has certainly given up */
+                    /* GUARDRAIL: answer the ULP FIRST, print second. The ULP is blocked on this word, and stdout can
+                     * stall for milliseconds on the USB console - measured as 50 adoption cycles where an op-3 answer
+                     * arrived too late and the cycle test failed. The console must never sit between the work and the
+                     * answer. */
+                    mb[3] = 0; mb[2] = 5;
+                    printf("img: REFUSED stale request (%u ms old, the ULP has given up) - nothing applied\n",
+                           (unsigned)age);
+                    goto img_done;
+                }
+                if (apply_stall_ms) { vTaskDelay(pdMS_TO_TICKS(apply_stall_ms)); apply_stall_ms = 0; }
+                /* GUARDRAIL: re-evaluate the age AFTER the critical-section stall, immediately before anything is
+                 * copied. The entry check alone is not enough: a stall of 2 s inside the section happened after the
+                 * check passed, and the copy would then land in a dictionary the ULP had already been told it does not
+                 * have. The bound has to be tested where the decision is taken. */
+                age = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - edge_ms;
+                if (age > 400u) {
+                    mb[3] = 0; mb[2] = 5;
+                    printf("img: REFUSED stale request after the stall (%u ms old) - nothing applied\n", (unsigned)age);
+                    goto img_done;
+                }
+                unsigned cl = (unsigned)desc[3] | ((unsigned)desc[4] << 8);
+                unsigned hl = (unsigned)desc[5] | ((unsigned)desc[6] << 8);
+                unsigned cs = (unsigned)desc[7] | ((unsigned)desc[8] << 8);
+                unsigned hs = (unsigned)desc[9] | ((unsigned)desc[10] << 8);
+                unsigned psum = (unsigned)desc[11] | ((unsigned)desc[12] << 8);
+                unsigned rsum = (unsigned)desc[13] | ((unsigned)desc[14] << 8);
+                unsigned entry = (unsigned)desc[15] | ((unsigned)desc[16] << 8);
+                unsigned top = (unsigned)ulp_repl_blk_off;
+                unsigned vhere = (unsigned)mi[4] | ((unsigned)mi[5] << 8);
+                unsigned vseal = (unsigned)mi[12] | ((unsigned)mi[13] << 8);
+                uint32_t nack = 0; int bad = 0, answered = 0; unsigned k2;
+                if (desc[0] != 'F' || desc[1] != 'I' || desc[2] != 2 || cl == 0u || hl == 0u
+                    || hl % 3u != 0u || cs < 52u || hs <= cs || hs + hl > top) {
+                    nack = 5; bad = 1; mb[3] = 0; mb[2] = 5; answered = 1; printf("img: REFUSED bad descriptor (magic/version/geometry)\n");
+                }
+                if (!bad && (cs != vhere || hs + hl != vseal)) {
+                    nack = 5; bad = 1; mb[3] = 0; mb[2] = 5; answered = 1;
+                    printf("img: REFUSED sealed pointers moved (image built on HERE %u LATEST %u, this machine has %u and %u)\n",
+                           cs, hs + hl, vhere, vseal);
+                }
+                if (!bad) {
+                    unsigned rs = 0;
+                    for (k2 = 52u; k2 < cs; k2++) rs = (rs + mi[k2]) & 0xffffu;
+                    for (k2 = hs + hl; k2 < top; k2++) rs = (rs + mi[k2]) & 0xffffu;
+                    if (rs != rsum) { nack = 4; bad = 1; mb[3] = 0; mb[2] = 4; answered = 1; printf("img: REFUSED resident dictionary changed (sum %u, built on %u)\n", rs, rsum); }
+                }
+                if (!bad) {
+                    unsigned b2 = blk, o2 = 20, s2 = 0;
+                    for (k2 = 0; k2 < cl + hl; k2++) {
+                        s2 = (s2 + blkfile[b2][o2]) & 0xffffu;
+                        if (++o2 == blk_sz) { o2 = 0; b2++; }
+                    }
+                    if (b2 >= BLK_N || s2 != psum) { nack = 4; bad = 1; mb[3] = 0; mb[2] = 4; answered = 1; printf("img: REFUSED image corrupt (sum %u, descriptor %u)\n", s2, psum); }
+                }
+                if (!bad) {
+                    unsigned b2 = blk, o2 = 20 + cl, k3, j, hb[3], coll = 0;
+                    while (o2 >= blk_sz) { o2 -= blk_sz; b2++; }
+                    for (k3 = 0; k3 + 8 < hl; k3 += 3) {          /* +8: skip the last two entries, they are anchors */
+                        for (j = 0; j < 3; j++) hb[j] = blkfile[b2 + (o2 + j) / blk_sz][(o2 + j) % blk_sz];
+                        {
+                            unsigned ih = ((unsigned)hb[2] << 4) | ((unsigned)hb[1] >> 4), r3;
+                            for (r3 = hs + hl; r3 + 2 < top; r3 += 3) {
+                                unsigned rh = ((unsigned)mi[r3 + 2] << 4) | ((unsigned)mi[r3 + 1] >> 4);
+                                if (rh == ih) { if (!coll) { mb[3] = 0; mb[2] = 6; answered = 1; printf("img: REFUSED name collision, header hash %u shadows a resident %u\n", ih, r3); } coll = ih; }
+                            }
+                        }
+                        o2 += 3;
+                        while (o2 >= blk_sz) { o2 -= blk_sz; b2++; }
+                    }
+                    if (coll) { nack = 6; bad = 1; }
+                }
+                if (!bad) {
+                    unsigned b2 = blk, o2 = 20;
+                    for (k2 = 0; k2 < cl + hl; k2++) {
+                        mi[cs + k2] = blkfile[b2][o2];
+                        if (++o2 == blk_sz) { o2 = 0; b2++; }
+                    }
+                    mi[4] = (uint8_t)((cs + cl) & 0xffu); mi[5] = (uint8_t)(((cs + cl) >> 8) & 0xffu);
+                    mi[6] = 0; mi[7] = 0;
+                    mi[8] = (uint8_t)(hs & 0xffu); mi[9] = (uint8_t)((hs >> 8) & 0xffu);
+                    mi[10] = 0; mi[11] = 0;
+                    /* the entry xt rides back in the block window: 4 bytes, little-endian */
+                    buf[0] = (uint8_t)(entry & 0xffu); buf[1] = (uint8_t)((entry >> 8) & 0xffu);
+                    buf[2] = 0; buf[3] = 0;
+                    mb[3] = 0; mb[2] = 1u;      /* answer FIRST - see the GUARDRAIL above */
+                    printf("img: adopted code %u + hdr %u from block %u, entry %u\n", cl, hl, (unsigned)blk, entry);
+                    answered = 1;
+                }
+                if (!answered) { mb[3] = 0; mb[2] = bad ? nack : 1u; }
+img_done:   ;
             } else if (op == 0u) {               /* READ */
                 uint32_t s = 0; int i;
                 for (i = 0; i < (int)blk_sz; i++) { buf[i] = blkfile[blk][i]; s += blkfile[blk][i]; }

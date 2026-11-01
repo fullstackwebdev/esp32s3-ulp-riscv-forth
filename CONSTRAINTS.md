@@ -39,6 +39,9 @@ Rules this file obeys, learned the hard way:
 | constant | value | |
 | --- | --- | --- |
 | **configuration at HEAD** | main now carries the **overlay build**: `MEMSZ` 1 936, per-phase capacity **690 B**, resident toll 846 B (manager 528 + loop 318), store 128 × 128 B (volatile, host `.bss`) | M |
+| **BLOCK fetch (measured)** | **50.2 ms** median (min 49.1, max 50.4, n=20) — the mailbox round trip, UART included | M |
+| **phase load, source (measured)** | **970.7 ms** median for an 8-block / 811 B phase = **121 ms/block**; ≈70 ms of that is parse+compile (≈0.55 ms per source char), the rest is the per-block mailbox round trip | M |
+| **interactive line limit** | **63 bytes** (`CMD_SIZE` 64); longer lines are now **refused by name** (`line too long: N bytes, the ring holds 63 - NOT sent`) instead of being forwarded partially | M |
 | **device ceiling (measured)** | **15 phases × 516 B = 7 740 B = 504 %** of the control, stopped by the 128-block store — not by RAM or the window | M |
 | **no-overlay control** | `MEMSZ` 2 288, **1 536 B** of application space; still buildable (`tests/abtest.sh`) and preserved at tag `pre-overlay-merge` | M |
 | **pool used** | **7 853 / 7 856** (3 B free) — unchanged by P53, which moved 200 B from `.bss` to `.data`; the overlay branch sits at **7 845 / 7 856** after the loader fix (word() refill loop), which is 11 B better than the code it replaced | M |

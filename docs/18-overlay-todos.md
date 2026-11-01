@@ -148,3 +148,29 @@ handoff's tier table in the same commit.
 - **Record a gap to get a green suite.** A known behaviour goes in `tools/known_defects.sh` with the *correct* expected
   result, so a fix reports FIXED and the probe is promoted.
 - **Trust a harness that has not been shown to fail.** Every new check gets a deliberate-failure run first.
+
+---
+
+## T11 — All coverage becomes suite verifiers, and the suite runs all of them, accelerated (directive, not started)
+
+Owner directive for this branch (`overlay-manager-enhancement`): **every coverage probe becomes a verifier in the test
+suite, the suite runs all of them, and it runs them accelerated.** Not started — recorded here so it is not lost.
+
+What it means concretely, so the work is unambiguous when it starts:
+
+- **Everything currently outside `tests/run.sh` moves in**: `capacity.sh`, `flagship.sh`, `ceiling.sh`,
+  `ceiling_probe.sh`, `abtest.sh`, plus the device lanes (`device_ceiling.py`, `device_timing.py`, `block_boundary.sh`
+  is already in). A capability that is not a verifier does not count as covered.
+- **Each probe states its correct expectation**, so a change reports pass/fail instead of writing a golden file around
+  a gap (the `known_defects.sh` rule, applied to the whole suite).
+- **Every verifier must be shown able to fail** (the `--skip-block` pattern): a check that has never failed is not
+  evidence.
+- **Accelerated**: the measured levers are already in the tree — prompt-driven device IO (18.6× per command, see
+  `docs/19-rapid-development.md`), one-transcript batched seeding (1.9×), one reset per variant, and parallel
+  independent host checks. Target: the full host suite stays in single-digit seconds and the device lane is measured
+  in tens of seconds, not minutes.
+- **Two lanes, one entry point**: a fast lane for the inner loop and the complete lane for a keep, both run from
+  `tests/run.sh` (a flag selects the lane), so nobody has to remember which script covers which capability.
+
+Acceptance for T11: `tests/run.sh` runs every capability check listed above, all green, with a documented fast lane,
+and the total wall time printed per lane.

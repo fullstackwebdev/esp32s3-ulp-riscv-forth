@@ -27,7 +27,10 @@ export IDF_PATH=/home/user/research/esp32/esp-idf
 # compile error left the previous host_suite in place, the suite ran it, and the run reported 14/14 PASS on a
 # tree that would not compile — measured while removing FAULT, where the assertion error was invisible until
 # the pullout ran the assert on a re-run. Same rule as "a green suite must never be achieved by recording a
-# gap": it must also never be achieved by running the wrong binary.
+# GUARDRAIL: a clean clone has no artifacts/ directory, and every gcc -o below then fails with
+# "cannot open output file artifacts/host_suite" - measured from a fresh clone, where the suite reported 0 PASS and 0
+# FAIL, i.e. it looked like a green run of nothing. Create the directories the suite writes into.
+mkdir -p artifacts .auto/tmp
 gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTIBSZ=128 -DMEMSZ=2048 \
     -o artifacts/host_suite src/uforth.c || { echo "BUILD FAILED: host_suite will not compile" >&2; exit 1; }
 # GUARDRAIL: the capacity test compiles the phases at the SHIPPING memory size (MEMSZ 1936). Building it at the
@@ -57,6 +60,11 @@ python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1
 # shipping host flags (128-byte pass), so the test builds its own engine at the chip's 96-byte pass and asserts both
 # ways a boundary bites: a closing ';' past the pass, and a name parsed across it.
 bash tests/block_boundary.sh || { echo "FAIL  block_boundary" >&2; fail=1; }
+# GUARDRAIL: the paging capabilities are verified in ONE device session by tests/capabilities.py. Its DEVICE-FREE half
+# runs here (distinct per-phase oracles from the host engine), so a change that breaks the oracle or the signature scheme
+# fails the ordinary suite instead of waiting for a board. The device half is the gate before a keep:
+#     python3 tests/capabilities.py          (11 checks, ~90 s, one session)
+python3 tests/capabilities.py --host || { echo "FAIL  capabilities (host half)" >&2; fail=1; }
 for f in tests/*.fs; do
     name=$(basename "$f" .fs)
     want="tests/$name.expected"
