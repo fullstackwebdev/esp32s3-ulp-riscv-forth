@@ -754,5 +754,21 @@ the same phase without complaint, so it is another host/device difference; the r
 blocks under `TYPE` from a page whose lines were authored at 59 characters, so the first suspect is a row that runs past
 the seeded content and prints padding/status bytes.
 
-**Status: open, named, with the reproduction** (`/tmp` script: build reader, `#d 48`, `48 GO`, capture the stream; the
-error is `ERR_UNNAMED`, and `ERR_ULPCODE 0xNN` appeared in an earlier capture of the same phase).
+**The capture says what it is** (build reader, `#d 48`, `48 GO`, read the stream):
+
+```
+byte 223  ERR_UNNAMED            an error code with no name in src/msg_codes.h
+byte 242  ERR_ULPCODE 0xfa       then the interpreter executing non-ASCII bytes
+byte 281  ERR_ULPCODE 0xc4       ... 0x97, 0xa4, 0xc4, interleaved with fragments like 'hDBN', '/B\x04'
+```
+
+`0xfa`/`0xc4` are not text and not tokens; that pattern is `TYPE` reading from an address that is not a buffer. **`BLOCK`
+pushes its STATUS where an address is expected when the transfer fails** (`p_blk_block`: `blk_errmsg(st); PUSH((u32)st)`,
+so a failure hands back `0xFFFFFFFA` for -6), and the reader uses the result without checking. The reader is the only phase
+that reads eight blocks per screen and the only one that does not test the status.
+
+**Two defects, named:** (1) the reader must check the status of every `BLOCK` before `TYPE` - a failed read has to be a
+refusal on screen, not a print from address -6; (2) its page base is still `64` (`RBLK = RT + 64 + page*8`) while content
+moved to **72** when the shelf's 9-block descriptor was given its room, so the arithmetic reads the wrong blocks even when
+the transfer succeeds. (3) Arguably the engine should push 0 on a failed `BLOCK`, so a bad read faults loudly instead of
+aliasing a status as a pointer - that is an engine decision, not a fix to paper over.
