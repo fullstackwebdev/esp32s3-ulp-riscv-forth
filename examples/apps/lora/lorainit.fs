@@ -1,46 +1,35 @@
 \ lorainit.fs - the SX1262 bring-up as its OWN PHASE.
 \
 \ WHY A PHASE: INIT is a fixed byte sequence, and written as
-\ Forth it cost
-\ 491 B of app space (measured per-word: 488 B code + 3 B
-\ header). A phase is
-\ loaded into the pool on its own, runs, and hands off, so it
-\ costs the app
-\ nothing while it is not running. The app then only carries
-\ what it needs
+\ Forth it cost 491 B of app space (measured per-word: 488 B
+\ code + 3 B header). A phase is loaded into the pool on its
+\ own, runs, and hands off, so it costs the app nothing while
+\ it is not running. The app then only carries what it needs
 \ every packet - primitives, SEND, receive words - leaving room
-\ for AES and
-\ protobuf, which is the whole point of the exercise.
+\ for AES and protobuf, which is the whole point of the
+\ exercise.
 \
 \ GUARDRAIL: a phase cannot see another phase's words
-\ (measured: a phase
-\ calling a neighbour's DRAW is refused BY NAME), so this file
-\ declares its
-\ own primitives. That duplication is the price of chaining and
-\ it is what
-\ makes the primitive set a candidate for baking into the image
-\ later.
+\ (measured: a phase calling a neighbour's DRAW is refused BY
+\ NAME), so this file declares its own primitives. That
+\ duplication is the price of chaining and it is what makes the
+\ primitive set a candidate for baking into the image later.
 \
 \ GUARDRAIL: every line stays under 63 B - the device input
-\ ring drops longer
-\ lines SILENTLY, and the definition then simply does not
-\ exist.
+\ ring drops longer lines SILENTLY, and the definition then
+\ simply does not exist.
 \
 \ GUARDRAIL: the configuration is DATA, not code. Each
-\ transaction is
-\ `len, bytes...` and is clocked out by XFER; adding or
-\ changing a radio
-\ setting is a table edit, not 35 more tokens of compiled code.
+\ transaction is `len, bytes...` and is clocked out by XFER;
+\ adding or changing a radio setting is a table edit, not 35
+\ more tokens of compiled code.
 \
 \ CONFIG (unchanged from the measured driver): STDBY_RC, DC-DC,
-\ TCXO 1.8 V on
-\ DIO3 with a 5 ms start-up, calibrate all, DIO2 as RF switch,
-\ LoRa, 868.1 MHz
-\ (0x36419999 = 54 65 153 153), image cal 863-870, PA 14 dBm,
-\ buffer base 0,
-\ SF9 / BW125 / CR4-5 / LDRO 0, preamble 8, explicit header,
-\ length 4, CRC on,
-\ all IRQ sources enabled in the mask.
+\ TCXO 1.8 V on DIO3 with a 5 ms start-up, calibrate all, DIO2
+\ as RF switch, LoRa, 868.1 MHz (0x36419999 = 54 65 153 153),
+\ image cal 863-870, PA 14 dBm, buffer base 0, SF9 / BW125 /
+\ CR4-5 / LDRO 0, preamble 8, explicit header, length 4, CRC
+\ on, all IRQ sources enabled in the mask.
 \
 \ Pads on this board: NSS 8, SCK 9, MOSI 10, MISO 11, RESET 12,
 \ BUSY 13.
@@ -82,9 +71,11 @@ CREATE TBL
   3 C, 142 C, 14 C, 4 C,
   3 C, 143 C, 0 C, 0 C,
   5 C, 139 C, 9 C, 4 C, 1 C, 0 C,
+  2 C, 116 C, 43 C,
   7 C, 140 C, 0 C, 8 C, 0 C, 4 C, 1 C, 0 C,
   9 C, 8 C, 255 C, 255 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C,
+  0 C,
   0 C,
 CREATE CFGPTR 0 ,
 CREATE CFGLEN 0 ,
@@ -93,7 +84,7 @@ CREATE CFGLEN 0 ,
   BEGIN DUP WHILE CFGPTR @ C@ >BYTE 1 ADV 1- REPEAT DROP ;
 : XFER ( -- ) NSSLO CFGPTR @ C@ 1 ADV CLKN NSSHI ;
 : ALL ( n -- ) BEGIN DUP WHILE XFER 1- REPEAT DROP ;
-: NCMDS ( -- n ) 14 ;
+: NCMDS ( -- n ) 15 ;
 : RADIO-INIT ( -- ok )
   42160 INEN 42168 INEN 42172 INEN
   1 8 PIN! 1 12 PIN! 0 9 PIN!
@@ -103,13 +94,12 @@ CREATE CFGLEN 0 ,
   1 ;
 \
 \ Verification words, so the phase can be checked instead of
-\ trusted:
-\ STAT = GetStatus (chipmode bits 6..4: 2 = STDBY_RC, 5 = RX),
-\ PTYPE = GetPacketType
-\ (1 = LoRa). Both are documented commands with unambiguous
-\ answers. A register readback was
-\ attempted and dropped: the offset used (0x0880) was never
-\ verified here, so asserting on it
-\ would have been asserting on a guess.
+\ trusted: STAT = GetStatus (chipmode bits 6..4: 2 = STDBY_RC,
+\ 5 = RX), PTYPE = GetPacketType (1 = LoRa). Both are
+\ documented commands with unambiguous answers. A register
+\ readback was attempted and dropped: the offset used (0x0880)
+\ was never verified here, so asserting on it would have been
+\ asserting on a guess.
 : STAT ( -- st ) NSSLO 192 >BYTE RD-BYTE NSSHI ;
 : PTYPE ( -- t ) NSSLO 17 >BYTE RD-BYTE DROP RD-BYTE NSSHI ;
+

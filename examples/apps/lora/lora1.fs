@@ -159,8 +159,10 @@ CREATE TBL
   3 C, 142 C, 14 C, 4 C,
   3 C, 143 C, 0 C, 0 C,
   5 C, 139 C, 9 C, 4 C, 1 C, 0 C,
+  2 C, 116 C, 43 C,
   7 C, 140 C, 0 C, 8 C, 0 C, 4 C, 1 C, 0 C,
   9 C, 8 C, 255 C, 255 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
+  0 C,
   0 C,
 CREATE TP 0 ,
 : ADV ( n -- ) TP @ + TP ! ;
@@ -172,7 +174,7 @@ CREATE TP 0 ,
 \ session. tools/resident_names.txt does not list it: ask the
 \ BOARD with `' NAME .`.
 : XMT ( -- ) NSSLO TP @ C@ 1 ADV CLKN NSSHI ;
-: CNF ( -- ) TBL TP ! 14 BEGIN DUP WHILE XMT 1- REPEAT DROP ;
+: CNF ( -- ) TBL TP ! 15 BEGIN DUP WHILE XMT 1- REPEAT DROP ;
 : INIT ( -- ok )
   42160 INEN 42168 INEN 42172 INEN
   1 NSSPAD PIN! 1 NRSTPAD PIN! 0 SCKPAD PIN!
@@ -189,6 +191,7 @@ CREATE TP 0 ,
   NSSLO 131 >BYTE 15 >BYTE 0 >BYTE 0 >BYTE NSSHI
   200 MS
   NSSLO 18 >BYTE 0 >BYTE RD2 NSSHI 1 AND ;
+
 
 
 

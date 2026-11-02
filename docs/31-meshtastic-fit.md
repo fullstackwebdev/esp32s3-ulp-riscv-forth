@@ -574,3 +574,68 @@ need), but by splitting it across phases that hand state through the radio's buf
    the only thing catching that class.
 2. **`tools/reflow.py`** — wraps `\` comment lines to the 63 B ring limit. Four R21 findings in one session were
    comment lines that had grown unwatched.
+
+## Appendix J — the chain has its first working phase, and the wire facts are source-verified
+
+### Sync word: the gap that came before all the crypto
+
+Meshtastic hardcodes `const uint8_t syncWord = 0x2b;` (`RadioLibInterface.h`, read out of the cached source, not
+remembered). Our tables never sent `SetLoRaSyncWord` (0x74), so we ran on the SX126x default **0x12** and no
+Meshtastic radio could have synced to our frames at all — the cheapest gap in the plan and the most gating.
+All three configuration tables now carry `2 C, 116 C, 43 C,` and the two-board link still passes 3+3 both
+directions and the 221-byte frame still decodes byte-exact.
+
+### The wire facts, all read out of the source
+
+| fact | value | where |
+|---|---|---|
+| sync word | **0x2B** | `RadioLibInterface.h: const uint8_t syncWord = 0x2b;` |
+| default PSK (AES128) | `d4f1bb3a20290759f0bcffabcf4e6901` | `Channels.h: defaultpsk[]` |
+| channel byte | `xorHash(name) ^ xorHash(psk)` → **0x08** for "LongFast" | `Channels.cpp: generateHash` |
+| nonce | `packetId` u64 LE ‖ `from` u32 LE ‖ 4 zero bytes | `CryptoEngine.cpp: initNonce` |
+| key | the 16-byte PSK itself (no SHA256 at this length) | `Channels.cpp: getKey` |
+
+With those, a reference frame is pinned in `tests/data/mesh_frame.json`: header
+`ffffffff 0a0a0a0a cafe0100 00 08 0000`, protobuf `08 80 02 12 06 "hello!"`, nonce
+`0001feca00000000 0a0a0a0a 00000000`, ciphertext `eab2b00d406d578e9fb621` (openssl `-aes-128-ctr`).
+
+### Phase 1 of the cipher: SubBytes + ShiftRows, ON THE CHIP
+
+`examples/apps/lora/aes_sub.fs`, **944 B of the 999 B window**, gated by `tests/lora_aes_sub.py`:
+
+```
+PASS  phase fits a 999 B window                      944 B
+PASS  phase leaves room for the rest of the chain    288 B free
+PASS  SubBytes+ShiftRows matches the reference       63 6b 67 76 7c 6f 2b fe 77 c5 30 d7 7b f2 01 ab
+      one phase = 3.62 s wall (SPI byte-by-byte, includes the reply)
+```
+
+The state goes in and out through `WriteBuffer`/`ReadBuffer` at buffer offset 224, the temp lives at 208..223,
+and the phase owns no storage. Two bugs were found by the reference, not by inspection:
+
+* **ShiftRows cannot run in place** — writing destination `i` clobbered a source a later `i` still needed, and
+  the output `63 6b 67 76 6b 6f 2b fe …` looked like a wrong S-box when it was a wrong *order*;
+* **the temp was copied back over the result** — `SR1` wrote the shifted byte into `ST` and then `SRALL`
+  copied the untouched temp over it, so the phase returned plain SubBytes (`63 7c 77 7b f2 6b …`). The shifted
+  state is built in the temp and copied back once.
+
+**R16 was refined, not ignored.** A phase may not own state — but a read-only table is not state: it is part of
+the phase's image, replaced together with the code that reads it and never stale. The rule now refuses storage
+that the phase *writes* (fixture updated to write its cell) and allows the S-box, which is what made the split
+possible at all: putting 256 B of S-box in the resident prelude would have shrunk **every** phase window by
+258 B (999 -> 741 B) and broken the 939 B frame phase.
+
+### Where the chain stands
+
+| phase | state | measured |
+|---|---|---|
+| frame + TX (`loratx.fs`) | works, 221 B byte-exact | 939 B ✓ |
+| SubBytes + ShiftRows (`aes_sub.fs`) | **verified against the reference** | 944 B ✓ |
+| MixColumns + AddRoundKey | **not written** | ~430 B estimated |
+| CTR XOR + block counter | **not written** | ~250 B estimated |
+| RX-side decrypt | **not written** | reuses the same three |
+
+So: **not Meshtastic-compatible yet.** The sync word, the frame layout and the first cipher phase are done and
+measured; the remaining work is MixColumns+AddRoundKey, the XOR layer, and the RX path — plus the honest
+caveat that no Meshtastic radio is on this bench, so the final claim can only be "spec-identical and
+crypto-verified against openssl", never "a Meshtastic node decoded it".

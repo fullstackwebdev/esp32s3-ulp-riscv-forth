@@ -199,9 +199,15 @@ def lint_phase(src):
     code = code_only(src)
     for m in re.finditer(r"\b(CREATE|VARIABLE|CONSTANT)\s+(\S+)", code):
         ln = code[:m.start()].count("\n") + 1
+        name = m.group(2)
+        written = re.search(rf"\b{re.escape(name)}\b[^\n;]*(?:C!|W!|\+!|(?<!C)!)", code) or \
+                  re.search(rf"(?:C!|W!|\+!|(?<!C)!)[^\n;]*\b{re.escape(name)}\b", code)
+        if not written:
+            continue                      # a read-only table: part of the image, replaced with its own code
         findings.append((ln, "R16 phase state",
-                         f"{m.group(1)} {m.group(2)}: a phase is REPLACED on every adopt, so this storage vanishes"
-                         " with it - keep state in examples/apps/registry.fs, below the seal"))
+                         f"{m.group(1)} {name}: WRITTEN by this phase, so it is state - and a phase is REPLACED on every"
+                         " adopt, so it vanishes with it. Keep state in examples/apps/registry.fs, below the seal"
+                         " (a read-only table is allowed: it is part of the phase image)"))
     # GUARDRAIL: the return path is NAMED, not inferred. `NXT !` and `CHAIN` and `SHELF` are the three ways a phase
     # hands the next phase to the dispatcher; an EXIT only returns to the adopt loop, which then has nowhere to go.
     if not (re.search(r"\bCHAIN\b", code) or re.search(r"\bNXT\s*!", code) or re.search(r"\bSHELF\b", code)):
@@ -934,7 +940,7 @@ BUGS = {
 """, "R24 pad register"),
  "phase with its own storage":
    ("""CREATE X 0 ,
-: PH1 ( -- ) 96 CHAIN ;
+: PH1 ( -- ) 7 X ! 96 CHAIN ;
 """, "R16 phase state", "phase"),
  "phase with no return path":
    (""": PH1 ( -- ) 1 DROP ;

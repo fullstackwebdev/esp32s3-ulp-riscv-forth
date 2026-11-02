@@ -1,0 +1,37 @@
+lora: PROVEN - the SX1262's buffer survives a real ADOPT, so the cipher CAN be split across phases
+
+This was the gate for Meshtastic AES. A phase is replaced on every adopt, so the cipher cannot keep 16 B of state
+(or 176 B of round keys) in its dictionary; the registry is resident (costs window bytes, image has 1 B), so the
+radio's own 256-byte buffer was the only candidate. tests/lora_adopt.py answers it through the REAL store:
+
+  raw reply: '17 34 51 68 85 102 119 136 153 170 187 204 221 238 240 15  ok'
+  PASS  radio buffer survives an ADOPT (identical)
+
+scr1.fs (descriptor 64, 413 B) writes 11 22 33 .. f0 0f to buffer offset 240 and CHAINs to 68; scr2.fs
+(descriptor 68, 463 B) is adopted into a FRESH dictionary, reads offset 240 through ReadBuffer(0x1E) and prints
+it. They match, and nothing in scr2's dictionary came from scr1 - only the radio carried the data.
+Contrast: the same bytes are DESTROYED by an ESP32 reset (tests/lora_scratch.py), because a reset drives the
+pads. An adopt does not touch the radio, which is exactly why the reset test could not answer this.
+
+IMAGE LEVERS, PRICED AND REJECTED (so nobody re-measures them):
+- -Os on the ULP build: it was ALREADY -Os (IDF's flags); appending another bought 0 B (same .text, same
+  vm_enter 2104, same pool span 7937). Reverted.
+- unused primitives: eight of the 27 corpus-unused ones (GPIO@ GPIO! ADC@ WAKE PUMP EV@ BRT U/MOD) price at
+  7937 -> 7865 = -72 B, ~9 B each. The cipher needs 329 B, so this needs ~37 primitives that do not exist.
+- .bss holds protocol buffers (tib 96 is the 63 B command ring - untouchable), so image growth tops out ~136 B.
+So the route is the CHAIN: key schedule 825 B fits; cipher split into SBox+SubBytes+ShiftRows (~490 B derived)
+and MixColumns+AddRoundKey (~430 B derived), with state in the radio buffer. 22 hops per block at 4.5 ms/adopt
+~= 100 ms; a 221-byte frame ~1.4 s against ~2.5 s of air time.
+
+TWO TOOLING GAPS CLOSED:
+1. lintgate --store: a store phase is a source FILE (line semantics, comments fine) uploaded through 92 B blocks,
+   so R11 applies and R1 does not. --repl skipped the block check and --phase refused every comment, so scr1.fs
+   was CLEAN while the build refused it. That third mode was missing and is now the gate.
+2. tools/reflow.py: wraps backslash comments to the 63 B ring limit. Four R21 findings in one session were
+   comment lines that had grown unwatched.
+
+Store wiring: two phases added to cli.py's APPSTORE table at descriptors 64 and 68 (60 collided with the shelf's
+730 B image at 56..61 and the overlap check refused it, by name).
+
+Green: suite 30 pass, selftest PASS, App Store 16/16 through the pty, adopt probe PASS, and every earlier
+LoRa test unchanged.

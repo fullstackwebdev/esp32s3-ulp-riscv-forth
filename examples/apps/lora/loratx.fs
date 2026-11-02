@@ -86,9 +86,11 @@ CREATE TBL
   3 C, 142 C, 14 C, 4 C,
   3 C, 143 C, 0 C, 0 C,
   5 C, 139 C, 9 C, 4 C, 1 C, 0 C,
+  2 C, 116 C, 43 C,
   7 C, 140 C, 0 C, 16 C, 0 C, 26 C, 1 C, 0 C,
   9 C, 8 C, 255 C, 255 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C,
+  0 C,
   0 C,
 CREATE CFGPTR 0 ,
 : ADV ( n -- ) CFGPTR @ + CFGPTR ! ;
@@ -101,7 +103,7 @@ CREATE CFGPTR 0 ,
   1 8 PIN! 1 12 PIN! 0 9 PIN!
   0 12 PIN! 2 MS 1 12 PIN! 5 MS
   1 MS 13 PIN@ 0= 0= IF 0 EXIT THEN
-  TBL CFGPTR ! 14 ALL
+  TBL CFGPTR ! 15 ALL
   1 ;
 \
 \ ---- the frame: 16 B Meshtastic header + 10 B protobuf Data
@@ -132,3 +134,4 @@ CREATE FRM
 : STAT ( -- st ) NSSLO 192 >BYTE RD-BYTE NSSHI ;
 : RUNLORA ( -- st )
   RADIO-INIT 0= IF 0 EXIT THEN TXBUF TX WAITX STAT ;
+
