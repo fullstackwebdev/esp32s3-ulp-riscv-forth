@@ -2262,3 +2262,24 @@ The hard constraint that did come out of it, and it is ours: the ULP image is **
 external-memory path both have to buy their bytes from the interpreter, so the first real question is the byte budget, not
 the driver.
 
+**J-116 · The SX126x reference driver is written down, and the Forth answer is arithmetic, not opinion.**
+`docs/28-sx126x-ulp.md` holds the supplied C (six files, reassembled - the paste had its blocks interleaved, and
+`sx126x_ulp_hal.h` was never supplied, so its contents are inferred and marked), eight "check this before copying it" notes,
+and the answer to the real question.
+
+The answer: **yes, in Forth - and the reason is the opposite of the obvious one.** Not that Forth is fast enough, but that the
+SPI is too small a share of the cost to care about. A 20-byte packet at SF9/125 kHz is ~90 ms of air time; the warm-start TX
+path is ~35 bytes of SPI, which is 1 ms in C and 4-9 ms in Forth - 5-10 %. Warm start makes the interpreter's 4-10x penalty
+disappear into the noise. Cold-initialising every packet would make it visible (~30 %), which is why the C's
+LORA_FORCE_COLD_INIT stays a debug flag.
+
+What Forth actually costs is BYTES, and that is the honest blocker: the ULP pool is 7891 of 7892 B. So the driver belongs in a
+PHASE - the mechanism we already built - with 3-4 primitives (pin write/read, microsecond delay, the bit loop) in the token
+table. Calibration from our own history: one counter plus its increment cost 12 B, so 3-4 primitives are ~120-230 B that we
+do not currently have; something moves first, or the radio lives on the main core and the ULP just counts wakes.
+
+Also recorded so it is not rediscovered: DIO1 is a LEVEL, so the IRQ clear must happen BEFORE SET_TX or the wait exits on the
+previous packet and looks like a radio fault; BUSY timeouts must be derived from a measured loop, not a guessed iteration
+count; a freq computed from a variable drags a 64-bit divide into the ULP image; and the cfg in a block must use 4-byte
+offsets, because F-136 already proved what an unaligned load does on rv32.
+
