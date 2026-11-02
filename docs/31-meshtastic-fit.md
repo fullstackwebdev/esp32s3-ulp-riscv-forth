@@ -699,3 +699,66 @@ table that puts it at the chain's terminal block.
   the protobuf exactly.
 * **Not** proven: that a *physical Meshtastic radio* decodes it. None was on this bench; the claim rests on byte
   equality with the source's format and with `openssl`, both of which are the values that radio would compute.
+
+## Appendix M — can the window be grown? (a probe for later, with the arithmetic that decides it)
+
+Short answer: **not with anything we have measured, and the reason is an identity, not an estimate.**
+
+### The identity
+
+| number | value | source |
+|---|---:|---|
+| Forth pool `MEMSZ` | 2 566 B | `docs/30-budget-ledger.md` |
+| `HERE` at the boot prompt | 786 | board |
+| `LATEST` at the boot prompt | 2 114 | board |
+| free prompt (the cipher's home) | 1 328 B | board: `LATEST − HERE` |
+| phase window | **999 B** | board: `resident sealed; phase window 999 B`, i.e. `LATEST − bh` after `SEAL` |
+| **the seal's header reserve** | **329 B** | derived: 1 328 − 999, i.e. `SEAL` moves `LATEST` from 2 114 down to 1 785 |
+| cipher as ONE phase | 1 328 B | measured, and it filled the prompt with **0 B free** |
+
+So the shortfall is not "a few bytes over": the cipher needs the *whole* prompt (1 328 B) while a phase gets the
+prompt **minus the header reserve it must leave for its own words** (999 B). A one-phase cipher therefore needs
+`MEMSZ + 329 B` — and the seal reserve is exactly the amount the cipher misses.
+
+### What would actually have to change, in the order worth trying
+
+1. **Shrink the cipher to ≤ 999 B.** The only lever with a measured target: SubBytes+ShiftRows together is
+   **1 045 B**, 46 B over. Find 46 B and a round drops from 4 hops to 3 (43 → 33 hops per block, **−23 %**). This
+   removes *most* of the chain, not all of it, and it needs no memory change at all.
+2. **Grow `MEMSZ` by 329 B.** `MEMSZ` lives in the image, and the image has **1 B free**. Two levers are already
+   priced: removing the eight unused primitives buys **−72 B** (measured, twin tree), and the `.bss` protocol
+   buffers have a ceiling of about **136 B** — together ≈ **208 B against 329 B needed**, and they buy *image*
+   headroom, which has to be converted into `MEMSZ` (another edit, and the resident image grows again with it).
+3. **Invert the split: cipher resident, driver in a phase.** The driver alone is **855 B** and fits a 999 B window,
+   so this looks attractive — but a resident 1 328 B cipher next to the resident launcher consumes the whole pool:
+   the cipher alone fills the prompt with **0 B free** (measured), so the seal has nothing to reserve and the phase
+   window collapses to **0 B**. The phases that would use the driver would have nowhere to live.
+
+### The probe, if someone later wants to spend the memory
+
+Do not trust the numbers above after any change to the resident dictionary; re-measure, in this order, on the
+board (docs/14 R17 "one reader is not a measurement", R20 "validate the instrument on a known-good system"):
+
+1. `HERE . LATEST .` at the boot prompt → free = `LATEST − HERE`. Expect **1 328** today; anything else means the
+   resident dictionary moved and every window figure in this document is stale.
+2. Build with any candidate change and read the build's own line: `resident sealed; phase window N B` (it is
+   `LATEST − bh`, printed by `cli.py`). Compare `N` with the phase you want to fit.
+3. `bh @ . LATEST .` after `SEAL` on the board confirms the same two numbers from the machine rather than from the
+   build (R17: two readers).
+4. Only then attempt the cipher as one phase and check `./cli.py --appstore` still builds the shelf: the shelf is
+   730 B and is the cheapest witness that a window change did not break ordinary phases (a phase that overruns the
+   window is refused by name by the build, and adopted-then-jumped by the board — the 41 Hz re-entry).
+
+### And the cost figure this appendix replaces
+
+An earlier projection in this document assumed **4.5 ms per adopt** and therefore ~100 ms per 16-byte block. It is
+**falsified by measurement**: the real chain is **43 hops in 18.3 s ≈ 425 ms per hop**, because each hop is a flash
+block read plus a ~1 KB paste, not a jump. Consequences, measured and labelled:
+
+* one 16-byte keystream block: **18.3 s measured** (not 100 ms projected);
+* a 27-byte LongFast frame's air time: **0.436 s** (derived from SF11/BW250/CR4-5, preamble 16) → the cipher is
+  **≈ 42× the air time**, not "affordable";
+* a 221-byte frame would be **≈ 4.3 min** of cipher (14 blocks), not the 1.4 s the projection claimed.
+
+That is the real price of phase chaining on this machine, and it is why lever 1 above (fewer hops per block) is
+worth 46 bytes of somebody's afternoon.
