@@ -2304,3 +2304,22 @@ the honest modelling of the C primitive at its own 350 kHz rather than as "1 tok
 it before committing: SCK kHz printed as 1000/(8*us_byte) understated the bus 1000x, which would have made a 40 kHz bus look
 like 0.65 kHz and "Forth is hopeless" for arithmetic reasons.
 
+**J-118 · The ULP-RISC-V transmits LoRa. First try: 4/4 packets, no main core involved.**
+`probe/lora` is a bare-metal ESP32-S3 project where the ULP bit-bangs SPI to an SX1262 on a Heltec V3: **975 cycles/byte
+(143 kHz SCK)**, driver **2 584 B**, `TxDone` on every 5 s wake, chip status `0x2c` read by the ULP agreeing with the
+hardware-SPI probe's `0x2a` on the same pins. The question docs/28 was written around - "can the ULP own the radio" - is
+answered yes, and the answer came with the numbers the docs had only guessed at.
+
+What the bring-up cost, and taught: **F-141**, `RTC_GPIO_OUT_DATA_W1TS_S` is 10, so `REG_WRITE(..., BIT(pin))` writes ten
+bits below the field and is silently discarded - the ULP ran, the loop executed, MISO read 0, GetStatus read 0x00, and
+every command "succeeded" while no pad moved. Four flash cycles went into pin maps and GPIO handover before a pad
+read-back inside the ULP settled it. **F-142**, that read-back instrument was itself blind: `RTC_GPIO_IN` only reports a
+pad with its input buffer enabled, so an output pin reads 0 and the test said "everything is dead" for a working bus.
+
+Green on the way: the two-configuration cold init (no TCXO, then TCXO) turned a jumper guess into a fact - **this board
+needs the DIO3 TCXO at 1.8 V** - and warm start retention (`SET_SLEEP 0x04`) is proven across ULP wakes, which was §6.4's
+open question.
+
+Standing: decode a packet on a receiver (TxDone proves the radio transmitted, not that the bytes are right), then deep
+sleep, then the Forth question with real sizes - 2 584 B of C against a 7 892 B pool holding everything and 1 B free.
+

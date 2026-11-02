@@ -799,3 +799,29 @@ arrive), but it is a workaround for an unexplained loss, and it is labelled as o
 **Recommended engine change, needs permission (`.c`):** either reinstate a drop counter so `#u` can report it, or make
 `pl_emit` block while the ring is full. A silent drop is exactly the class of failure this project bans elsewhere.
 
+### F-141 — The RTC GPIO output field starts at bit 10; an unshifted write is silently discarded
+
+**Symptom.** The ULP-RISC-V ran a bit-banged SPI loop against an SX1262 and got nowhere: `GetStatus` returned `0x00`, no
+`TxDone`, `err -3` on every attempt. Hardware SPI on the *same pins* returned `0x2a` (chipmode 2, STDBY_RC) the whole
+time, which ruled out the pin map and the radio's power rail.
+
+**Cause.** `REG_WRITE(RTC_GPIO_OUT_W1TS_REG, BIT(pin))`. On the ESP32-S3 the output data field of that register starts at
+bit **10** (`RTC_GPIO_OUT_DATA_W1TS_S == 10`), so `BIT(pin)` for pins 8..14 landed in bits 8..14 — below the field, in
+reserved/other territory. The write "succeeded", nothing moved, and because SPI has no readback of its own, every
+command appeared to complete.
+
+**Why it took four flash cycles.** A wrong write and a wrong read look identical from the outside. The instrument that
+settled it was a **pad read-back inside the ULP** (`hal_pad_selftest`): drive each output high, read it back, report a
+bitmask. (That instrument had its own trap — F-142.)
+
+**Fix.** Build the value from the register's own macro: `BIT(pin) << RTC_GPIO_OUT_DATA_W1TS_S`. Never hand-roll a shift
+for a field whose definition you have not opened.
+
+### F-142 — `RTC_GPIO_IN` cannot see a pad whose input buffer is off
+
+The pad self-test reported "all four driven pads dead" for a bus that was, by then, working — because `RTC_GPIO_IN` only
+reflects a pad whose `RTC_IO_x_FUN_IE` input buffer is enabled, and an output pin does not need one. A read-back test on
+outputs must enable the input first (and may disable it again afterwards, since the buffer costs current). Without that,
+the self-test is blind in exactly the case it was written for, and its "everything is broken" verdict is the one lie a
+diagnostic must never tell.
+

@@ -1,0 +1,126 @@
+/* ulp_main.c - ULP-RISC-V LoRa transmit node for the Heltec V3 (ESP32-S3 + SX1262)
+ *
+ * Each timer wake: measure the SPI bus, bring the radio up (or reuse a warm configuration), send one 20-byte packet,
+ * put the radio back to sleep, halt. The main core never wakes for this; it only reads the counters below.
+ */
+#include <stdint.h>
+
+#include "ulp_riscv_utils.h"
+#include "sx126x_ulp_hal.h"
+#include "sx126x_min.h"
+
+/* ---- Exported to the main CPU as ulp_<name> ---- */
+volatile uint32_t run_count;              /* timer wakes since start                        */
+volatile uint32_t tx_ok_count;
+volatile uint32_t tx_fail_count;
+volatile int32_t  last_error;             /* 0 = ok, else HAL/driver error                  */
+volatile uint32_t radio_ready;            /* 1 = warm configuration believed valid          */
+volatile uint32_t cfg_used;               /* 0 = tried no TCXO, 1 = TCXO needed             */
+volatile uint32_t spi_cycles_per_byte;    /* measured, 0 = not measured yet                 */
+volatile uint32_t status_byte;            /* GetStatus reply from the chip, 0 = none        */
+volatile uint32_t pad_selftest;           /* 0 = every driven pad followed; else see hal_pad_selftest */
+
+/* Heltec V3: the SX1262's TCXO is powered from DIO3 at 1.8 V, and DIO2 drives the antenna switch. Both are facts about
+ * this module that the bring-up *proves* rather than assumes: cfg A is tried without the TCXO and cfg B with it, and
+ * whichever produces TxDone is recorded in cfg_used (docs/14 R16 - a plausible status is not an identity). */
+#define TCXO_VOLTAGE_1V8 0x02
+
+static const sx126x_cfg_t cfg_a = {
+    .rf_freq_reg    = SX126X_FREQ_REG(868100000UL),
+    .img_cal        = SX126X_IMGCAL_863_870,
+    .sf             = 9,
+    .bw             = SX126X_BW_125,
+    .cr             = 1,
+    .ldro           = 0,
+    .tx_dbm         = 14,
+    .preamble       = 8,
+    .use_dcdc       = 1,
+    .use_tcxo       = 0,
+    .tcxo_voltage   = 0,
+    .dio2_rf_switch = 1,
+};
+
+static const sx126x_cfg_t cfg_b = {
+    .rf_freq_reg    = SX126X_FREQ_REG(868100000UL),
+    .img_cal        = SX126X_IMGCAL_863_870,
+    .sf             = 9,
+    .bw             = SX126X_BW_125,
+    .cr             = 1,
+    .ldro           = 0,
+    .tx_dbm         = 14,
+    .preamble       = 8,
+    .use_dcdc       = 1,
+    .use_tcxo       = 1,
+    .tcxo_voltage   = TCXO_VOLTAGE_1V8,
+    .dio2_rf_switch = 1,
+};
+
+int main(void)
+{
+    uint8_t pkt[20];
+    uint8_t st = 0;
+    uint32_t v;
+    int e;
+
+    run_count++;
+
+    hal_init();
+
+    if (pad_selftest == 0) {
+        pad_selftest = hal_pad_selftest() + 1u;   /* +1 so "ran and clean" is distinguishable from "not run" */
+    }
+
+    if (spi_cycles_per_byte == 0) {
+        spi_cycles_per_byte = hal_bench_cycles_per_byte(16);
+    }
+
+    /* 20-byte payload: marker, run counter, and a fixed pattern that is recognisable on air. */
+    pkt[0] = 0xA5;
+    v = run_count;
+    pkt[1] = (uint8_t)(v >> 24); pkt[2] = (uint8_t)(v >> 16);
+    pkt[3] = (uint8_t)(v >> 8);  pkt[4] = (uint8_t)v;
+    for (int i = 5; i < 20; i++) {
+        pkt[i] = (uint8_t)(0x30 + i);
+    }
+
+    /* First attempt: whatever we believe works. On a cold start that is cfg A, so the TCXO question gets answered. */
+    e = radio_ready ? sx126x_send(&cfg_b, pkt, sizeof pkt, 3000) : -100;
+
+    if (e != 0) {
+        /* Cold init, in the order that answers the hardware question: no TCXO first, then TCXO. */
+        e = sx126x_cold_init(&cfg_a);
+        if (e == 0) {
+            e = sx126x_send(&cfg_a, pkt, sizeof pkt, 3000);
+            cfg_used = 0;
+        }
+        if (e != 0) {
+            e = sx126x_cold_init(&cfg_b);
+            if (e == 0) {
+                e = sx126x_send(&cfg_b, pkt, sizeof pkt, 3000);
+                cfg_used = 1;
+            }
+        }
+        if (e == 0) {
+            radio_ready = 1;
+            (void)sx126x_status(&st);
+            status_byte = st;
+        } else {
+            radio_ready = 0;
+            (void)sx126x_status(&st);
+            status_byte = st;
+        }
+    }
+
+    (void)sx126x_sleep(1);
+
+    if (e == 0) {
+        tx_ok_count++;
+    } else {
+        tx_fail_count++;
+        radio_ready = 0;
+    }
+    last_error = e;
+
+    ulp_riscv_halt();
+    return 0;
+}

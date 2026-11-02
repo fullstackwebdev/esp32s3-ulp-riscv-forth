@@ -21,11 +21,11 @@ code from the block store into a 1 037 B window.
 
 | | C reference | Forth on our machine |
 |---|---|---|
-| SPI clock | ~350 kHz (forum-reported, direct register writes) | **~30–80 kHz** (derived, §4.4) |
+| SPI clock | **143 kHz measured** (975 cycles/byte, `probe/lora`) — forum's 235–350 kHz not reproduced yet | **~30–80 kHz** (derived, §4.4) |
 | 20-byte packet over SPI | ~0.5 ms | **2–6 ms** |
 | cold init (~140 B of SPI) | ~4 ms | **20–40 ms** |
 | same packet on air, SF9/125 kHz | **~90 ms** (§4.5) | unchanged |
-| code space needed | ~1–2 KB of the 8 192 B RTC memory | a **phase** in the 1 037 B window + 3 primitives |
+| code space needed | **2 584 B measured** (`probe/lora`, HAL + driver + TX + pad self-test) | a **phase** in the 1 037 B window + 3 primitives |
 | fits beside the interpreter today? | **no** — 1 B of pool free | **yes, as a phase** |
 
 ---
@@ -826,7 +826,15 @@ awake cost dwarfs the ULP's. Right answer for *bulk* data, wrong answer for *mon
 The energy question from `docs/27` decides between A and C: if the record rate is a few bytes a minute, A; if it is
 kilobytes an hour, C.
 
-## 6. What to measure first (needs a board, so this is the next session's work)
+## 6. What was measured, and what is still open
+
+**Measured on the Heltec V3 (2026-11-01, `probe/lora/README.md`)**: the ULP alone transmits (`TxDone` on 4 of 4 wakes, 5 s
+timer, main core never touching the bus); chip status `0x2c` read by the ULP matches the hardware-SPI probe's `0x2a`;
+SPI runs at **975 cycles/byte = 143 kHz SCK**; the driver is **2 584 B**; **the TCXO on DIO3 at 1.8 V is required** (the
+no-TCXO configuration never reaches `TxDone`, so this is now a fact rather than a jumper guess); and **warm start
+retention works** — after one cold init, later wakes go straight to `SET_TX` and still succeed, which settles §6.4 below.
+
+### Still to measure
 
 1. **Token cost on the ULP** — the one number §4.4 rests on. A counted loop of known tokens, timed by the main core via
    the handshake we already trust. Without it every figure above is an estimate.
