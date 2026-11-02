@@ -1,124 +1,88 @@
-#!/usr/bin/env python3
-"""AES-128 in Forth, checked against FIPS-197 on the board.
+"""lora_aes.py - does the AES-128 block cipher in Forth produce the right block?
 
-    python3 tests/lora_aes.py [--port /dev/ttyUSB1]
-
-Two vectors, both from FIPS-197 (Appendix A.1 for the schedule, B.1 for the block):
-  key        000102030405060708090a0b0c0d0e0f
-  w[4..7]    a0fafe17 88542cb1 23a33939 2a6c7605
-  plaintext  00112233445566778899aabbccddeeff
-  ciphertext 69c4e0d86a7b0430d8cdb78070b4c55a
-CTR is checked against the same keystream by encrypting the plaintext twice (AES-CTR is its own inverse).
-
-GUARDRAIL: the expected values are FIPS-197's, not derived from this implementation - a test written from its own
-output proves only that the code is deterministic.
+The expectation is not remembered: tests/lora_aes_vector.json holds the round
+keys computed from the FIPS-197 key schedule (validated against the published
+A.1 expansion) and the ciphertext produced by `openssl enc -aes-128-ecb`.
+Recalled values were wrong twice while this was written, so nothing here is
+typed from memory.
 """
-import argparse
+import json
 import pathlib
-import re
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-REPO = HERE.parents[2]
 sys.path.insert(0, str(HERE.parent / "tools"))
-from devio import Dev  # noqa: E402
 
-AES = REPO / "examples/apps/lora/lora_aes.fs"
-KEYSCHED = REPO / "examples/apps/lora/lora_keysched.fs"
-KEY = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
-PLAIN = [0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff]
-WANT_W4 = [0xa0,0xfa,0xfe,0x17,0x88,0x54,0x2c,0xb1,0x23,0xa3,0x39,0x39,0x2a,0x6c,0x76,0x05]
-WANT_CT = [0x69,0xc4,0xe0,0xd8,0x6a,0x7b,0x04,0x30,0xd8,0xcd,0xb7,0x80,0x70,0xb4,0xc5,0x5a]
-fails = []
+from devio import Dev                      # noqa: E402
+from lintgate import require_clean         # noqa: E402
 
-
-def check(name, ok, detail=""):
-    print(f"  {'PASS' if ok else 'FAIL'}  {name:46s} {detail}")
-    if not ok:
-        fails.append(name)
+REPO = HERE.parent.parent.parent
+CIPHER = REPO / "examples/apps/lora/lora_aes.fs"
+VECTORS = HERE / "data" / "lora_aes_vectors.fs"
+EXPECT = json.load(open(HERE / "data" / "lora_aes_vector.json"))
 
 
 def load(dev, path):
-    pend, name = [], None
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
+    """Send a Forth source line by line. Returns the lines the board refused."""
+    bad = []
+    for line in pathlib.Path(path).read_text().splitlines():
+        line = line.strip()
         if not line or line.startswith("\\"):
             continue
-        m = re.match(r":\s+(\S+)", line)
-        if m and not pend:
-            name = m.group(1)
-            dev.cmd("0 .", timeout=5.0, allow_error=True)
-            rep = dev.cmd(f"' {name} .", timeout=6.0, allow_error=True)
-            last = [s.strip() for s in rep.strip().splitlines() if s.strip()][-1]
-            if last != f"{name}?":
-                raise SystemExit(f"`{name}` already exists (reply {last!r})")
-        if name:
-            pend.append(line)
-            if line.endswith(";"):
-                for one in pend:
-                    dev.cmd(one, timeout=8.0, allow_error=True)
-                rep = dev.cmd(f"' {name} .", timeout=6.0, allow_error=True)
-                if not re.fullmatch(r"-?\d+\s+ok", [s.strip() for s in rep.strip().splitlines() if s.strip()][-1]):
-                    raise SystemExit(f"`{name}` did not appear after its definition closed")
-                pend, name = [], None
-            continue
-        dev.cmd(line, timeout=8.0, allow_error=True)
+        reply = dev.cmd(line, 15.0, allow_error=True)
+        last = [s.strip() for s in reply.strip().splitlines() if s.strip()][-1]
+        if "ERR" in last:
+            bad.append((line, last))
+    return bad
 
 
-def poke_bytes(dev, base, values):
-    """Write bytes with C! and print nothing."""
-    for i, v in enumerate(values):
-        addr = f"{base} {i} + " if i else f"{base} "
-        dev.cmd(f"{v} {addr}C!", timeout=5.0, allow_error=True)
-
-
-def peek_bytes(dev, base, n):
-    """Read n bytes as numbers with separators (this console prints numbers with no trailing space)."""
-    out = []
-    for i in range(n):
-        addr = f"{base} {i} + " if i else f"{base} "
-        rep = dev.cmd(f"{addr}C@ .", timeout=5.0, allow_error=True)
-        nums = re.findall(r"\d+", [s.strip() for s in rep.strip().splitlines() if s.strip()][-1])
-        out.append(int(nums[-1]) if nums else None)
-    return out
+def hex_st(dev):
+    return "".join(f"{dev.num(f'{o} ST + C@ .', 10.0):02x}" for o in range(16))
 
 
 def main():
+    import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", default="/dev/ttyUSB1")
+    ap.add_argument("--port", default="/dev/ttyUSB0")
     a = ap.parse_args()
-    from lintgate import require_clean
-    require_clean([AES, KEYSCHED], "--repl", where="aes")
-    d = Dev(port=a.port)
-    d.reset()
-    h0, l0 = d.num("HERE ."), d.num("LATEST .")
-    load(d, AES)
-    h1, l1 = d.num("HERE ."), d.num("LATEST .")
-    print(f"  aes footprint: code {h1-h0} B + headers {l0-l1} B = {h1-h0+l0-l1} B, free after {l1-h1} B")
 
-    poke_bytes(d, "BUF", KEY)
-    d.cmd("AKEY", timeout=20.0, allow_error=True)
-    got_w4 = peek_bytes(d, "WZ", 16) if False else peek_bytes(d, "WZ", 16)
-    check("key schedule matches FIPS-197 w[4..7]", got_w4 == WANT_W4, f"got {[hex(x) for x in got_w4]}")
+    # GUARDRAIL: the linter is a gate, not advice (AGENTS.md). It runs before the port is opened, so a broken source
+    # never costs a board round trip.
+    require_clean([CIPHER], "--repl", where="aes-cipher")
+    require_clean([VECTORS], "--repl", where="aes-vectors", use=[CIPHER])
 
-    poke_bytes(d, "ST", PLAIN)
-    d.cmd("AESB", timeout=20.0, allow_error=True)
-    got_ct = peek_bytes(d, "ST", 16)
-    check("block encrypt matches FIPS-197 ciphertext", got_ct == WANT_CT, f"got {[hex(x) for x in got_ct]}")
+    fails = 0
+    def check(name, ok, detail=""):
+        nonlocal fails
+        if not ok:
+            fails += 1
+        print(f"  {'PASS' if ok else 'FAIL'}  {name:42s} {detail}")
 
-    poke_bytes(d, "BUF", PLAIN)
-    d.cmd("AESB", timeout=20.0, allow_error=True)     # ST now holds E(PLAIN); CTR keystream is the same
-    poke_bytes(d, "BUF", PLAIN)
-    d.cmd("16 LEN !", timeout=6.0, allow_error=True)
-    d.cmd("CPYN AESB CXOR", timeout=25.0, allow_error=True)
-    got = peek_bytes(d, "BUF", 16)
-    check("CTR(plaintext) equals the ciphertext", got == WANT_CT, f"got {[hex(x) for x in got]}")
-    d.cmd("CPYN AESB CXOR", timeout=25.0, allow_error=True)
-    back = peek_bytes(d, "BUF", 16)
-    check("CTR is its own inverse", back == PLAIN, f"got {[hex(x) for x in back]}")
+    dev = Dev(port=a.port)
+    dev.reset()
+    h0, l0 = dev.num("HERE ."), dev.num("LATEST .")
+    bad = load(dev, CIPHER)
+    h1, l1 = dev.num("HERE .", 20.0), dev.num("LATEST .", 20.0)
+    size = h1 - h0 + l0 - l1
+    check("cipher loads with no refused line", not bad, f"{bad[:1]}")
+    check("cipher fits the prompt dictionary", l1 - h1 >= 0, f"{size} B used, {l1-h1} B free")
 
-    print(f"  {len(fails)} failure(s)")
-    d.close()
+    # GUARDRAIL: `free 0` plus a definition that does not fit leaves a DANGLING header: the line answers `ok` and the
+    # word is not findable afterwards. Measured on this very file with FIN. Ask the board, not the source.
+    for w in ("AESB", "ARK", "MC", "SR"):
+        r = [s.strip() for s in dev.cmd(f"' {w} .", 10.0, allow_error=True).splitlines() if s.strip()][-1]
+        check(f"{w} exists after the load", r.endswith("ok"), r)
+
+    bad = load(dev, VECTORS)
+    check("vectors load with no refused line", not bad, f"{bad[:1]}")
+    want_pt = "".join(f"{b:02x}" for i in range(4) for b in EXPECT["PT"][i].to_bytes(4, "big"))
+    check("plaintext is in ST", hex_st(dev) == want_pt, hex_st(dev))
+
+    dev.cmd("AESB", 60.0, allow_error=True)
+    got = hex_st(dev)
+    check("AES-128 block matches openssl", got == EXPECT["cthex"], f"{got} want {EXPECT['cthex']}")
+
+    print(f"  {fails} failure(s)")
     return 1 if fails else 0
 
 

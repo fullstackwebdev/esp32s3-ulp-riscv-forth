@@ -270,3 +270,67 @@ Three linter gaps this work exposed, all fixed:
 **The gate itself:** `probe/repl/tools/lintgate.py` wraps the linter in both modes, refuses on ANY finding, and takes
 `--after prior.fs` for files that are only checkable in context (the receive words need the driver's `NSSLO`). It is
 called by every hardware test and by `tests/run.sh`, and `AGENTS.md` states the rule in one line.
+
+## Appendix E — the cipher runs on the chip, and the S-box question is settled
+
+**AES-128 in Forth, on the ULP-RISC-V, matches openssl.** `tests/lora_aes.py`, 9/9 twice:
+
+```
+PASS  cipher loads with no refused line
+PASS  cipher fits the prompt dictionary           1328 B used, 0 B free
+PASS  AESB / ARK / MC / SR exist after the load
+PASS  plaintext is in ST                          00112233445566778899aabbccddeeff
+PASS  AES-128 block matches openssl               69c4e0d86a7b0430d8cdb78070b4c55a
+```
+
+The expectation is generated, never remembered: `tools/gen_aes_vectors.py` validates the key schedule
+against the **published** FIPS-197 A.1 expansion (`a0fafe17 88542cb1 23a33939 2a6c7605`) and takes the
+ciphertext from `openssl enc -aes-128-ecb`. Recalled values were wrong twice in one session — `a0fafe17`
+belongs to FIPS-197's *other* example key (`2b7e1516…`), and this key's `w4` is `d6aa74fd`.
+
+### "Compute the S-box instead of tabulating it" — measured, and it loses
+
+| | table | computed (GF(2^8) inverse + affine) |
+|---|---:|---:|
+| dictionary | **256 B** | 644 B (590 code + 54 headers) |
+| time for one SubBytes (16 bytes) | ~0 | **2 274 ms** (142 ms per byte, measured: 256 evaluations in 36.4 s) |
+| time for one block (10 rounds) | ~0 | **≈ 22.7 s** |
+
+The computed S-box is **correct** — all 256 values, sum 32 640, identical to the field definition — and it is
+388 B larger and 22.7 s per block against 180 ms of air time. The table stays. That lever is closed with
+numbers rather than an opinion.
+
+### Where the cipher stands against the two windows
+
+| | measured |
+|---|---|
+| `lora_aes.fs` (S-box 256, W 176, ST 16, TZ 16, cells 8, code) | **1 328 B** — fills the prompt exactly, 0 B free |
+| a phase window | 999 B — so the cipher **cannot be a phase** as it stands, short by ~329 B |
+| `lora_ctr.fs` (BUF, NONC, LEN, XOR layer) | **37 B** of words — separate, because the cipher had no room left |
+
+The remaining levers for a phase, in value order: W (176 B) into the sealed registry, since round keys are
+per-channel data that outlive the phase; then the 16 `C,`-free buffers if the registry can hold them too.
+`RNDS`/`MCS`/`MCSB` are already single-use-inlined.
+
+### Six failures this work produced, and the gate each one now has
+
+1. **`ERR_DICT` at a definition that is not short of space.** Four 1-byte cells summed to an even 4 bytes,
+   so the *total* parity check passed, while `HERE` was odd at every intermediate `CREATE` — and the engine
+   checks parity at **every** `mkentry`. Forty definitions were refused. **R28 now checks parity at each
+   definition head**, with a fixture whose total is even.
+2. **A definition that answers `ok` and does not exist.** With 0 B free, `: FIN … ;` was accepted, left a
+   dangling header, and `FIN` was not findable afterwards (`' FIN` → `FIN?`). The load reported no error.
+   The test now asks the board for every word it needs.
+3. **A 32-bit store of a big decimal is not the number you wrote.** `2291784379` (0x8899AABB) came back as
+   `-77665545`. Bytes go in with `C!` now.
+4. **A helper definition that costs more than the room left.** Two helpers in the vector file cost 20 B
+   against 12 B free → `ERR_DICT`, `ST` stayed zero, and the comparison "failed" for a reason that had
+   nothing to do with AES. The vector file now defines nothing (`v o W + C!`).
+5. **R23 called a key word a register.** It treated every literal ≥ 0x10000 as an address, so 22 round-key
+   stores were reported as narrow register access. It is limited to the two real ranges (0x6000_0000..
+   0x6003_FFFF and the alias window 0xA400..0xD3FF), and the selftest gained **negative fixtures** (a case
+   that must produce NO finding), because a rule that flags valid code gets switched off.
+6. **`collect_vocab` opened a definition on a colon inside a comment** and borrowed stack effects from a
+   later definition — both made `--use` quietly weaker. Fixed earlier this session with fixtures.
+
+Every one of these was caught by the linter or by the board, not by reading the source.

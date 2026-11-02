@@ -76,9 +76,9 @@ CREATE BUF
 CREATE A 0 ,
 CREATE D 0 ,
 
-: KINC ( -- ) A @ BUF + C@ A @ W + C! ;
+: KINC ( -- ) A C@ BUF + C@ A C@ W + C! ;
 : KIN ( -- )
-  0 A ! BEGIN A @ 16 < WHILE KINC A @ 1+ A ! REPEAT ;
+  0 A C! BEGIN A C@ 16 < WHILE KINC A C@ 1+ A C! REPEAT ;
 : KB ( k -- b ) W + C@ ;
 : KQ ( k -- b ) DUP 16 - KB SWAP 1- KB XOR ;
 : KZ ( k -- b ) DUP 16 - KB SWAP 3 - KB SBOX + C@ XOR ;

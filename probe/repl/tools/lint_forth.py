@@ -427,7 +427,7 @@ def check_source_shape(src, phase=False, repl=False):
             if not tok.isdigit():
                 continue
             v = int(tok)
-            if not (v >= 0x10000 or 0xA400 <= v < 0xD400):
+            if not (0x60000000 <= v <= 0x6003FFFF or 0xA400 <= v < 0xD400):
                 continue
             for narrow in ("W!", "W@", "C!", "C@"):
                 if narrow in tokens(code_only(ln)):
@@ -446,16 +446,25 @@ def check_source_shape(src, phase=False, repl=False):
     # made the next eleven definitions answer ERR_DICT with 848 B still free - the message names the dictionary and
     # the fault is alignment, which cost an hour of hunting space that was never the problem. Count only
     # interpret-state uses: a `C,` inside a definition runs later and does not move the load-time parity.
-    carity, in_def = 0, False
+    carity, in_def, odd_at = 0, False, None
     for line in scan_lines:
-        for tk in line.split():
+        body = [tk for tk in line.split() if not tk.startswith("\\")]
+        head = bool(body) and (body[0] == ":" or body[0] in ("CREATE", "CONSTANT", "VARIABLE"))
+        if head and not in_def and carity % 2 and odd_at is None:
+            odd_at = (body[1] if len(body) > 1 else body[0])
+        for tk in body:
             if tk == ":":
                 in_def = True
             elif tk == ";":
                 in_def = False
             elif tk == "C," and not in_def:
                 carity += 1
-    if carity % 2:
+    if odd_at is not None:
+        findings.append((1, "R28 alignment",
+                         f"HERE is ODD at `{odd_at}`: an earlier interpret-state data block ended on an odd byte, so "
+                         "this and EVERY later definition is refused with ERR_DICT however much room is left. Give the "
+                         "offending block an even size (2 B cells, or one filler `0 C,`)"))
+    elif carity % 2:
         findings.append((1, "R28 alignment",
                          f"{carity} interpret-state `C,` bytes is ODD: HERE stays odd and every later definition is "
                          "refused with ERR_DICT however much room is left. Add one filler `0 C,`"))
@@ -846,6 +855,9 @@ def check_blocks(src, base=None, blocks=None):
 BUGS = {
  "odd number of C, bytes leaves HERE odd (ERR_DICT on everything after)":
    ("""CREATE T 1 C, 2 C, 3 C,\n: X 5 ;\n""", "R28 alignment"),
+   # four 1-byte cells: total is EVEN, but HERE is odd at every intermediate CREATE - the case that cost 40 definitions
+ "per-boundary parity: four 1-byte cells total EVEN but HERE odd at each CREATE":
+   ("""CREATE A 0 C,\nCREATE B 0 C,\nCREATE C 0 C,\nCREATE D 0 C,\n: X 5 ;\n""", "R28 alignment"),
  "SoC absolute address from pool code (the alias-window root cause)":
    (""": PADSET 1610646532 ! ;\n""", "R26 alias window"),
  "nested counted loop in one definition (loader refuses it silently)":
@@ -897,6 +909,9 @@ BUGS = {
  "narrow access to a register (F-151/F-153)":
    (""": STA ( -- ) 42000 W@ DROP ;
 """, "R23 access width"),
+ # a KEY WORD, not an address: R23 fired on every one of these when it treated any literal >= 0x10000 as a register
+ "data constant is NOT a register address (must stay quiet)":
+   ("""4008632343 0 W! 88542 ;\n""", None),
  "arbitrary write to OUT_REG (the `#h` reboot)":
    (""": OUT ( v -- ) 1610646528 ! ;
 """, "R24 pad register"),
@@ -969,8 +984,14 @@ def selftest():
         else:
             # GUARDRAIL: R21 only exists in `--repl` mode, so its fixture has to run with it - otherwise the selftest
             # would report the rule as MISSED for the trivial reason that it was never enabled.
-            f = lint_definitions(src, repl=("R21" in rule)) + check_blocks(src)
+            want_repl = rule is None or "R21" in rule
+            f = lint_definitions(src, repl=want_repl) + check_blocks(src)
         hit = any(r == rule for _, r, _ in f)
+        if rule is None:      # negative fixture: the code is VALID and any finding is a bug in the rule
+            ok = ok and not f
+            print(f"  {'quiet ' if not f else 'FALSE POSITIVE'}  {name:44}"
+                  + ("" if not f else f"  (got {sorted({r for _, r, _ in f})})"))
+            continue
         ok = ok and hit
         print(f"  {'caught' if hit else 'MISSED'}  {name:44} {rule}"
               + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))

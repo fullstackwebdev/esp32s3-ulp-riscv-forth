@@ -59,16 +59,16 @@ class F:
 # ---------------------------------------------------------------- block + CTR
 f = F()
 for h in [
- "lora_aes.fs - AES-128 block cipher and CTR in Forth on the ULP.",
+ "lora_aes.fs - the AES-128 block cipher in Forth on the ULP.",
  "",
- "WHY: a Meshtastic frame is encrypted in place with AES-CTR. Round keys arrive in W (176 B) from the key",
- "schedule, which is its own phase: measured, schedule plus block together exceed the prompt dictionary, and a",
- "phase cannot see another phase's words anyway.",
+ "WHY: a Meshtastic frame is encrypted in place with AES-CTR, so this is the block. Round keys arrive in",
+ "W (176 B) from the key schedule, which is its own phase (measured: schedule plus block together exceed",
+ "the prompt dictionary, and a phase cannot see another phase's words). The CTR layer is lora_ctr.fs - it",
  "",
  "GUARDRAIL: a control structure must be COMPLETE on one typed line. Measured: BEGIN..WHILE on one line and REPEAT",
  "on the next answers ERR_STACK and the word never exists; IF..THEN across lines behaves the same. Loops therefore",
- "drive globals (A B C LEN) and the body is a named helper, which keeps lines under 63 B (the ring drops longer ones",
- "silently).",
+ "drive globals (A B C) and the body is a named helper, which keeps lines under 63 B (the ring drops longer",
+ "lines silently).",
  "",
  "GUARDRAIL: names were chosen by asking the BOARD (`tools/namecheck.py`), not by reading a name list: I J R K SB T",
  "XT were all called clean by the 109-name file and all refused on the machine.",
@@ -79,68 +79,82 @@ f.w("CREATE SBOX"); f.crows(SBOX)
 f.w("\\ W holds the round keys, 44 words of 4 B; the schedule phase fills it.")
 f.zeros("W", 176)
 f.zeros("ST", 16)
-f.zeros("BUF", 16)
 f.zeros("TZ", 16)
-f.zeros("NONC", 16)
 for v in "ABC":
-    f.w(f"CREATE {v} 0 ,")
-f.w("CREATE LEN 0 ,")
+    f.w(f"CREATE {v} 0 C, 0 C,")
 f.w("")
 for x in [
  "\\ ---- byte helpers ----------------------------------------------------",
  ": CB ( n -- b ) ST + C@ ;",
  ": TS! ( b o -- ) TZ + C! ;",
- ": SBX ( -- ) A @ ST + DUP C@ SBOX + C@ SWAP C! ;",
- ": CPY ( -- ) A @ TZ + C@ A @ ST + C! ;",
- ": CPYS ( -- ) 0 A ! BEGIN A @ 16 < WHILE CPY A @ 1+ A ! REPEAT ;",
+ ": SBX ( -- ) A C@ ST + DUP C@ SBOX + C@ SWAP C! ;",
+ "CREATE SRC 0 ,",
+ ": CPY ( -- ) A C@ SRC @ + C@ A C@ ST + C! ;",
+ ": CPYS ( -- ) 0 A C! BEGIN A C@ 16 < WHILE CPY A C@ 1+ A C! REPEAT ;",
  "",
  "\\ ---- SubBytes --------------------------------------------------------",
- ": SFULL ( -- ) 0 A ! BEGIN A @ 16 < WHILE SBX A @ 1+ A ! REPEAT ;",
+ ": SFULL ( -- ) 0 A C! BEGIN A C@ 16 < WHILE SBX A C@ 1+ A C! REPEAT ;",
  "",
  "\\ ---- ShiftRows: TZ[i] = ST[src], src = 4*((col+row)&3)+row --------------",
- ": ROW ( -- b ) A @ 3 AND ;",
- ": COL ( -- b ) A @ 2 RSHIFT ;",
+ ": ROW ( -- b ) A C@ 3 AND ;",
+ ": COL ( -- b ) A C@ 2 RSHIFT ;",
  ": SRS ( -- src ) COL ROW + 3 AND 2 LSHIFT ROW + ;",
- ": STR ( -- ) SRS ST + C@ A @ TS! ;",
- ": SR ( -- ) 0 A ! BEGIN A @ 16 < WHILE STR A @ 1+ A ! REPEAT CPYS ;",
+ ": STR ( -- ) SRS ST + C@ A C@ TS! ;",
+ ": SR ( -- ) 0 A C! BEGIN A C@ 16 < WHILE STR A C@ 1+ A C! REPEAT",
+ "  TZ SRC ! CPYS ;",
  "",
  "\\ ---- MixColumns ------------------------------------------------------",
  ": XTZ ( b -- 2b ) DUP 128 AND IF 2 * 255 AND 27 XOR ELSE 2 * 255 AND THEN ;",
- ": MCO ( -- o ) B @ 4 * ;",
+ ": MCO ( -- o ) B C@ 4 * ;",
  ": A0 ( -- b ) MCO CB ;",
  ": A1 ( -- b ) MCO 1+ CB ;",
  ": A2 ( -- b ) MCO 2 + CB ;",
  ": A3 ( -- b ) MCO 3 + CB ;",
- ": B0 ( -- b ) A0 XTZ A1 XTZ A1 XOR XOR A2 XOR A3 XOR ;",
- ": B1 ( -- b ) A0 A1 XTZ XOR A2 XTZ A2 XOR XOR A3 XOR ;",
- ": B2 ( -- b ) A0 A1 XOR A2 XTZ XOR A3 XTZ A3 XOR XOR ;",
- ": B3 ( -- b ) A0 XTZ A0 XOR A1 XOR A2 XOR A3 XTZ XOR ;",
- ": MCS ( -- ) B0 MCO TS! B1 MCO 1+ TS! ;",
- ": MCSB ( -- ) B2 MCO 2 + TS! B3 MCO 3 + TS! ;",
- ": MCB ( -- ) MCS MCSB B @ 1+ B ! ;",
- ": MC 0 B ! BEGIN B @ 4 < WHILE MCB REPEAT CPYS ;",
+ ": MCS ( -- ) A0 XTZ A1 XTZ A1 XOR XOR A2 XOR A3 XOR MCO TS!",
+ "  A0 A1 XTZ XOR A2 XTZ A2 XOR XOR A3 XOR MCO 1+ TS! ;",
+ ": MCSB ( -- ) A0 A1 XOR A2 XTZ XOR A3 XTZ A3 XOR XOR MCO 2 + TS!",
+ "  A0 XTZ A0 XOR A1 XOR A2 XOR A3 XTZ XOR MCO 3 + TS! ;",
+ ": MCB ( -- ) MCS MCSB B C@ 1+ B C! ;",
+ ": MC 0 B C! BEGIN B C@ 4 < WHILE MCB REPEAT CPYS ;",
  "",
  "\\ ---- AddRoundKey -----------------------------------------------------",
- ": ARKB ( -- ) A @ ST + DUP C@ A @ C @ 16 * + W + C@ XOR SWAP C! ;",
- ": ARK ( -- ) 0 A ! BEGIN A @ 16 < WHILE ARKB A @ 1+ A ! REPEAT ;",
+ ": ARKB ( -- ) A C@ ST + DUP C@ A C@ C C@ 16 * + W + C@ XOR SWAP C! ;",
+ ": ARK ( -- ) 0 A C! BEGIN A C@ 16 < WHILE ARKB A C@ 1+ A C! REPEAT ;",
  "",
  "\\ ---- the block -------------------------------------------------------",
- ": RNDB ( -- ) SFULL SR MC ARK C @ 1+ C ! ;",
- ": RNDS ( -- ) 1 C ! BEGIN C @ 10 < WHILE RNDB REPEAT ;",
- ": FIN ( -- ) 10 C ! SFULL SR ARK ;",
- ": AESB ( -- ) 0 C ! ARK RNDS FIN ;",
- "",
- "\\ ---- CTR -------------------------------------------------------------",
- "\\ NONC is the 16-byte counter block; its last byte counts, so one block covers BUF (16 B),",
- "\\ which is enough for Data{portnum,payload}. Larger frames need the block loop.",
- ": CPYC ( -- ) A @ NONC + C@ A @ ST + C! ;",
- ": CPYN ( -- ) 0 A ! BEGIN A @ 16 < WHILE CPYC A @ 1+ A ! REPEAT ;",
- ": CXB ( -- ) BUF A @ + DUP C@ A @ ST + C@ XOR SWAP C! ;",
- ": CXOR ( -- ) 0 A ! BEGIN A @ LEN @ < WHILE CXB A @ 1+ A ! REPEAT ;",
- ": INCB ( -- ) 15 NONC + DUP C@ 1+ SWAP C! ;",
- ": CTR ( n -- ) LEN ! CPYN AESB CXOR INCB ;"]:
+ ": RNDB ( -- ) SFULL SR MC ARK C C@ 1+ C C! ;",
+ ": RNDS ( -- ) 1 C C! BEGIN C C@ 10 < WHILE RNDB REPEAT ;",
+ ": AESB ( -- ) 0 C C! ARK RNDS 10 C C! SFULL SR ARK ;",
+]:
     f.w(x)
 print("lora_aes.fs     :", f.save("examples/apps/lora/lora_aes.fs"))
+# ---------------------------------------------------------------- CTR layer
+# GUARDRAIL: measured, the cipher alone ended at free 0 B with the XOR layer refused (CXB, CXOR, INCB, CTR). These words
+# need NONC (16 B) and BUF (16 B), which are packet data: keeping them with the cipher cost the cipher's last four words.
+c = F()
+for h in [
+ "lora_ctr.fs - the CTR layer: keystream into ST, XOR over BUF, counter bump.",
+ "",
+ "WHY SEPARATE FROM THE CIPHER: measured, lora_aes.fs plus these words ended at free 0 B with CXB onwards refused",
+ "with ERR_DICT. NONC and BUF are packet data, so they live with the packet layer. Load AFTER lora_aes.fs: a phase",
+ "cannot see another phase's words, and this file calls AESB.",
+ "",
+ "GUARDRAIL: the counter is the LAST byte only (15 NONC + ...). Data{portnum,payload} fits one 16 B block, so a",
+ "carry into the next byte never happens here; a larger frame needs the block loop and a real 128-bit increment.",
+]: c.w("\\" + (" " + h if h else ""))
+c.zeros("BUF", 16)
+c.zeros("NONC", 16)
+c.w("CREATE LEN 0 C, 0 C,")
+c.w("")
+for x in [
+ ": CPYN ( -- ) NONC SRC ! CPYS ;",
+ ": CXB ( -- ) BUF A C@ + DUP C@ A C@ ST + C@ XOR SWAP C! ;",
+ ": CXOR ( -- ) 0 A C! BEGIN A C@ LEN C@ < WHILE CXB A C@ 1+ A C! REPEAT ;",
+ ": INCB ( -- ) 15 NONC + DUP C@ 1+ SWAP C! ;",
+ ": CTR ( n -- ) LEN C! CPYN AESB CXOR INCB ;"]:
+    c.w(x)
+print("lora_ctr.fs     :", c.save("examples/apps/lora/lora_ctr.fs"))
+
 
 # ---------------------------------------------------------------- key schedule
 g = F()
@@ -162,8 +176,8 @@ for v in "AD":
     g.w(f"CREATE {v} 0 ,")
 g.w("")
 for x in [
- ": KINC ( -- ) A @ BUF + C@ A @ W + C! ;",
- ": KIN ( -- ) 0 A ! BEGIN A @ 16 < WHILE KINC A @ 1+ A ! REPEAT ;",
+ ": KINC ( -- ) A C@ BUF + C@ A C@ W + C! ;",
+ ": KIN ( -- ) 0 A C! BEGIN A C@ 16 < WHILE KINC A C@ 1+ A C! REPEAT ;",
  ": KB ( k -- b ) W + C@ ;",
  ": KQ ( k -- b ) DUP 16 - KB SWAP 1- KB XOR ;",
  ": KZ ( k -- b ) DUP 16 - KB SWAP 3 - KB SBOX + C@ XOR ;",
