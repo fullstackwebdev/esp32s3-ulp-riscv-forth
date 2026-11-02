@@ -33,6 +33,7 @@ indistinguishable from dead SPI from the outside.
 | quantity | value | source |
 |---|---|---|
 | ULP image (HAL + driver + TX + self-tests) | **2 804 B** | `riscv32-esp-elf-size ulp_lora.elf` → text 2804, bss 56 |
+| ... same image with the 2026-11-01 cross-firmware probe | **2 904 B** | +100 B: one store and two reads per wake, added to answer docs/30 F-158; the driver and every timing below are unchanged |
 | ULP clock | **17.550 MHz** | 175 503 cycles measured across a 10 ms `ulp_riscv_delay_ms` (nominal 17.5 MHz, +0.29 %) |
 | bit-banged SPI | **971 cycles/byte** = 121.4 cycles/bit | `ULP_RISC_V_GET_CCOUNT()` around one 16-byte transaction |
 | → effective clock | **144.6 kHz SCK**, 18.1 kB/s, 55.3 µs/byte | derived: `bytes/s = 17.55e6/971`, `SCK = 8·bytes/s` |
