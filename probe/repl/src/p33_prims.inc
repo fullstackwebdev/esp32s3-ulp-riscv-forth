@@ -8,6 +8,15 @@
 X(BLKXFER,"BLKXFER",0)
 #endif
 
+#if defined(HWPRIMS)
+/* Absolute-address register access. GUARDRAIL: these bypass P(), deliberately and only here: P() maps every
+ * out-of-range address to `junk` so a wild pointer cannot corrupt anything (F-149), which is exactly what makes
+ * Forth unable to touch a peripheral. One narrow door, owned by one word pair, is the repair a whole-memory-model
+ * exemption would be. The ULP can only reach the RTC domain (0x6000_8xxx); main-APB peripherals are not there. */
+X(HWFETCH,"HW@",0)
+X(HWSTORE,"HW!",0)
+#endif
+
 #if defined(BLKPRIM)
 /* R5: the operator-facing block words as C primitives — same names, same stack effects, same named
  * errors as the 530 B Forth layer they replace. GUARDRAIL: these three were MISSING here while the case

@@ -799,3 +799,125 @@ arrive), but it is a workaround for an unexplained loss, and it is labelled as o
 **Recommended engine change, needs permission (`.c`):** either reinstate a drop counter so `#u` can report it, or make
 `pl_emit` block while the ring is full. A silent drop is exactly the class of failure this project bans elsewhere.
 
+### F-141 — The RTC GPIO output field starts at bit 10; an unshifted write is silently discarded
+
+**Symptom.** The ULP-RISC-V ran a bit-banged SPI loop against an SX1262 and got nowhere: `GetStatus` returned `0x00`, no
+`TxDone`, `err -3` on every attempt. Hardware SPI on the *same pins* returned `0x2a` (chipmode 2, STDBY_RC) the whole
+time, which ruled out the pin map and the radio's power rail.
+
+**Cause.** `REG_WRITE(RTC_GPIO_OUT_W1TS_REG, BIT(pin))`. On the ESP32-S3 the output data field of that register starts at
+bit **10** (`RTC_GPIO_OUT_DATA_W1TS_S == 10`), so `BIT(pin)` for pins 8..14 landed in bits 8..14 — below the field, in
+reserved/other territory. The write "succeeded", nothing moved, and because SPI has no readback of its own, every
+command appeared to complete.
+
+**Why it took four flash cycles.** A wrong write and a wrong read look identical from the outside. The instrument that
+settled it was a **pad read-back inside the ULP** (`hal_pad_selftest`): drive each output high, read it back, report a
+bitmask. (That instrument had its own trap — F-142.)
+
+**Fix.** Build the value from the register's own macro: `BIT(pin) << RTC_GPIO_OUT_DATA_W1TS_S`. Never hand-roll a shift
+for a field whose definition you have not opened.
+
+### F-142 — `RTC_GPIO_IN` cannot see a pad whose input buffer is off
+
+The pad self-test reported "all four driven pads dead" for a bus that was, by then, working — because `RTC_GPIO_IN` only
+reflects a pad whose `RTC_IO_x_FUN_IE` input buffer is enabled, and an output pin does not need one. A read-back test on
+outputs must enable the input first (and may disable it again afterwards, since the buffer costs current). Without that,
+the self-test is blind in exactly the case it was written for, and its "everything is broken" verdict is the one lie a
+diagnostic must never tell.
+
+### F-143 — An instrument can be accurate at one interval and useless at the next
+
+`ULP_RISCV_GET_CCOUNT()` calibrated to **175 503 cycles per 10 ms** (17.55 MHz, 0.3 % of nominal) and was still wrongly
+read for the measurement it was added for: across `SET_TX → DIO1` the same subtraction reported **3.4e9 cycles (195 s)**
+for a ~190 ms packet. Switching to signed arithmetic (the macro yields a signed `int`) changed nothing, which is the
+useful part of the story — the calibration could not have caught it.
+
+**Rule.** Calibrate an instrument on *the interval you are about to measure*, not on a convenient one. If the same
+primitive gives two answers three orders of magnitude apart, do not adjust the arithmetic until it agrees: replace the
+instrument. Here the replacement was the main core timing the ULP's awake window at 200 µs resolution, which produced
+**195.8 ms** — and that number then exposed a different error entirely: the expected air time had been computed without
+the `(CR + 4)` factor in the payload-symbol count (§ F-144).
+
+### F-144 — The wrong expected value made a correct measurement look broken
+
+The 195.8 ms window was first read as a fault, because the expectation had been derived as "~108 ms": 8 + 6 = 14 payload
+symbols instead of 8 + 6·(CR+4) = 33. Recomputed properly (Tsym 4.096 ms, preamble 50.18 ms, payload 135.17 ms) the
+prediction is **185.3 ms** and the measurement is **105.6 %** of it.
+
+**Rule.** When a measurement and an expectation disagree, the expectation is a hypothesis too — derive it from a formula
+you can print, in the open, before you believe either. The units error in `token_rate.py` (1000× low SCK) and this one
+(the missing CR+4 factor) are the same failure: arithmetic done in a comment instead of by a program that shows its work.
+
+### F-145 — The same unit slip, four times: derive a rate once and convert it out loud
+
+This project has now printed a wrong unit four separate times: the app-store hop timing, the ULP SCK column in
+`token_rate.py` (1000× low), the console line in `probe/lora` (kHZ from cycles/byte), and `power_budget.py`, where
+`ULP_CLOCK_HZ / cycles_per_byte / 1000` — which is **kB/s** — was labelled "kHz SCK" and read 18 kHz for a 145 kHz bus.
+
+Each time the arithmetic was checked and the *label* was not. The fix that has held is structural: compute one named
+value (`bytes_per_s`), then convert with the factors written out (`sck_hz = bytes_per_s * 8`), and print both. A ratio of
+two rates written inline is where the factor goes missing.
+
+### F-146 — This dialect's return stack leaks: `>R` / `R>` in a called word leave extra cells
+
+A bit-banged SPI byte loop was written the natural Forth way, holding the accumulating byte on the return stack
+(`0 >R`, `R> 2 * ... + >R`, `R>` at the end). On the host engine it appeared to work — and then every *second* byte of a
+command came out as `0x00`. Measured directly:
+
+```
+7 9 LORA_SPIX . . .   ->  0 2304 7        (three numbers where one was expected)
+```
+
+so each call left **two extra cells** on the data stack, which silently shifted every later argument by two positions. A
+single byte in isolation works, which is what makes this hide: the first call after a clean stack looks perfect.
+
+**Fix / rule.** No `>R`/`R>` inside words that call other words in this machine. The driver was rewritten with an
+**unrolled** shift (`LORA_SHIFT ( b -- b*2 )`, eight times), which is stack-neutral, needs no index, and is the faster
+shape anyway. When a dialect's stack words behave unexpectedly, do not build the fix on the same word: change the shape of
+the code so it cannot matter.
+
+### F-147 — A 16-bit field will accept your 8 bits without complaint
+
+`SetPacketParams` begins with a 16-bit preamble length. The Forth driver sent only the low byte, so every subsequent field
+moved up one position: the payload length was interpreted as the header type, the CRC type as the payload length. The
+radio would have been configured, would have transmitted, and would have sent something that was not what the code said.
+
+**What caught it** was comparing the byte stream to the proven C driver's, transaction by transaction. No amount of
+re-reading the Forth would have: `02 08 00 14 01` looks like a perfectly reasonable payload until it is aligned against
+`00 08 00 14 01 00`. Opcode-argument alignment is exactly what a golden byte stream tests and what a "it runs" test does
+not.
+
+### F-148 — A word that exists, passes its host test, and does nothing on the chip
+
+`GPIO!` and `GPIO@` are in the device dictionary (P_HAVE_GPIOS / P_HAVE_GPIOG) and they behave correctly on the host,
+where `pl_hw` keeps a simulated pin word. On the **ULP** side `pl_hw` implemented only op 3 (`MS`) and returned 0 for
+everything else — so on the chip `GPIO!` silently wrote nothing and `GPIO@` always read 0. The Forth LoRa driver, whose
+whole behaviour is pin writes, would have run to completion emitting nothing, and every wait would have "timed out"
+because MISO, BUSY and DIO1 all read 0.
+
+This is the F-141 class again, one level up: not a wrong bit in a register, but a **capability that exists in one build and
+is a stub in the other**, with the two builds sharing a single abstraction. The host 62-name vocabulary test passes either
+way; it asks whether a word exists, not whether it does anything.
+
+**Rule.** For every `pl_hw` op (or any host/device seam), the device side must either implement it or refuse it loudly.
+A `return 0` in the device implementation is a lie that the host cannot detect, and it is worse than a missing word,
+because a missing word stops the program in the first second.
+
+### F-149 — The engine's memory guard makes Forth unable to reach a peripheral, and the host simulator hid it
+
+`static u8 *P(u32 a) { return a < MEMSZ ? mem + a : &junk; }` is *shared* by both builds. On the chip, every `W!`, `C!`
+and `@` to an address outside `mem[]` (MEMSZ 2 604) is therefore redirected to a one-byte `junk` cell — by design, so a
+wild pointer cannot corrupt anything. The consequence for the LoRa driver (docs/30 §5, option 2) is that writing
+`0x60008406` from Forth goes nowhere, and reading `0x60008426` always returns whatever `junk` holds. Measured on the
+board: `1 8 LORA! 8 LORA@ .` → **0**, and `GetStatus` → **0x00**, on a board where the C driver reads **0x2a** from the
+same pins.
+
+Worse, the host test *passed* — because the RTCIO window added to the host's `rd16`/`wr16` in `uforth.c` accepted exactly
+the addresses the chip refuses. A simulator more capable than the machine it simulates is worse than none: it converts a
+hardware limitation into a green tick (F-148's lesson, one level down again).
+
+**Rule.** A host simulation of a device must be no more permissive than the device. When adding one, write down what the
+real machine *refuses* and assert that too. Here the honest repair is a primitive pair that deliberately bypasses `P()`
+(`HW@` / `HW!` on an absolute address), which is a `.c` change costing pool bytes — the third time this feature has asked
+for bytes, and the third time the answer was "the pool has 1 B".
+

@@ -212,6 +212,16 @@ APPSTORE = [
     ("mail",   "examples/apps/mail/mail1.fs",    32, "MAIL1"),
     ("reader", "examples/apps/reader/read1.fs",  48, "READ1"),
     ("shelf",  "examples/apps/shelf/shelf1.fs",  56, "RUNSHELF"),
+    ("shelfkeys",  "examples/apps/shelf/shelfb.fs",  44, "SHELF-KEYS"),
+    ("scratch1", "examples/apps/lora/scr1.fs", 64, "SCR1"),
+    ("scratch2", "examples/apps/lora/scr2.fs", 68, "SCR2"),
+    ("aesseed","examples/apps/lora/aes_seed.fs", 80, "AES-SEED"),
+    ("aessub", "examples/apps/lora/aes_sub.fs", 88, "AES-SUB"),
+    ("aessr",  "examples/apps/lora/aes_sr.fs",  96, "AES-SR"),
+    ("aesmc",  "examples/apps/lora/aes_mc.fs",  104, "AES-MC"),
+    ("aesark", "examples/apps/lora/aes_ark.fs", 112, "AES-ARK"),
+    ("aespr", "examples/apps/lora/aes_pr.fs", 4, "AES-PR"),
+    ("aesout", "examples/apps/lora/aes_out.fs", 72, "AES-OUT"),
 ]
 APPSTORE_RESIDENT = ["examples/apps/registry.fs", "examples/appstore.fs"]
 STAGING, STAGING_BLOCKS = 120, 8         # docs/26: the source of ANY phase is staged here, 8 blocks per pass
@@ -483,7 +493,113 @@ def library(dev, root):
     return built
 
 
-def appstore(dev, root, only=()):
+def _ok(dev, line):
+    """True when the board answers `line` with a number. GUARDRAIL: this exists because dev.num
+    RAISES Timeout on a missing word, and that exception reads exactly like a dead console - three
+    sessions were spent chasing a "board stopped answering" that was really a silent refusal of the
+    phase's later definitions. A probe must say yes/no, not explode."""
+    try:
+        return bool(dev.nums(dev.cmd(line, 5.0)))
+    except Exception:
+        return False
+
+
+
+def desc_in_span(desc, image, other, other_image):
+    """True when two descriptors' block ranges overlap. A payload is 20 B of descriptor plus the image, in 128 B blocks."""
+    def span(d, im):
+        # GUARDRAIL: the descriptor lives INSIDE the counted blocks - the device says "8 blocks from block 8" for a
+        # 995 B image (20 B header + 995 = 1 015 B = 7.93 blocks). Counting 1 + ceil() instead made calc@8 and
+        # tape@16 look overlapped and would have refused the build that works today.
+        blocks = max(1, (20 + im + 127) // 128)
+        return range(d, d + blocks)
+    a, b = span(desc, image), span(other, other_image)
+    return bool(set(a) & set(b))
+
+
+def _forth_code(src):
+    """Source with comments and string bodies removed, so a name search sees only code.
+
+    GUARDRAIL: line-based on purpose. A single regex with a `|$` alternation for `( ...` comments both fails to
+    compile and is wrong anyway: a `(` inside `." ..."` is data, not a comment. So drop lines that start with a
+    backslash, drop the body of every quoted string first, then truncate at any remaining `(`.
+    """
+    out = []
+    for ln in src.splitlines():
+        if ln.strip().startswith("\\"):
+            continue
+        ln = re.sub(r'"[^"]*"', " ", ln)              # a string body is data, not code
+        # GUARDRAIL: blank the paren comment, do NOT truncate at it. The first version split the line at the first
+        # `(`, so every definition with a stack effect lost the whole body and the cross-phase use search was
+        # blind: it reported CLEAN on a phase that reached for another phase's `DRAW`. `( ...` ends at the FIRST
+        # `)` - that is what the engine does, so the blanker has to do the same.
+        ln = re.sub(r"\([^)]*\)", " ", ln)
+        out.append(ln)
+    return "\n".join(out)
+
+
+CARD_SPANS = {d: tuple(range(d, d + 8)) for d in CARD_DESCS}      # OPND maps slots 0..4 to these descriptors
+CARD_APPS = {"calc": 8, "mail": 32, "reader": 48}                 # the cards a build of this name OWNS
+
+
+def phase_rules(root, rows, resident_files):
+    """Refuse a table that cannot work, by name, before a byte is uploaded.
+
+    Every clause here is a bug this session actually hit and the board refused WITHOUT a message:
+    - `("shelfkeys", ..., 24, ...)` adopted ITSELF, because OPND maps slot 1 to descriptor 24, and the store then
+      took no action at all after Enter (measured: 0 bytes in the frame, forever). So a phase that is not a card's
+      own app may not sit on a card descriptor.
+    - two phases sharing an 8-block range paste over each other on adopt.
+    - `("shelfopen", ..., "SHELF-OPEN")` reported "entry missing" when the file defines SHELF-KEYS - a wrong entry
+      name looks exactly like a compile failure, which is the class of lie the whole diagnostic section is about.
+    - a phase using a word that only ANOTHER phase defines: a phase cannot see another phase's words, and the
+      loader refuses the definition by name (`NL?`), which read as a hang.
+    """
+    bad, note = [], []
+    names = {}
+    for name, rel, desc, entry in rows:
+        src = (root / rel).read_text(errors="replace")
+        body = _forth_code(src)
+        defs = set(re.findall(r"^\s*:\s+(\S+)", body, re.M))
+        defs |= set(re.findall(r"^\s*\S+\s+(?:CONSTANT|VARIABLE)\s+(\S+)", body, re.M))
+        defs |= set(re.findall(r"^\s*CREATE\s+(\S+)", body, re.M))
+        names[name] = defs
+        if entry not in defs:
+            bad.append(f"{name}: entry word `{entry}` is not defined by {rel}")
+        if desc in CARD_DESCS and CARD_APPS.get(name) != desc:
+            bad.append(f"{name}: descriptor {desc} belongs to a CARD (OPND maps a slot to it) - "
+                       "a phase that is not that card's app would adopt itself")
+    # GUARDRAIL: advisory, not a refusal. Descriptor 44 lies in the payload range of card 40 (GOPH) on purpose -
+    # this build does not write gopher, so those blocks are blank and nothing adopts them. Refusing would have
+    # blocked the build that works today, and the real overlap test runs after `#d`, against the span each image
+    # actually occupies (`#d` reports "8 blocks from block 8", so a 284 B phase only claims three).
+    for a, _ra, da, _ea in rows:
+        for d in CARD_DESCS:
+            if d in {r[2] for r in rows} or da == d:
+                continue
+            if d < da < d + 8:
+                note.append(f"{a}: descriptor {da} sits inside the payload range of card {d}, which this build does "
+                            f"not write. That is deliberate (a blank card never adopts), but if {d} gains a phase, "
+                            "move this one first")
+    resident = set()
+    for rel in resident_files:
+        src = _forth_code((root / rel).read_text(errors="replace"))
+        resident |= set(re.findall(r"^\s*:\s+(\S+)", src, re.M))
+        resident |= set(re.findall(r"^\s*CREATE\s+(\S+)", src, re.M))
+    for name, rel, _desc, _entry in rows:
+        src = _forth_code((root / rel).read_text(errors="replace"))
+        own = names[name] | resident
+        for other, odefs in names.items():
+            if other == name:
+                continue
+            for w in sorted(odefs - own):
+                if re.search(r"\b" + re.escape(w) + r"\b", src):
+                    bad.append(f"{name} uses `{w}`, which only the `{other}` phase defines - a phase cannot see "
+                               "another phase's words, so the loader refuses the definition by name")
+    return bad, note
+
+
+def appstore(dev, root, only=(), table=None):
     """Build the App Store: resident + SEAL, then every phase's descriptor, then hand the terminal to the shelf.
 
     GUARDRAIL: the phases are COMPILED AFTER `SEAL`, never before. The fresh dictionary is 1 366 B and the shelf's image
@@ -492,6 +608,18 @@ def appstore(dev, root, only=()):
     GUARDRAIL: descriptors are written with `#d` and then FLUSHED with `#f`. `#d` lands in the flash sector cache, so a
     build that skips the flush looks correct and is gone after a power cycle (lane R measured it).
     """
+    # GUARDRAIL: the table is a PARAMETER because the chain's terminal hop is a fixed literal in the phase
+    # sources: the encrypt build wants the transmitting phase at that block and the decrypt build wants the
+    # decrypting one there. Two phases may not hold the same descriptor in one build (the span check refuses),
+    # so the caller names which table it is building.
+    table = APPSTORE if table is None else table
+    bad_rules, notes = phase_rules(root, table, APPSTORE_RESIDENT)
+    for n in notes:
+        say(f"  note: {n}", DM)
+    if bad_rules:
+        for b in bad_rules:
+            say(f"  REFUSED: {b}", YL)
+        return None
     win = 0
     for rel in APPSTORE_RESIDENT:
         n, bad = upload(dev, str(root / rel), STAGING, staging=STAGING_BLOCKS)
@@ -502,7 +630,7 @@ def appstore(dev, root, only=()):
     win = dev.num("LATEST .") - dev.num("bh @ .")
     say(f"  resident sealed; phase window {win} B", CY)
     built = []
-    for name, rel, desc, entry in APPSTORE:
+    for name, rel, desc, entry in table:
         # GUARDRAIL: the shelf is ALWAYS built, even when the caller names one app. It is the entry point (`RUNSHELF`) and
         # every phase returns to it with `SHELF CHAIN` - so `--appstore mail` without it handed the terminal to a word that
         # did not exist, dropped into the REPL, and looked like the feature was broken. `only` filters the APPS.
@@ -520,6 +648,19 @@ def appstore(dev, root, only=()):
             return None
         cs, ce = dev.num("bh @ ."), dev.num("HERE .")
         hs, he = dev.num("LATEST ."), dev.num("bl @ .")
+        # GUARDRAIL: `dev.num("' ENTRY .")` on a missing word does not return a number, and devio raises
+        # Timeout, so the build said "no number in reply" and looked like a dead console for three
+        # sessions while the real fault was a silent refusal of the phase's LATER definitions (a phase
+        # whose header area runs out drops words with no message - the F-150 family). Ask the board
+        # which of this file's own definitions exist, and print the pointers, BEFORE trusting the
+        # entry. Nothing here changes the verdict; it names it.
+        last = re.findall(r"^:\s+(\S+)", path.read_text(), re.M)[-6:]
+        have = {w: (dev.num(f"' {w} .") if _ok(dev, f"' {w} .") else None) for w in last}
+        if not _ok(dev, f"' {entry} ."):
+            say(f"  {name}: entry `{entry}` missing; probe of the last definitions: "
+                f"{ {w: v for w, v in have.items()} } "
+                f"| HERE {ce} LATEST {hs} code {ce - cs} B headers {he - hs} B window {win} B", YL)
+            return None
         ent = dev.num(f"' {entry} .")
         if ent in (0, -1):
             say(f"  {name}: `' {entry}` did not resolve - the phase did not compile", YL)
@@ -534,6 +675,15 @@ def appstore(dev, root, only=()):
         if "REFUSED" in rep or "ERR_" in rep:
             say(f"  {name}: descriptor refused: {rep.strip()[-70:]}", YL)
             return None
+        # GUARDRAIL: check overlap against the span the image ACTUALLY occupies, not a worst-case 8 blocks.
+        # `#d` reports the payload length ("8 blocks from block 8", "1 blocks from block 72"), so the pre-flight
+        # 8-block assumption was wrong in both directions: it flagged the working shelfkeys@44 against reader@48
+        # (keys is 284 B, three blocks), and a rule that blocks working code is worse than no rule.
+        for n2, d2, i2 in built:
+            if desc_in_span(desc, image, d2, i2):
+                bad = f"{name} (desc {desc}, {image} B image) and {n2} (desc {d2}, {i2} B) share blocks"
+                say(f"  REFUSED: {bad} - an adopt pastes one image over the other", YL)
+                return None
         built.append((name, desc, image))
         say(f"  {name:<7} desc {desc:<3} {image:>5} B of {win}  entry {ent}", DM)
     # GUARDRAIL: POISON the descriptor of every app this build did not write. A card can point at a block that still holds
@@ -541,7 +691,7 @@ def appstore(dev, root, only=()):
     # BK_RANGE if the stale header names a block outside the store - measured as "GOPHER crashes and won't let me exit",
     # because gopher has no phase yet and block 44 held leftovers. Seeding an EMPTY payload blanks the block (the seeder
     # fills with spaces first), so any later adopt fails the magic check and PICKX returns NOOP instead.
-    want = {desc for _n, _r, desc, _e in APPSTORE}
+    want = {desc for _n, _r, desc, _e in table}
     poisoned = []
     for desc in CARD_DESCS:
         if desc in want and any(d == desc for _n, d, _i in built):
@@ -552,6 +702,22 @@ def appstore(dev, root, only=()):
         dev.cmd("#f", timeout=30.0, allow_error=True)
         say(f"  no phase built - descriptors blanked so those cards refuse cleanly: {', '.join(poisoned)}", DM)
     dev.cmd("#f", timeout=30.0, allow_error=True)
+    # GUARDRAIL: verify each descriptor AFTER the single flush. `#d` validates against the ARRAY size (BLK_N 128),
+    # but adoption honours fs_block_count() - so descriptor 72 was accepted, the adopt read blank, PICKX returned
+    # NOOP, and the store exited to the prompt with no message at all. `#c <desc>` is the only command that saw the
+        # GUARDRAIL: `#c <desc>` is OPT-IN (`APPSTORE_VERIFY=1`) because it is NOT a passive read. Measured, two runs
+    # back to back on the same store: verification ON the shelf stops drawing (4 420 B frame, no card titles);
+    # verification OFF the same store is 16/16. So a compare that leaves the store unable to adopt is a diagnostic,
+    # not a build step - it belongs behind a flag (and `#c` itself deserves a look: a command that checks should not
+    # change what it checks). The write-it-then-trust-it failure it was meant to catch (descriptor 72 accepted by
+    # `#d`, adopted blank, store exits with no message) is caught instead by the host-side gate in phase_rules.
+    if os.environ.get("APPSTORE_VERIFY"):
+        for name, desc, _image in built:
+            chk = dev.cmd(f"#c {desc}", timeout=30.0, allow_error=True)
+            tail = chk.strip().splitlines()[-1] if chk.strip() else ""
+            if "FIRST AT" in chk or "REFUSED" in chk or "MISMATCH" in chk:
+                say(f"  {name}: descriptor {desc} does not match the store: {tail[:90]}", YL)
+                return None
     return built
 
 

@@ -84,7 +84,76 @@ static u8 mem[MEMSZ];
 #endif
 static u8 junk;
 
+/* ---------------------------------------------------------------- the hardware gate
+ *
+ * P() is what makes a wild pointer harmless: anything outside mem[] lands in one byte of `junk`. Forth therefore cannot
+ * reach a peripheral at all (F-149), which is correct for every program that does not want to, and fatal for the one that
+ * does - the LoRa driver needs the RTC GPIO registers.
+ *
+ * The repair is a GATE, not an exemption: exactly one 64-byte window, the RTC GPIO register file, is real hardware.
+ *   * the hot path is unchanged - `a < MEMSZ` still returns first, so token fetch pays the same single compare;
+ *   * an accident cannot reach the gate: `-1 !`, an underflowed address or a miscalculated offset all land far outside
+ *     0x60008400..0x6000843F, so the "wild pointers are harmless" property that F-149 depends on still holds;
+ *   * what CAN reach it is a constant someone wrote on purpose, which is what a register address is.
+ *
+ * GUARDRAIL: the gate is `#ifndef HOST` on purpose. On the host those addresses are not mapped - returning a real
+ * pointer would segfault the test binary - so the host keeps its own simulated RTCIO window in rd16/wr16, which is what
+ * tests/lora_spi.py decodes. Two different mechanisms, one address range, and the host one must never be more
+ * permissive than this gate (F-149: a simulator that accepts what the chip refuses turns a hardware limit into a tick). */
+/* GUARDRAIL: THE COPROCESSOR DOES NOT SEE THE SoC ADDRESS MAP. Measured with both readers on the same
+ * word: the main core reads 0x60008400 = 0x00440000, the coprocessor reads 0x60008400 and gets the
+ * contents of 0x60008000 - address bits A10 and A11 are not decoded for it, so every absolute RTCIO
+ * access this firmware ever issued was landing in RTC_CNTL, writing nothing and reading noise. That is
+ * the whole "the ULP cannot write RTCIO" investigation, and it also explains why the working C driver
+ * could: esp32s3.peripherals.ld hands the coprocessor a LOW alias window (RTCIO = 0xA400, SENS =
+ * 0xC800), and its helpers put those aliases on the bus (its clock-gate store is at 0xC904). So the
+ * gate below is expressed in the coprocessor's own units, and every driver constant is too. */
+#define HW_GATE_LO 0xA400u       /* RTC_GPIO_OUT_REG, as the coprocessor addresses it */
+/* GUARDRAIL: 0x200, not 0x40. The RTCIO register file is 60 registers from +0x000 to +0x1FC, and the pad-mux
+ * registers (RTC_IO_TOUCH_PAD0 at +0x84, i.e. 0x60008484) sit past a 64-byte window - so with a 64 B gate every
+ * LORA_MUX! write went to `junk` and the pads were never muxed, which looked exactly like a dead SPI bus (pin readback 0,
+ * GetStatus 0x00) while the gate itself worked. Size the window from the register file, not from the first address you
+ * needed. */
+/* GUARDRAIL: 0x600, not 0x200. The RTCIO file ends at +0x1FC, but the pad configuration is INERT until the RTC IO MUX
+ * clock gate is enabled, and that gate lives in SENS (SENS_SAR_PERI_CLK_GATE_CONF_REG = 0x60008904, bit 31) - outside a
+ * 0x200 window, so the pads could be muxed to RTC mode and still never move. One compare against one constant covers
+ * both ranges and costs no extra bytes. */
+#define HW_GATE_SPAN 0x3000u     /* 0xA400..0xD3FF: RTCIO (0xA4xx) and the SENS pad-mux clock gate (0xC9xx).
+                                  * One span covers both aliases, and the window starts above MEMSZ (0x9F6), so it
+                                  * can never overlap the interpreter's own memory. The old 0x600 span was the SoC
+                                  * window, which this core cannot decode. */
+/* GUARDRAIL: noinline is a BUDGET pin here, the same technique the wr8/wr16 comment above records (it was worth -90 B
+ * there). Inlined, the gate's compare plus constant is duplicated into every caller; outlined it appears once and costs
+ * one call on the MISS path only, because `a < MEMSZ` still returns before the call is ever reached in the common case. */
+#if defined(HW_GATE)
+/* Fast path / slow path, and the split is the whole point.
+ *
+ * The fast path is what every token fetch runs: ONE compare and a lea, fully inlined, exactly what it was before the gate
+ * existed. The gate's range test lives in P_slow(), noinline, which is only ever called when the address is outside
+ * mem[] - i.e. never for a normal program and only for the deliberate constant addresses that name a register.
+ *
+ * GUARDRAIL: this shape exists because the first attempt put the range test inline (42 B) and then made all of P()
+ * noinline to save bytes (12 B) - and the second version cost 29 B of STACK: the painted high-water went 240 -> 269 B,
+ * because every single byte access paid a call frame. A call on the cold path costs nothing at run time (the path is not
+ * taken) and nothing on the stack (no frame is entered). */
+static u8 * __attribute__((noinline)) P_slow(u32 a)
+{
+#ifndef HOST
+    if ((u32)(a - HW_GATE_LO) < HW_GATE_SPAN) return (u8 *)(uintptr_t)a;   /* one range test */
+#endif
+    return &junk;
+}
+
+static inline u8 *P(u32 a)
+{
+    return a < MEMSZ ? mem + a : P_slow(a);
+}
+#else
+/* GUARDRAIL: measured - the gate needs bytes the machine does not have while it is off, so it stays off until they
+ * exist. See docs/30 §5c and the fast/slow note above for the two shapes that were measured. */
 static u8 *P(u32 a) { return a < MEMSZ ? mem + a : &junk; }  /* wild pointers are harmless */
+#endif
+
 static u8  rd8(u32 a)            { return *P(a); }
 /* GUARDRAIL: noinline is a BUDGET pin, not a performance choice. With 3-byte headers `find()` and `mkhdr`
  * touch wr8/wr16 far more often, and GCC's decision to outline them is worth -90 B of .text — which is the
@@ -99,17 +168,131 @@ static void __attribute__((noinline)) wr8(u32 a, u8 v)     { *P(a) = v; }
  * ever stops being true the core raises a misaligned-access trap instead of returning a byte-swapped
  * value, which is the failure we want. Do NOT add a byte-pair fallback: it would hide exactly that bug.
  * Out-of-range keeps the old answer (0) so wild pointers behave as before. */
+#ifdef HOST
+/* ---------------------------------------------------------------- simulated RTC GPIO block (host only)
+ *
+ * The Forth LoRa driver addresses the real RTC GPIO registers directly (docs/30 §5, option 2: it costs 0 B of the ULP
+ * pool, which is why it was chosen). On the host those addresses do not exist and P() sends them to `junk`, so without
+ * this window the driver would "run" while every write landed nowhere and every read returned 0 - the same
+ * capable-in-one-build / stub-in-the-other lie that F-148 records, this time in the harness rather than the image.
+ *
+ * GUARDRAIL: this lives in uforth.c because that - not preoptimization.c - is what tests/build_host_app.sh compiles for
+ * the host. Putting it in preoptimization.c cost a full debug cycle: the shim was correct, linked into nothing, and the
+ * pin trace stayed empty.
+ *
+ * GUARDRAIL: the set/clear writes print the SAME `[gpio pin=level]` trace that pl_hw prints, so tests/lora_spi.py
+ * decodes register writes and pin writes with one decoder - two decoders would be two chances to disagree with the chip.
+ *
+ * ESP32-S3 RTCIO (DR_REG_RTCIO_BASE = 0x60008400): +0x04 W1TS, +0x08 W1TC, +0x24 IN. Every data field starts at bit 10
+ * (F-141), so a HALFWORD at +2 covers pins 6..21 - the reason W!/W@ can drive these pins at all. */
+/* GUARDRAIL: this model must cover the window the GATE covers (HW_GATE_LO above, 0xA400 - the coprocessor's
+ * alias of RTCIO), not the SoC address. It read 0x60008400 after the gate moved, and the byte-stream oracle
+ * kept passing while the board did nothing: the host answered a range the chip no longer decodes, which is
+ * precisely the "simulator more permissive than the gate" failure F-149 warns about. Offsets inside the block
+ * are the same in both windows. */
+#include <stdio.h>   /* the host model traces pin edges with printf; implicit decl is a warning we keep */
+#define SIM_RTCIO_BASE   0xA400u
+#define SIM_RTCIO_SIZE   0x40u
+#define SIM_RTCIO_SHIFT  6u
+static u16 sim_rtcio[SIM_RTCIO_SIZE / 2];
+static u32 sim_pin_levels;
+
+static int sim_rtcio_hit(u32 a) { return a >= SIM_RTCIO_BASE && a < SIM_RTCIO_BASE + SIM_RTCIO_SIZE; }
+
+static void sim_rtcio_write(u32 a, u16 v)
+{
+    const u32 off = a - SIM_RTCIO_BASE;
+    /* A 32-bit store arrives here as two halfwords: +0 carries bits 10..15 (pins 0..5) and +2 carries 16..31 (pins 6..21).
+     * GUARDRAIL: handle both or the width swap is silent - the driver moved from W! at +2 to ! at the base because 16-bit
+     * accesses read back 0 from the ULP (measured), and a shim that only knew +2 turned the new width into no trace at
+     * all, which reads exactly like "the driver stopped working" (F-149 again). */
+    u32 pins = 0, first_pin = 0, is_set = 0, known = 1;
+
+    if (off == 0x06u)      { pins = v;        is_set = 1; first_pin = SIM_RTCIO_SHIFT; }
+    else if (off == 0x0Au) { pins = v;        is_set = 0; first_pin = SIM_RTCIO_SHIFT; }
+    else if (off == 0x04u) { pins = v >> 10;  is_set = 1; first_pin = 0; }
+    else if (off == 0x08u) { pins = v >> 10;  is_set = 0; first_pin = 0; }
+    else                   { known = 0; }
+
+    if (!known) {
+        sim_rtcio[off / 2] = v;
+        return;
+    }
+    for (u32 i = 0; i < 16u; i++) {
+        if ((pins >> i) & 1u) {
+            const u32 pin = i + first_pin;
+            if (is_set) {
+                sim_pin_levels |= 1u << pin;
+                printf("[gpio %u=1]", pin);
+            } else {
+                sim_pin_levels &= ~(1u << pin);
+                printf("[gpio %u=0]", pin);
+            }
+        }
+    }
+}
+
+static u16 sim_rtcio_read(u32 a)
+{
+    const u32 off = a - SIM_RTCIO_BASE;
+    if (off == 0x26u) {
+        return (u16)((sim_pin_levels >> SIM_RTCIO_SHIFT) & 0xFFFFu);
+    }
+    return sim_rtcio[off / 2];
+}
+#endif
+
 #if defined(ALIGN_TRAP)
-static u16 rd16(u32 a)           { if (a & 1u) pl_halt(0x50u); return *(volatile u16 *)(mem + a); }
+static u16 rd16(u32 a)           { if (a & 1u) pl_halt(0x50u);
+#ifdef HOST
+    if (sim_rtcio_hit(a)) return sim_rtcio_read(a);
+#endif
+    return *(volatile u16 *)(mem + a); }
 #else
 /* GUARDRAIL: the old test was `a + 1u < MEMSZ`, which WRAPS for a = 0xFFFFFFFF: the sum becomes 0, the
  * test passes, and the load reads mem - 1 — a wild pointer, not a rejected address. (`-1 @` reaches it.)
  * Compare the address, never the address plus its own width. P(a) never had this bug because it tests `a`. */
-static u16 rd16(u32 a)           { return a < MEMSZ - 1u ? *(volatile u16 *)(mem + a) : 0u; }
+static u16 rd16(u32 a)           {
+#ifdef HOST
+    if (sim_rtcio_hit(a)) return sim_rtcio_read(a);
 #endif
-static void __attribute__((noinline)) wr16(u32 a, u16 v)   { wr8(a, v); wr8(a + 1, v >> 8); }
-static u32 rd32(u32 a)           { return rd16(a) | (u32)rd16(a + 2) << 16; }
-static void wr32(u32 a, u32 v)   { wr16(a, v); wr16(a + 2, v >> 16); }
+    return a < MEMSZ - 1u ? *(volatile u16 *)(mem + a) : 0u; }
+#endif
+static void __attribute__((noinline)) wr16(u32 a, u16 v)
+{
+#ifdef HOST
+    if (sim_rtcio_hit(a)) { sim_rtcio_write(a, v); return; }
+#endif
+    wr8(a, v); wr8(a + 1, v >> 8);
+}
+static u32 rd32(u32 a)
+{
+#if defined(HW_GATE) && !defined(HOST)
+    /* GUARDRAIL: a register inside the gate gets a REAL 32-bit load, mirroring wr32. rd32 is two rd16s and each rd16 is
+     * two rd8s, i.e. four BYTE loads - and the RTCIO file does not answer byte accesses: every `@` of a register read
+     * 0x00000000 while a byte-sized `!` of the same address worked, which made the gate look broken when the address
+     * arithmetic and the write path were both correct. Measured on the board: the pin-read probe returned 0 for a pad the
+     * HP core was driving high until this path was added. Reads and writes must agree on width. */
+    if ((u32)(a - HW_GATE_LO) < HW_GATE_SPAN) return *(volatile u32 *)(uintptr_t)a;
+#endif
+    return rd16(a) | (u32)rd16(a + 2) << 16;
+}
+static void wr32(u32 a, u32 v)
+{
+#if defined(HW_GATE) && !defined(HOST)
+    /* GUARDRAIL: a register inside the gate gets a REAL 32-bit store. wr32 normally decomposes into four byte stores,
+     * which is right for memory and wrong for the RTC GPIO W1TS/W1TC registers: a byte write does not latch, so the pad
+     * never moved, the SPI clock never clocked, and GetStatus read 0x00 while every Forth-level test "passed" (the
+     * address round-trip with a plain read/write register worked, which is exactly what made this hard to see).
+     * Gate addresses are 4-byte aligned by construction - they are register bases - so the wide store is safe here and
+     * only here. */
+    if ((u32)(a - HW_GATE_LO) < HW_GATE_SPAN) {
+        *(volatile u32 *)(uintptr_t)a = v;
+        return;
+    }
+#endif
+    wr16(a, v); wr16(a + 2, v >> 16);
+}
 /* GUARDRAIL: host-only. A 3-byte header entry (P54) cannot be read with rd32 at all — half of the
  * entries sit at odd addresses and an `lw` there traps on rv32 — so the bake-time collision check needs
  * this reader. find() must NOT call it: there the bytes are compared one at a time on purpose, so the
@@ -1607,6 +1790,10 @@ static void vm_enter(void)
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_WSTORE)
         [P_WSTORE] = DISP_ENT(L_P_WSTORE),
+#if defined(HWPRIMS)
+        [P_HWFETCH] = DISP_ENT(L_P_HWFETCH),
+        [P_HWSTORE] = DISP_ENT(L_P_HWSTORE),
+#endif
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_XOR)
         [P_XOR] = DISP_ENT(L_P_XOR),

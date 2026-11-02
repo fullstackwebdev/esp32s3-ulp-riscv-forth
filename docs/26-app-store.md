@@ -373,3 +373,40 @@ would pass the store budget, fails the build — not the board.
 
 Lanes report, always: features → budget table → G2 golden → G4 device result → **any linter/parity gap found**. That last
 field is how the loop feeds itself.
+
+## 20. The shelf is two phases, and why one phase could never fit
+
+The drawing phase (`examples/apps/shelf/shelf1.fs`, descriptor 56) and the keys phase
+(`examples/apps/shelf/shelfb.fs`, descriptor 44) are separate because the shelf's image measured
+**~1 096 B** (board: `HERE 1908` against `LATEST 1961` at the silent drop, plus the ~150 B of
+definitions the machine had already discarded) against a **999 B** window - measured on hardware,
+at `MEMSZ 2 566`. Compaction could not close it: the ceiling of one definition per
+interpret-state boundary is derived (`BLKPASS = TIBSZ - 1 = 95`), and every remaining two-word
+merge either crossed it (`KEYDO` at 119 B, `EDGE` at 98 B, `DRAW` at 95 B - all refused by
+`tools/lint_forth.py` before the board saw them) or removed vocabulary another app or test uses.
+
+The split is honest about what it costs and what it keeps:
+
+* **a phase cannot see another phase's words**, so the keys phase carries its own `WAIT` and
+  `SLOT`. That duplication is the reason the split is a real savings rather than a free rename:
+  it moves ~340 B (keys, open path, `WAIT`, `SLOT`) out of the drawing phase, leaving 730 B
+  there (board: `code 658 + hdr 72 = 730 B` after `#d`) and ~284 B in the keys phase.
+* **the drawing phase must not wait for a key.** `RUNSHELF` draws and chains to 44 without
+  reading the keyboard; the keys phase owns the wait. When it waited too, every keystroke was
+  eaten by one side or the other and the store took no action (measured: 0 bytes after a key,
+  and the pty test's frames empty).
+* **the stack must be empty when a phase chains.** Folding the wait loop into `RUNSHELF` left
+  the key on the stack at `NXT @`, and the machine refused the line with
+  `tasks need an empty stack` (`MSG_TASK_STACK`).
+* **descriptors are not free addresses.** 72 is past `fs_block_count()` (the array is `BLK_N 128`
+  but the flash store is smaller), so `#d` accepted the image, the adopt read blank, and the
+  store exited with no message - `#c 72` compared store against `mem[]` and named the mismatch.
+  24 is where `OPND` maps slot 1, so the keys phase adopted *itself* and waited forever (0 B
+  after Enter). 44 is inside the store, inside gopher's deliberately-blank payload range, and
+  unreachable by `OPND`, which maps slots to 8, 24, 32, 40, 48.
+
+The pty test's last check needed the same kind of correction: its key sequence walked
+`(col+1) mod 3` three times, which wraps back to column 0 - so it opened the calculator and
+called that "a card with no app refuses". It now drives to slot 1 (descriptor 24, blanked by
+design) and is satisfied by the machine's own named refusal
+(`img: REFUSED bad descriptor (magic/version/geometry)`) plus the prompt returning.

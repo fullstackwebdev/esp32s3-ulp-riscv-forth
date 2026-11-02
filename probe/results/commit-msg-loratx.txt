@@ -1,0 +1,34 @@
+lora: a Meshtastic-shaped frame leaves the chip from ONE 939 B phase, decoded by the peer
+
+tests/lora_frame_phase.py, 10/10 twice. examples/apps/lora/loratx.fs is 939 B (code 858 + headers 81)
+against the 999 B store window, and does the whole job itself: pad primitives, the 14-entry config table
+from one byte table, WriteBuffer, SetTx and a polled TxDone. RUNLORA -> STDBY_RC with TxDone (IRQ 0x0001);
+the peer board reports RxDone (IRQ 0x0016) and reads 26 bytes out of its OWN RX buffer:
+
+  ff ff ff ff | 0a 0a 0a 0a | ca fe 00 01 | 00 00 00 00 | 08 80 02 12 05 68 65 6c 6c 6f
+  broadcast     from          packet id     flags/ch/nh/relay  portnum 256 + "hello"
+
+CIPHER: the block matches openssl (69c4e0d8...) and the CTR keystream matches openssl -aes-128-ctr
+(c6a13b37...), 11/11. CTR is proven as a KEYSTREAM because the cipher fills the prompt dictionary exactly,
+0 B free (measured), so no XOR word fits on the chip with it.
+
+WHY THE CIPHER IS NOT A PHASE (measured, not tried): cipher 1328 B against a 999 B window; registry cells
+are resident (cli.py:registry_cells, "every cell costs 4 B of the window") and the image has 1 B free, so
+the data cannot move either. Meshtastic interoperability is now a SIZE problem with a known shape.
+
+Four failures found, each gated:
+1. R29 (new rule) - a control structure split across typed lines answers ERR_STACK with 488 B FREE, so the
+   failure reads as "no space" when it is a missing REPEAT. SND in the new phase did exactly that. Fixtures
+   for the split case and for the valid one-line loop (a rule also needs a negative case).
+2. code_only ran its paren-comment pass BEFORE stripping backslash comments, so a paren inside a comment
+   blanked real code and left prose visible: R29 refused lora1.fs for a "then" in an English sentence.
+   Comments are cut first now; every token rule reads through this function.
+3. scan_lines dropped comment-only lines, so indices were shorter than the source and findings were
+   attributed to lines that do not exist. R29 numbers against the source's own lines.
+4. Packet params are shared by TX and RX: a receiver set to length 26 also made the TRANSMITTER send 26,
+   and SEND (fixed 200 ms sleep, then read TxDone) answered 0 while three frames crossed the air. Packet
+   params belong to the scenario; lora_rx.fs keeps SR plain; RX1 (five tokens, no caller) removed so the
+   driver plus the receive words fit the dictionary again (287 B against 283 B before).
+
+Green: suite 30 pass, linter selftest PASS, lora_spi all checks pass, two-board 3+3 both directions,
+init-phase 0 failures, aes 11/11, frame-phase 10/10.

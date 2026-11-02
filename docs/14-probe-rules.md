@@ -191,3 +191,143 @@ it, because that arm never executed (`F-134`).
 undescribed block and requires the line to return, the counter to stop, and `REFUSED` to be printed), and confirm the new
 test fails when the fix is reverted. When two spellings look interchangeable, find the primitive table
 (`src/p31_prims.inc`) and read the immediate flag instead of assuming.
+
+## R16 — A substring hit is not an identity
+
+**What happened.** Before taking an 8 MB flash dump, the chip was "identified" by counting occurrences of
+`uforth|ULPCODE|BLKXFER|APP STORE|repl` in the the app region. Four hits appeared, the dump was taken, and the backup was
+recorded as *the App Store board*. It was not: every one of those four hits was the word **`repl`**, which appears in stock
+ESP-IDF strings. The board on `/dev/ttyUSB0` was a Heltec V3 running Meshtastic, and the real board's flash was never
+captured. The backup was valid — of the wrong machine.
+
+**Why the check felt sufficient.** It was cheap, it used our own vocabulary, and it returned a positive number. A positive
+number from a weak test is worse than no test, because it closes the question.
+
+**The rule.** An identity check must produce something that could only come from the entity you think you have:
+a full-region hash compared against a known build, a structure that is unique (the image's project-description string at
+`0x30`, a partition layout, a MAC you have recorded before), or a challenge/response that only that firmware answers. Substring
+counts, banner text and "it answered" are not identity.
+
+**Corollary for ports.** A device that changes port changed nothing about its identity — and a *different* device on the
+same path looks identical to a tool that only knows the path. After any replug, re-establish identity before writing or
+reading anything you intend to keep.
+
+
+## R17 — One reader is not a measurement; use two
+
+A register read by one core is a claim, not a fact. On 2026-11-01 the ULP read `RTC_GPIO_IN` as `0x02010201` for every
+input state, and read back exactly the value it had written to a register the hardware never changed. From inside that
+reader the gate looked **correct**: the write echoed, the round-trip matched, the address arithmetic was right. Every one
+of those statements was true and the bus was not being touched.
+
+A second reader — the HP core, `#g`, same board state, same instant — said `0x00000400` and then `0x00800400` with the pad
+driven. The disagreement was the finding. Two rules follow:
+
+* **Before "the hardware ignores me", print the same address from another master.** If they agree, the register really
+  holds that and the fault is elsewhere; if they disagree, the fault is the access path, and no amount of staring at the
+  failing reader will show it.
+* **Give the second reader a different implementation.** Two readers of the same register through the same code path are
+  one reader. This is why the HP core's `REG_READ` is worth the extra command: it is a different core, a different
+  compiler, and a different bus init.
+
+Corollary, and it is F-149 again: a receiver must be able to **fail**. The `.` that answered `ok` was reading memory, not
+a peripheral, and nothing in its output could distinguish the two.
+
+## R18 — A test whose baseline already satisfies it proves nothing
+
+`#n` queued a ULP write that set bit 18 of `RTC_GPIO_OUT` and then reported `bit18 SET`. That looked like success and was
+worthless: `lora_pads_setup()` idles NSS **high**, so bit 18 was already set before the probe ran. The test could not have
+failed.
+
+The fix cost one line — clear the bit **from the other core** first, print the cleared value, then run the probe — and the
+answer immediately became `bit18 clear`, which retired the hypothesis the probe was built to confirm.
+
+State the baseline in the probe's own output (`cleared bit18 (HP), OUT now 0x00400000`), so the transcript proves the test
+started from the state that makes it meaningful. A probe that reports only its own verdict cannot be audited after the
+fact.
+
+## R19 — Never discard the flash output
+
+Two build cycles were spent chasing a "phantom" gate: the ELF contained the right code, the disassembly agreed, the source
+was correct, and the board behaved as if none of it existed. The cause was a `flash` invocation whose output went to
+`/dev/null`; it had failed, and the board was still running the previous firmware.
+
+`idf.py flash` prints `Hash of data verified` **once per staged image** (bootloader, partition table, app). Grep for that
+count and require it, or let the full transcript through. A flash is a measurement: treat its output like any other
+measurement, and never pipe it somewhere that cannot show you a failure.
+
+## R20 — Validate the instrument on a known-good system first
+
+A probe that reports "the hardware is broken" must itself be proven on hardware that works. On 2026-11-01 a three-line
+probe read `RTC_GPIO_OUT` from the ULP and got `0x1C008000`; the HP core read `0x00440000` for the same register at the
+same moment. That disagreement was treated as evidence about the *bus* for several flash cycles. The same probe, added
+to a firmware that was demonstrably transmitting, produced **the same garbage** — so the probe could only ever say
+"garbage", and every conclusion drawn from it was noise.
+
+Two concrete habits follow:
+
+* **Run the probe against two firmwares: one known-bad and one known-good.** The known-good build usually already exists
+  in the tree (`probe/lora` here, with `tx_ok` counters and a `-D..._STAY_AWAKE` switch). One flash to the good build
+  costs minutes; the wrong conclusion cost an afternoon.
+* **Prefer a reader with a different implementation.** The HP core's `REG_READ` and the ULP's `lw` are the same
+  instruction on paper and behaved completely differently in practice; the *core* was the variable that mattered. When
+  two readers disagree, find out which one is lying before believing either.
+
+Corollary: when a counter or readback is your only witness, check it can produce a *positive* result somewhere. A probe
+that has never returned "good" in any firmware is not a measurement.
+
+## R21 — A failed build leaves the previous binary behind; check the artifact, not the command
+
+Twice in one session a build **failed** and the next command printed a size line that looked like a result — from the
+binary left on disk by the *previous* build. `riscv32-esp-elf-size build/.../ulp_main.elf | tail -1` has no way to say
+"this is stale", and a plausible number is the most convincing kind of wrong.
+
+`idf.py build` exits nonzero and prints `ninja: build stopped`, so:
+
+* test the **exit status**, not the presence of an output file;
+* when a number is the measurement, print the artifact's timestamp next to it (`ls --time-style=+%H:%M:%S`);
+* and treat a size that matches the previous run as evidence of *no change*, not of success.
+
+The related trap in the same class: `-Werror=comment` killed a build because a guardrail comment quoted a shell glob — the
+compiler takes `/*` inside a block comment as a nested open. Comments quoting commands must avoid that sequence.
+
+## R22 — Diffing dynamic registers is not evidence; write the bit and read it back
+
+A one-shot dump of two machines that "differ" in a control register is a hypothesis, not a finding: many RTC/ANALOG block
+registers are counters, sample-and-hold values, or W1TS aliases whose contents depend on *when* they were read. On
+2026-11-01 a 544-word diff found `RTC_CNTL_ULP_CP_CTRL_REG = 0x60` here and `0x62` there; the tempting conclusion was a
+coprocessor enable bit. One write of that bit and one read-back later it was `0x0010023F` — the register is a snapshot of
+the ULP timer sequencer, and setting the bit changed nothing.
+
+Two habits:
+
+* **Before chasing a differing bit, write it and read it back.** If the value does not hold, the register is dynamic and
+  the diff was noise.
+* **Classify each differing register before interpreting it** (`*_STATE`, `*_INT_`, ADC/ATTN, W1TS/W1TC aliases are all
+  dynamic by construction). A diff that survives classification is worth a flash; one that doesn't is worth a comment.
+
+## Gate additions this era, and the one command that is not a gate
+
+`tools/lint_forth.py` grew **R26 alias window** (a SoC absolute address in pool code: the coprocessor drops A10/A11,
+the store runs, the pad never moves - and the linter's own `GOOD_REG` fixture had been *teaching* the broken form, so
+the fixture was corrected too) and **R27 nested loop** (a second `BEGIN` inside an open `BEGIN` in one definition is
+refused by the loader with no message at all). Widening **R23** was the quieter fix: it recognised register addresses
+as "any literal >= 0x10000", which stopped matching anything once addresses moved to the alias window, so narrow
+accesses on registers had gone silently unreported.
+
+`tests/run.sh` now runs `hashcheck.py` over the app corpus, because that tool existed as a hand-run step and the
+driver carries a real collision (`DIO1PAD` hashes like baked `AP1`). `tools/measure.sh` refuses a variant whose
+`.text` is identical to base: `measure.sh v -DSD=8` and `-DMEMSZ=2000` used to exit 0 while quoting a number, because
+the shipping compile line already defines those macros and an appended `-D` of the same macro loses.
+
+`cli` gained host-side gates for the mistakes that cost days this session, and refuses by name: an entry word that the
+file does not define (a typo looked like a compile failure), a phase sitting on a card descriptor (`OPND` maps a slot
+to 24, so the keys phase adopted *itself* and the store took no action forever), and a phase reaching for a word only
+another phase defines (a phase cannot see another phase's words). Overlap is checked *after* the build against the span
+each image actually occupies - the pre-flight 8-block assumption flagged the working `shelfkeys@44` against
+`reader@48`, and a rule that blocks working code is worse than no rule.
+
+And the counter-rule worth writing down: **`#c <desc>` is not a passive read.** Measured twice on the same store: with
+verification in the build path the shelf stops drawing (4 420 B first frame, no card titles); with it off the same
+store is 16/16. A check that damages what it checks is a diagnostic behind a flag (`APPSTORE_VERIFY=1`), not a build
+step, and the tool itself now has an open question against it.

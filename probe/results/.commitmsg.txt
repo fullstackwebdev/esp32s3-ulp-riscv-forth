@@ -1,0 +1,22 @@
+backup: capture and verify a second ESP32-S3 before touching it
+
+tools/backup_board.sh reads the whole flash THREE times and keeps the dump only if all three agree
+(measured: sha256 1ac78214...7ea0884 for backup/esp32s3-xxxxxxxxxxxx-8MB-20261102-0837.bin), writes
+the sha256, the chip identity and a restore note beside it, holds the board lock for the whole run,
+refuses /dev/ttyUSB0 (the board under test) and resets through DTR/RTS at the end.
+
+Two lessons encoded rather than commented:
+- an agent harness aborting the TOOL CALL does not stop the process, so the first attempt kept reading
+  with stdout gone, died on a progress write and left the board in the bootloader. The script now tees
+  its own log, and its header says to run it under tmux.
+- esptool "--after hard_reset run" is wrong twice (v5 renamed the choice to hard-reset, and "run" is not
+  a reset); with "|| true" it hid, leaving the board in the bootloader silently. Replaced with the
+  DTR/RTS toggle the probes already use.
+
+tools/backup_compare.py exists because an independent re-read minutes later differed from the kept dump
+by 463 B (0.006 %): ALL of it inside nvs and spiffs, with app0/app1/otadata/coredump byte-identical
+(the re-read is kept at probe/results/reverify.bin as the evidence). A full-flash dump is a snapshot, so
+a raw cross-session sha256 is a false-alarm generator; the comparator decides by partition TYPE, and was
+falsified both ways: one flipped byte in app0 exits 1, spiffs-only drift exits 0.
+
+Restore: esptool.py -p PORT -b 921600 write_flash 0 backup/NAME.bin

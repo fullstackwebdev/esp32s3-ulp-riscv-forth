@@ -2,7 +2,26 @@
 # GUARDRAIL: the ULP source must live in src/ next to uforth.c — ulp_p39.c includes "uforth.c" and
 # the .inc files by quoted include, which resolves relative to ulp_p39.c's own directory. Adding
 # include dirs here instead would let the ULP pick up a *different* uforth.c than the host build.
-set(COMPONENT_SRCS "repl_main.c"
+# GUARDRAIL: the HP side needs its OWN definition of ULP_EARLY. Passing it only through ULP_EXTRA_DEFS (which feeds the
+# ULP sub-build's CFLAGS) left repl_main.c on the normal boot path while I believed I had bisected "started early" - the
+# classic one-flag-two-builds mistake. -DULP_EARLY=1 now means both sides.
+# GUARDRAIL: F-165's switch, HP side too (see the lesson in ULP_EARLY's comment above).
+if(FOREIGN_ULP)
+    add_definitions(-DFOREIGN_ULP=1)
+endif()
+
+if(ULP_EARLY)
+    add_definitions(-DULP_EARLY=1)
+endif()
+
+# GUARDRAIL: F-176j, third occurrence of the one-flag-two-builds trap (after ULP_EARLY and FOREIGN_ULP).
+# -DENGINE_TEST reached the ULP through ULP_EXTRA_DEFS and printed nothing on the HP side, which reads exactly like a
+# dead console. A probe switch must mean BOTH builds or it must be rejected: this line makes it mean both.
+if(ENGINE_TEST)
+    add_definitions(-DENGINE_TEST=1)
+endif()
+
+set(COMPONENT_SRCS "repl_main.c" 
             "flash_store.c")
 set(COMPONENT_ADD_INCLUDEDIRS "")
 set(COMPONENT_REQUIRES ulp soc esp_timer esp_hw_support driver esp_system spi_flash esp_partition)
@@ -55,8 +74,18 @@ endif()
 # because its single number looks bad.
 # GUARDRAIL: the HOST build does not use these flags, so a green host suite alone would NOT validate them —
 # tests/run.sh's binaries are built without them. Run the twin check when changing this line.
-set(_ulp_cflags "${CMAKE_MATCH_1} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants -fno-ssa-phiopt -fno-tree-pre")
+# GUARDRAIL: -fno-ipa-pure-const was priced with tools/measure.sh, not guessed: pool span 7 937 ->
+# 7 933 (-4 B), and 4 B of text buys 4 B of MEMSZ which buys 4 B of phase window (the window is
+# MEMSZ minus the seal). Combinations were swept too: adding any other knob made it worse again
+# (7 949 / 7 965), so this is the whole measured win and it must stay alone.
+set(_ulp_cflags "${CMAKE_MATCH_1} ${ULP_EXTRA_DEFS} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants -fno-ssa-phiopt -fno-tree-pre -fno-ipa-pure-const")
 message(STATUS "ULP C flags: ${_ulp_cflags}")
 idf_build_set_property(EXTRA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${_ulp_cflags}" APPEND)
+
+# GUARDRAIL: F-176b - src/hal_engine.c joins the ULP link ONLY under -DULP_HAL=1, so the shipping image is
+# unaffected. It needs the include dir for its own header, which lives next to the source in src/.
+if(ULP_HAL)
+    set(ulp_riscv_sources "${ulp_riscv_sources}" "${CMAKE_CURRENT_LIST_DIR}/../src/hal_engine.c")
+endif()
 
 ulp_embed_binary(${ulp_app_name} "${ulp_riscv_sources}" "${ulp_exp_dep_srcs}")

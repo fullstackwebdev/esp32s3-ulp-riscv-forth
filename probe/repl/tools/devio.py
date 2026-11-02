@@ -44,7 +44,7 @@ class Dev:
         --library` spent 6.9 s in connect of which ~2.7 s was these sleeps. A readiness probe (ask `HERE .` until it
         answers) costs 40 ms per answer and returns the moment the board is up; the fixed sleep is only a floor.
         """
-        subprocess.run(["python3", "-m", "esptool", "--port", self.port, "--after", "hard_reset", "chip_id"],
+        subprocess.run(["python3", "-m", "esptool", "--port", self.port, "--after", "hard-reset", "chip_id"],
                        capture_output=True)
         time.sleep(min(settle, 0.25))            # a floor: the probe below decides, not a number
         if self.fd is not None:
@@ -69,7 +69,14 @@ class Dev:
                 return
             except Exception:
                 time.sleep(0.05)
-        raise Timeout(f"{self.port} did not answer after a hard reset within 5 s")
+        # GUARDRAIL: verify the dictionary is FRESH, not merely answering. A board that kept the last session's words
+        # answers every question happily and lies about what a file defines; 900 is a generous ceiling over the baked
+        # 786 (measured after `--after hard-reset`).
+        here = self.num("HERE .", timeout=1.0)
+        if here >= 900:
+            raise RuntimeError(f"{self.port}: reset did NOT take effect - HERE is {here}, the baked prelude ends at "
+                               "786. The dictionary still holds the previous session's words")
+
 
     def pulse_reset(self, settle=0.9):
         """Reset the board by pulsing EN on the RTS line, holding the port open. VERIFIED: if the pulse did not reset the

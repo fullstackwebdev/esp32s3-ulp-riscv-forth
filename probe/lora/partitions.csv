@@ -1,0 +1,8 @@
+# GUARDRAIL: a CUSTOM table because the block store needs its own RAW partition - NVS is key-value with per-entry
+# overhead and rewrite semantics that do not fit fixed 128 B records. The 'blocks' row is subtype 0x40 and its offset is
+# left blank so it lands after the app; 24 KB = 4 KB superblock + 160 blocks (128 needed, headroom for growth).
+# Name,     Type, SubType, Offset,   Size,  Flags
+nvs,        data, nvs,     0x9000,   0x6000,
+phy_init,   data, phy,     0xf000,   0x1000,
+factory,    app,  factory, 0x10000,  1M,
+blocks,     data, 0x40,    ,         24K,

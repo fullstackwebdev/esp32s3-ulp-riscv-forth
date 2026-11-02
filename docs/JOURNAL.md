@@ -2249,3 +2249,205 @@ drops, so the reader's unpaced loss is downstream of `pl_emit`; the pacing stays
 
 Not in this version, and the cards refuse rather than pretend: **sheet** (1 371 B against a 1 037 B window - needs a
 two-phase split) and **gopher** (never written). Both are wave 3.
+
+**J-115 · Branch `spi-lora`: the low-power / external-memory research is written down, labelled as unmeasured.**
+The ESP32-S3 went back in its box with an 8 MB flash backup (sha256-verified, `backup/README.md`), and the next era opens
+with a different question: could an ultra-low-power SPI memory let the ULP alone keep this machine alive for months, with
+more RAM than the 8 KB it has? The research conversation is now `docs/27-spi-lora.md`, and its most important property is
+that it says which numbers are guesses: the ULP's bit-banged SPI figure (235 kHz first try, 350 kHz with direct register
+writes, ~417 kHz estimated ceiling, 1.1 MHz measured for clock-only toggling) is forum-reported, the FRAM/MRAM clock maxima
+are datasheet-recalled, and the deep-sleep µA floor is recalled too. Not one of them was measured here.
+
+The hard constraint that did come out of it, and it is ours: the ULP image is **7 891 of 7 892 B**. A LoRa driver and an
+external-memory path both have to buy their bytes from the interpreter, so the first real question is the byte budget, not
+the driver.
+
+**J-116 · The SX126x reference driver is written down, and the Forth answer is arithmetic, not opinion.**
+`docs/28-sx126x-ulp.md` holds the supplied C (six files, reassembled - the paste had its blocks interleaved, and
+`sx126x_ulp_hal.h` was never supplied, so its contents are inferred and marked), eight "check this before copying it" notes,
+and the answer to the real question.
+
+The answer: **yes, in Forth - and the reason is the opposite of the obvious one.** Not that Forth is fast enough, but that the
+SPI is too small a share of the cost to care about. A 20-byte packet at SF9/125 kHz is ~90 ms of air time; the warm-start TX
+path is ~35 bytes of SPI, which is 1 ms in C and 4-9 ms in Forth - 5-10 %. Warm start makes the interpreter's 4-10x penalty
+disappear into the noise. Cold-initialising every packet would make it visible (~30 %), which is why the C's
+LORA_FORCE_COLD_INIT stays a debug flag.
+
+What Forth actually costs is BYTES, and that is the honest blocker: the ULP pool is 7891 of 7892 B. So the driver belongs in a
+PHASE - the mechanism we already built - with 3-4 primitives (pin write/read, microsecond delay, the bit loop) in the token
+table. Calibration from our own history: one counter plus its increment cost 12 B, so 3-4 primitives are ~120-230 B that we
+do not currently have; something moves first, or the radio lives on the main core and the ULP just counts wakes.
+
+Also recorded so it is not rediscovered: DIO1 is a LEVEL, so the IRQ clear must happen BEFORE SET_TX or the wait exits on the
+previous packet and looks like a radio fault; BUSY timeouts must be derived from a measured loop, not a guessed iteration
+count; a freq computed from a variable drags a 64-bit divide into the ULP image; and the cfg in a block must use 4-byte
+offsets, because F-136 already proved what an unaligned load does on rv32.
+
+**J-117 · The backup was of the wrong board, and the identity check that "passed" was a substring count.**
+With the LoRa board now on `/dev/ttyUSB0`, the flash backup was taken and recorded as the App Store machine. It is not: the
+app region says `esp-idf: v4.4.7 38eeba213a / arduino-lib-builder`, the strings say `SX126xInterface<T>` and
+`meshtastic_MeshPacket`, and it is a **Heltec V3 running Meshtastic**. The four "our firmware" hits that satisfied the check
+were all the word **`repl`** inside stock IDF strings. The App Store board had already gone (its `/dev/ttyACM1` console was
+absent - that is also why the new board's console looked silent at 115200: Meshtastic talks over USB-CDC). The 8 MB image
+is re-filed as `heltec-v3-meshtastic-...bin`, which is genuinely useful - it is the LoRa board's factory firmware - but the
+App Store flash was **not** captured, and `backup/README.md` now says so in its first paragraph plus the exact 3-minute
+procedure for when that board is back.
+
+Rule R16 was written for it: an identity check must produce something only that entity could produce - a full-region hash
+against a known build, the project-description string, a recorded MAC - never a substring count, a banner, or "it answered".
+Corollary: a device on the same path after a replug is a different device until proven otherwise.
+
+The measurement itself could not run (no board with our interpreter attached), so the tool that will run it is committed
+instead: `probe/repl/tools/token_rate.py` measures per-token cost from the differences between three same-loop definitions
+(so loop overhead cancels), refuses to report if the REPL is not ours, and derives the whole LoRa table from it - including
+the honest modelling of the C primitive at its own 350 kHz rather than as "1 token per byte". Two unit bugs were found in
+it before committing: SCK kHz printed as 1000/(8*us_byte) understated the bus 1000x, which would have made a 40 kHz bus look
+like 0.65 kHz and "Forth is hopeless" for arithmetic reasons.
+
+**J-118 · The ULP-RISC-V transmits LoRa. First try: 4/4 packets, no main core involved.**
+`probe/lora` is a bare-metal ESP32-S3 project where the ULP bit-bangs SPI to an SX1262 on a Heltec V3: **975 cycles/byte
+(143 kHz SCK)**, driver **2 584 B**, `TxDone` on every 5 s wake, chip status `0x2c` read by the ULP agreeing with the
+hardware-SPI probe's `0x2a` on the same pins. The question docs/28 was written around - "can the ULP own the radio" - is
+answered yes, and the answer came with the numbers the docs had only guessed at.
+
+What the bring-up cost, and taught: **F-141**, `RTC_GPIO_OUT_DATA_W1TS_S` is 10, so `REG_WRITE(..., BIT(pin))` writes ten
+bits below the field and is silently discarded - the ULP ran, the loop executed, MISO read 0, GetStatus read 0x00, and
+every command "succeeded" while no pad moved. Four flash cycles went into pin maps and GPIO handover before a pad
+read-back inside the ULP settled it. **F-142**, that read-back instrument was itself blind: `RTC_GPIO_IN` only reports a
+pad with its input buffer enabled, so an output pin reads 0 and the test said "everything is dead" for a working bus.
+
+Green on the way: the two-configuration cold init (no TCXO, then TCXO) turned a jumper guess into a fact - **this board
+needs the DIO3 TCXO at 1.8 V** - and warm start retention (`SET_SLEEP 0x04`) is proven across ULP wakes, which was §6.4's
+open question.
+
+Standing: decode a packet on a receiver (TxDone proves the radio transmitted, not that the bytes are right), then deep
+sleep, then the Forth question with real sizes - 2 584 B of C against a 7 892 B pool holding everything and 1 B free.
+
+**J-119 · Air side verified without a receiver: 195.8 ms against a derived 185.3 ms.**
+The packet's payload was read back out of the radio's own TX buffer (`ReadBuffer 0x1E`) and matches byte for byte, so the
+SPI data path is proven rather than merely error-free. The ULP's awake window per warm transmit, timed by the main core at
+200 us resolution, is **195.8 ms** against **185.3 ms** predicted for SF9/125 kHz/20 B/CR 4-5 - 105.6 %, i.e. the modem
+really is configured the way the driver claims.
+
+Two instruments were caught lying on the way. **F-143**: `ULP_RISCV_GET_CCOUNT()` calibrated to 0.3 % over 10 ms and then
+read 3.4e9 cycles (195 s) across SET_TX -> DIO1, even after switching to signed arithmetic; it was replaced with the main
+core's clock rather than "fixed". **F-144**: the replacement number then looked impossible because the expected air time
+had been computed as ~108 ms without the (CR+4) factor - 14 payload symbols instead of 33. A correct measurement was
+rejected because a bad derivation sat next to it.
+
+Also now proven with a counter instead of an assumption: **warm start**. `cold 2` against `wakes 6`/`tx_ok 6` - exactly two
+cold inits ever, every later wake going straight to SET_TX. docs/28 §6 and probe/lora/README.md carry the measured table.
+
+**J-120 · Deep sleep: the CPU off, the ULP still transmitting, 31 packets and no failures.**
+Five 30 s deep-sleep cycles on the Heltec V3: the ULP's RTC-domain timer keeps firing every 5 s with `esp_deep_sleep` in
+force, `tx_ok` climbs 6, 13, 19, 25, 31 with `tx_fail` at zero, and `cold` stays at 2 - so the warm radio configuration
+survives the CPU being powered down, and the mechanism docs/27 described as plausible is now demonstrated.
+
+`ESP_PD_DOMAIN_RTC_SLOW_MEM` does not exist on the S3: RTC slow memory cannot be powered down, which is exactly where the
+ULP's variables live. `RTC_PERIPH` is held on explicitly, since that is where the ULP lives.
+
+The energy answer, from `probe/lora/power_budget.py` (measured timings, labelled datasheet currents): **95 % of the ULP's
+awake window is the packet on air**. 195.8 ms per transmit, 185.3 of them on air; at a 5 s period a 2000 mAh cell is ~49
+days, at 30 s ~287 days, at 60 s ~1.5 years. The levers that buy months are the period and the air time, not the SPI
+clock and not the interpreter - which is the useful thing to know before porting anything to Forth.
+
+F-145 records the fourth unit slip of this project, and the fix that finally holds: derive one named rate, convert with
+the factors written out, print both.
+
+**J-121 · Every LoRa number is now in one file, and a script checks it.**
+`docs/29-lora-measurements.md` consolidates the whole session: hardware facts established by measurement (pin map, `GetStatus`
+0x2a, the TCXO on DIO3 at 1.8 V proven by trying both), the ULP's size and speed (2 804 B, 17.550 MHz, 971 cycles/byte =
+144.6 kHz SCK), air time (33 payload symbols, 185.34 ms derived against 195.8 ms measured, 105.6 %), sleep behaviour (five
+deep-sleep cycles, 31/31 packets, `cold` frozen at 2), and the power table (~49 days at a 5 s period, ~287 days at 30 s,
+~1.5 years at 60 s, on labelled datasheet currents).
+
+The part that matters as much as the numbers: `probe/lora/verify_numbers.py` re-derives them from the datasheet formula and
+compares both against `probe/lora/results/console-2026-11-01.txt`, the verbatim capture. It caught two things while being
+written - that the capture I had saved did not actually contain `wakes 31` (a shorter run had produced it), and that my own
+"tx_ok == wakes" assertion was wrong on the warm-up sample, which is now left in the table and explained instead of
+smoothed away. A document with a wrong number is worse than no document; F-143 and F-144 both cost a session's worth of
+confusion in the same week.
+
+**J-122 · The SX1262 driver, in Forth, verified byte-for-byte without a radio.**
+`examples/apps/lora/lora1.fs` bit-bangs SPI on GPIO!/GPIO@ alone - **zero new primitives** - and compiles to **958 B**
+(HERE 786 -> 1744), which fits the 1 037 B phase window with 79 B to spare. Against the C driver's 2 804 B that is a third
+of the size, and the wire is identical: `probe/repl/tests/lora_spi.py` reconstructs the SPI byte stream from the host
+engine's own pin trace and compares **transaction by transaction** against the 14-command cold-init sequence the C driver
+runs on real hardware (55 bytes), plus the transmit path through SetTx (WriteBuffer with the 20 payload bytes,
+ClearIrqStatus, SetTx). Wired into run.sh: the host suite is 30 PASS.
+
+Three bugs fell out before any hardware was touched, and two are general lessons. **F-146**: this dialect's >R / R> leave
+TWO extra cells per call when used inside a word that calls other words (`7 9 LORA_SPIX . . .` printed three numbers), so
+every second command byte arrived as 0x00 - fixed by unrolling the bit loop into eight stack-neutral shifts, which is
+faster as well. **F-147**: SetPacketParams starts with a 16-bit preamble and the driver sent only its low byte, shifting
+every following field by one; only the golden byte stream could see that. Plus R15 in person: a pin constant named
+LORA_RESET collided with a word of the same name, so `1 LORA_RESET LORA!` called the reset word recursively and the machine
+said only "error".
+
+Not done, and named in docs/30 §5: the file is not yet packaged as a device phase (block source has no line boundaries, so
+its `\` comments are refused by R1 and LORA_INIT does not fit one 92 B block - R11), it has never run on a radio, and the
+~30-40 kHz bus estimate is still an estimate because measuring it needs our interpreter on this board.
+
+**J-123 · Why the Forth LoRa driver does not run on the board yet: a 125-byte wall, not a logic bug.**
+Asked the right question - "you didn't get it working on the device yet?" - the answer was worse than expected and worth
+writing plainly: on the chip, `GPIO!` and `GPIO@` were **stubs**. `pl_hw` on the ULP implemented only `MS` and returned 0
+for everything else, so the driver's pin writes went nowhere, MISO/BUSY/DIO1 all read 0, and the program would have run to
+completion doing nothing at all. The host implementation of the same seam simulates pins, so every host test passed
+(F-148: a capability that exists in one build and is a stub in the other, sharing one abstraction).
+
+Implementing the two ops with the RTC registers measures **8 017 B against POOL 7 892 - 125 B over**; the IDF helper
+version is worse (8 039). `flash_safe.sh` refuses that image, so nothing was shaved to force it: the tree is back at
+7 891/7 892 and the GPIO implementation is stashed with the numbers recorded in docs/30 §5.
+
+The three ways forward, all costed: reclaim ~125 B from the interpreter (the stack reserve has ~60 B of measured slack -
+high-water 240 B, docs/23 - and the rest must come from vocabulary, which is a product decision); or write the RTC
+registers from Forth with W!/W@ at absolute addresses (0 B of pool, but the host has no such memory so the wire-byte test
+needs a shim first); or keep the C driver, which is the one actually transmitting on hardware today.
+
+**J-124 · On the board: the driver loads and runs, and the machine refuses to let Forth touch a register.**
+Our Forth firmware went onto the Heltec and the driver was typed into its REPL, one line at a time. It compiles there
+(**1 100 B**, HERE 786 -> 1 886, inside the window) and both words run — but `LORA_SEND` returns 0, `GetStatus` reads
+0x00 where the C driver on the same board reads 0x2a, and a pin write followed by a pin read returns 0.
+
+The cause is in the engine, not the driver: `P(a) = a < MEMSZ ? mem + a : &junk` is shared by both builds, so every W!, C!
+or @ outside `mem[]` is redirected to a one-byte junk cell — deliberately, so a wild pointer cannot corrupt anything. Forth
+on this machine therefore cannot address a peripheral at all, and the register trick that cost 0 B of pool costs exactly
+what the primitive would have: a `.c` change (F-149).
+
+What that taught, and it is the same lesson twice in two days: the host test passed because the host's RTCIO window
+accepted addresses the chip refuses. A simulator more permissive than the machine is worse than no simulator — it converts
+a hardware limit into a green tick. Two smaller ones too: the device input ring is 63 B, not the TIB's 95, and a refused
+line never runs (so a definition silently does not exist and the failure surfaces as NAME? on a later, innocent line); and
+BEGIN/WHILE keep their compile-time markers on the data stack, which the chip zeroes per line, so a loop can never span
+lines — the driver was rewritten loop-free (unrolled payload, fixed measured waits, single status check).
+
+**J-125 · The repair is 62 bytes, and the gap is 1.**
+`HW@` / `HW!` — a primitive pair that bypasses the `P()` guard on purpose, for absolute RTC-domain registers — are
+implemented behind `-DHWPRIMS` and measured: the ULP image goes 7 891 -> **7 953**, and `POOL` is 7 892. The only funding
+source with evidence behind it is the stack reserve's slack: 300 B reserved against a **240 B measured high-water**, i.e.
+60 B. That leaves the pair **1 byte short**, so it is parked off with the number written next to the flag.
+
+Relaxing `P()` instead would be cheaper in bytes and much more expensive everywhere else: it is the single reason a wild
+pointer in any Forth word is harmless (every accessor goes through it), and letting peripheral addresses through turns a
+Forth typo into a write to a timer, the RTC, the brownout detector or the flash controller. One narrow door, named for
+what it does, beats a memory model with a hole in it.
+
+**J-126 · The gated P(): built three ways, measured, and none of them fits.**
+Instead of HW@/HW!, open one 64-byte window inside the guard itself - the RTC GPIO register file - so `-1 !` and every
+underflowed address still land in `junk` while a deliberate register constant gets through. All three shapes were built and
+measured against a baseline image of 7 891 B and a POOL of 7 892:
+
+  range test inline in P()               +42 B (7 933)
+  all of P() noinline                    +12 B (7 903)   but painted stack 240 -> 269 B (+29)
+  fast path inline + P_slow noinline     +38 B (7 929)
+
+The cheap shape pays in stack - a call frame on every byte access - which is exactly the margin the reserve was borrowing,
+and the paint said so out loud. The shapes that leave the stack alone cost ~40 B and there is 1 B. So the gate is correct,
+implemented and OFF, with the four numbers beside the flag; it becomes a one-flag change the day 40 B of real reclaim
+exists.
+
+Also noticed while reading the paint on the gated builds: `#k` reports "high-water 284 B of 284 B region (0 B free)" on the
+*ungated* image too, where docs/23 records 240 B. Either the stack has grown since that measurement or the report is
+counting something else - that discrepancy is written down here rather than smoothed over, because a reserve policy built on
+a stale high-water is a decision made on a number nobody re-checked.
+

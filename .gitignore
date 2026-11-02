@@ -68,3 +68,9 @@ probe/repl/.auto/
 probe/repl/artifacts/
 __pycache__/
 *.pyc
+
+# GUARDRAIL: third-party trees are EXTRACTED, never committed: the pinned tarball lives in cache/objects/
+# with its sha256 in cache/journal.jsonl, so `tar -xzf $(python3 tools/fetch.py path URL) -C external`
+# reproduces this directory exactly. Committing 26 MB of extracted source made every later diff unreadable
+# and duplicated bytes the cache already owns.
+external/

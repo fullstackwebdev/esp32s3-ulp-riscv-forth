@@ -19,6 +19,26 @@
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "soc/soc.h"
+/* GUARDRAIL: RTC_GPIO_* and RTC_IO_TOUCH_PAD0_* live in soc/rtc_io_reg.h, not in soc.h - the pad driver pulls it in
+ * transitively for its own translation units, so #g failed to compile the first time with "undeclared". */
+#include "soc/rtc_io_reg.h"
+/* GUARDRAIL: F-163: the 544-word register diff found it in RTC_CNTL_ULP_CP_CTRL_REG, so that block is included. */
+#include "soc/rtc_cntl_reg.h"
+#if defined(FOREIGN_ULP)
+/* GUARDRAIL: F-165 - the last cell of the matrix: boot the ULP program that is KNOWN to work on this board (probe/lora's,
+ * which reports tx_ok rising) from THIS app. Nothing about the pads, flags, config or image content can be the cause any
+ * more, so the question is asked directly: which app, which program. The Forth bridge commands cannot work here (the
+ * foreign image defines none of repl_cmd/repl_out/...), which is why the ring-size handshake is skipped - and why the
+ * only witness is the pad bit the HP core clears and that image's own store sets.
+ * Regenerate src/foreign_ulp.h with tools/embed_ulp.py after every rebuild of probe/lora.
+ */
+#include "../src/foreign_ulp.h"
+#endif
+/* GUARDRAIL: SENS holds the RTC IO MUX clock gate (SENS_SAR_PERI_CLK_GATE_CONF_REG bit 31). The C driver's ULP enables
+ * it from the ULP via ulp_riscv_gpio_init; our ULP cannot write any peripheral (F-157), so it has to be done HERE. */
+#include "soc/sens_reg.h"
+/* GUARDRAIL: gpio_reset_pin() needs driver/gpio.h; rtc_gpio_* comes from driver/rtc_io.h. */
+#include "driver/gpio.h"
 /* The ULP writes ONE byte per message into repl_out[] (0x81..) and msg_expand.h turns it back into text
  * here. Every other byte in that ring is ASCII (echoed input, digits, the offending word, '?', '\n'), so a
  * byte >= 0x80 is unambiguously a code, and the expansion is a substitution at the same position in the
@@ -29,10 +49,12 @@
 #include "../src/msg_expand.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_sleep.h"
 #include "ulp_riscv.h"
 #include "ulp_main.h"
 #include "flash_store.h"
 #include "esp_system.h"
+#include "driver/rtc_io.h"
 #include "esp_rom_sys.h"   /* GUARDRAIL: esp_rom_delay_us is the bounded hot poll at the end of the server loop - see the note there */
 
 static void seed_poll(void);   /* defined after blkfile[]; called from the UART pump */
@@ -241,7 +263,12 @@ static void store_boot(void)
  * transfer window under a real LOAD - which surfaced as `ERR_CRC` on the first block read and a cascade of NAME?.
  * The budget below is the SAME number flash_safe.sh refuses to exceed (POOL=7892), so the paint can never overlap the
  * image unless the gate is bypassed: image end <= 0x1EC7 < base 0x1ED0. If POOL changes there, change it here. */
-#define ULP_POOL_BUDGET 7892u
+/* GUARDRAIL: this constant MUST equal POOL in flash_safe.sh. It is the point where the stack paint begins, so a value
+ * below the real image size paints live .bss and the boot assertion fires - which is exactly what happened when the
+ * hardware gate in P() moved the image to 7 903 B: "the stack paint is covering live .bss". The assertion is the feature;
+ * the fix is to keep the two numbers tied (F-131's lesson: an instrument that writes must derive its base from an
+ * enforced budget). */
+#define ULP_POOL_BUDGET 7932u
 #define STACK_TOP   0x1FF0u
 /* the paint starts exactly AT the budget: flash_safe.sh refuses any image whose size passes ULP_POOL_BUDGET, so the
  * image can never reach this address. Deriving it from STACK_TOP instead was off by 16 B (0x1FF0, not 0x2000) and put
@@ -568,6 +595,175 @@ static void seed_poll(void)
 #else
                 printf("stack: high-water probe is OFF in this build\n");
 #endif
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#h` / `#l` / `#r` drive the LoRa BUSY pad (pin 13) from the HP core so the ULP's input path can
+             * be tested with a value it cannot produce itself. `LORA_INIT` returning 1 is VACUOUS on a dead bus - BUSY
+             * reads 0 for every pin, so "BUSY low, so ready" passes with nothing connected. A read that must return 1 when
+             * the pad is driven high is the only version of this test that can fail. `#r` returns the pad to INPUT_ONLY
+             * because leaving it driven would fake a busy radio for every later probe. */
+            /* GUARDRAIL: name the three letters, never a range. `ln[1] >= 'h' && ln[1] <= 'r'` silently swallowed
+             * `#n` (the light-sleep probe) and drove the pad low instead - an untyped range over a CLI alphabet is a
+             * trap that grows every time a command is added inside it. */
+            /* GUARDRAIL: `#z` is the store probe as a command, because printing from app_main before the console exists
+             * races the port and reports nothing at all (measured: EARLYTEST simply absent). Clear the bit, wait a
+             * window that contains many ULP wakes, and read it back - all on demand, so the answer never depends on when
+             * the harness happened to open the port. */
+            /* GUARDRAIL: `#z` measures the ULP's peripheral write in a build that has the HWPROBE store compiled in; in
+             * the shipping image there is no such store, so "LOST" here only means "this build is not the probe build".
+             * Confirm with strings on the elf (search for the HWPROBE probe string) before trusting either answer.
+             * GUARDRAIL: never write a glob-plus-star inside a block comment - the compiler takes it as a nested comment
+             * open and -Werror=comment fails the build, which is how this line changed. */
+            /* GUARDRAIL: `#d` dumps the register blocks the ULP's peripheral access depends on, one word per line, in a
+             * fixed order so two firmwares' output can be diffed literally. The disassembly of the working and broken
+             * ULP images is instruction-for-instruction the same store to the same address, so the difference HAS to be
+             * some enable bit - and the only way to find an unknown bit is to ask two machines the same question and
+             * compare their answers. Read from the HP core, which is the trustworthy reader (F-158).
+             * GUARDRAIL: read-only. Writing RTC_GPIO_OUT with arbitrary bits reboots the S3 (F-152); these are reads of
+             * read-mostly config registers, plus RTC_GPIO_IN, which is an input. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'd' && (ln[2] == 0 || ln[2] == ' ')) {
+                /* GUARDRAIL: F-164's follow-up: the S3's RTC peripheral clock gate lives in the SYSTEM block, which the
+                 * first pass of this diff sampled only as far as +0x80. 0x200 words there and 0x600 in RTC_CNTL. */
+                static const uint32_t blocks[4] = { 0x60008400u, 0x60008800u, 0x60010000u, 0x600C0000u };  /* RTCIO SENS RTC_CNTL SYSTEM */
+                static const uint32_t lens[4]   = { 0x400u, 0x100u, 0x600u, 0x200u };
+                for (int b = 0; b < 4; b++)
+                    for (uint32_t o = 0; o < lens[b]; o += 4) {
+                        printf("REG 0x%08X = 0x%08X\n", (unsigned)(blocks[b] + o),
+                               (unsigned)REG_READ(blocks[b] + o));
+                        vTaskDelay(1);      /* GUARDRAIL: see the reference build's note: a partial dump beats a full diff */
+                    }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#p <pad>` answers the question the ULP's own register reads cannot (F-158) and the
+             * echo test cannot either: it asks the HP core, the only honest reader, for the PHYSICAL level of a pad
+             * the coprocessor has just been asked to drive. RTC_GPIO_IN reflects the pin, not a register latch and
+             * not a store buffer, so it is the one witness that separates "the write reached the pad" from
+             * "the write updated the register". The input path must be enabled for the pad first
+             * (RTC_GPIO_MODE_INPUT_OUTPUT keeps the output driver on and turns the input on too), which is why this
+             * sets the direction rather than trusting whatever the caller left. */
+            /* GUARDRAIL: the console letters are a shared namespace - `#p` was ALREADY taken by the poke-three-values
+             * command, and quietly adding a second handler for the same key makes the older one unreachable. Free
+             * letters were checked against the table above first (`grep -oE "ln\[1\] == '.'"`). */
+            if (n >= 3 && ln[0] == '#' && ln[1] == 'y' && ln[2] == ' ') {
+                int pad = (int)strtol(ln + 3, NULL, 10);
+                rtc_gpio_set_direction((gpio_num_t)pad, RTC_GPIO_MODE_INPUT_OUTPUT);
+                uint32_t in = REG_READ(RTC_GPIO_IN_REG);
+                uint32_t out = REG_READ(RTC_GPIO_OUT_REG);
+                printf("pad %d: IN bit %u = %u (OUT bit %u = %u, IN 0x%08X)\n", pad, (unsigned)(pad + 10),
+                       (unsigned)((in >> (pad + 10)) & 1u), (unsigned)(pad + 10),
+                       (unsigned)((out >> (pad + 10)) & 1u), (unsigned)in);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#q <hex>` prints one 32-bit word, read by the main core. `#d` cannot answer this
+             * question: it walks four whole blocks with a tick per line, so one register costs minutes of
+             * transcript and gets truncated by any harness that will not wait. The main core is the trusted reader
+             * (F-158: the coprocessor's own register reads return noise), which also makes this the only way to ask
+             * whether a coprocessor write landed in a block other than RTCIO. */
+            if (n >= 3 && ln[0] == '#' && ln[1] == 'q' && ln[2] == ' ') {
+                uint32_t a = (uint32_t)strtoul(ln + 3, NULL, 16);
+                printf("REG 0x%08X = 0x%08X\n", (unsigned)a, (unsigned)REG_READ(a));
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'z' && (ln[2] == 0 || ln[2] == ' ')) {
+                /* GUARDRAIL: F-176, TWO witness bits. Every previous `#z` watched only bit 18 (pad 8 / NSS), the pad the
+                 * HP core itself configures and drives - so "LOST" there cannot tell "the coprocessor's store was
+                 * discarded" apart from "the HP core's own pad driver state owns that bit". Bit 23 (pad 13 / BUSY) is an
+                 * HP-side INPUT: nothing in this firmware writes its OUT data bit, so a store from the ULP to it is
+                 * unambiguous. Clearing both and reporting both is the one measurement the 165 probes before it skipped. */
+                /* GUARDRAIL: F-176h - clear and watch THREE bits: bit 18 (the engine's own NSS write), bit 19 (SCK, which
+                 * the engine drives LOW, so a SET there is proof of OUR store reaching RTCIO) and bit 23 (BUSY, never
+                 * output-enabled: the control that must stay clear or the witness means nothing). */
+                const uint32_t both = (1u << (8 + 10)) | (1u << (13 + 10)) | (1u << (9 + 10));
+                REG_WRITE(RTC_GPIO_OUT_W1TC_REG, both);
+                uint32_t w0 = ulp_repl_wake_count;
+                int bit18 = 0, bit23 = 0, sck19 = 0;
+                for (int i = 0; i < 40 && !(bit18 && bit23 && sck19); i++) {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                    uint32_t out = REG_READ(RTC_GPIO_OUT_REG);
+                    if (out & (1u << (8 + 10))) bit18 = 1;
+                    if (out & (1u << (13 + 10))) bit23 = 1;
+                    if (out & (1u << (9 + 10))) sck19 = 1;
+                }
+                printf("storetest: NSS(bit18) %s  SCK(bit19,ours) %s  BUSY(bit23) %s  (%u wakes, OUT 0x%08X)\n",
+                       bit18 ? "SET" : "clear", sck19 ? "SET" : "clear", bit23 ? "SET" : "clear",
+                       (unsigned)(ulp_repl_wake_count - w0),
+                       (unsigned)REG_READ(RTC_GPIO_OUT_REG));
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            if (n >= 2 && ln[0] == '#' && (ln[1] == 'h' || ln[1] == 'l' || ln[1] == 'r') &&
+                (ln[2] == 0 || ln[2] == ' ')) {
+                if (ln[1] == 'r') {
+                    rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_INPUT_ONLY);
+                    printf("pad13: input (released)\n");
+                } else {
+                    /* GUARDRAIL: INPUT_OUTPUT, not OUTPUT_ONLY. OUTPUT_ONLY clears FUN_IE, and RTC_GPIO_IN only latches
+                     * a pad whose input buffer is on - so the first version drove the pad high and read 0, which looked
+                     * exactly like a dead ULP input path while it was the probe switching off the buffer it meant to
+                     * read. (rtc_gpio_input_enable does not exist in this IDF; the mode bit is the supported route.) */
+                    rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_INPUT_OUTPUT);
+                    rtc_gpio_set_level((gpio_num_t)13, ln[1] == 'h' ? 1 : 0);
+                    printf("pad13: %s\n", ln[1] == 'h' ? "driven high" : "driven low");
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#n` settles F-156 - does the ULP's RTCIO access reach the hardware at all when the HP core is
+             * asleep? It queues a single-bit W1TS write (pin 8 = NSS, never an arbitrary OUT value: F-152 showed 12345
+             * rebooting the S3 because those bits are flash/brownout pads), enters light sleep for 1 s so the ULP runs
+             * with the bus to itself, then prints the register as this core sees it. If OUT gains bit 18, the contention
+             * hypothesis is right and the driver must own the radio only while the CPU sleeps - which is the shape
+             * docs/29's power budget already assumes. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'n' && (ln[2] == 0 || ln[2] == ' ')) {
+                static const char *probe_cmd = "262144 1610646532 !";
+                uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, i, L = (uint32_t)strlen(probe_cmd);
+                if (CMD_SIZE - (h - tl) < L + 1u) {
+                    printf("gpio: ring full - probe NOT queued\n");
+                } else {
+                    for (i = 0; i < L; i++) CMD_BYTES[(h + i) & CMD_MASK] = (uint8_t)probe_cmd[i];
+                    CMD_BYTES[(h + L) & CMD_MASK] = '\r';
+                    ulp_repl_cmd_head = h + L + 1u;
+                    /* GUARDRAIL: clear the bit from the HP core FIRST. The first version queued only the ULP's set and
+                     * read back "bit18 SET" - but NSS is idled high by lora_pads_setup, so the bit was already set and
+                     * the probe could not fail. A test whose baseline already satisfies it proves nothing; and the ULP
+                     * cannot clear it either, because a ULP W1TC is swallowed exactly like W1TS (that is the question
+                     * being asked, so it cannot be part of the question's setup). */
+                    REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+                    printf("gpio: cleared bit18 (HP), OUT now 0x%08X\n", (unsigned)REG_READ(RTC_GPIO_OUT_REG));
+                    printf("gpio: queued '%s', sleeping 1 s\n", probe_cmd);
+                    fflush(stdout);
+                    esp_sleep_enable_timer_wakeup(1000000ULL);
+                    esp_light_sleep_start();
+                    printf("gpio: after sleep OUT 0x%08X (bit18 %s)\n", (unsigned)REG_READ(RTC_GPIO_OUT_REG),
+                           (REG_READ(RTC_GPIO_OUT_REG) & (1u << (8 + 10))) ? "SET" : "clear");
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#g` prints the RTC GPIO registers as the HP core sees them. The ULP's own read of RTC_GPIO_IN
+             * returns 0x02010201 whatever drives the pads (two identical halves = the shape of a 16-bit fallback read),
+             * and there is no way to tell "the register really holds that" from "the ULP cannot read this address"
+             * without a second reader on the same silicon. Two readers, one register: if both agree, the pads are not
+             * reaching the register; if they disagree, the ULP's load path is the fault. Never conclude a hardware
+             * cause from a single reader - that is exactly how F-149 stayed hidden for a whole bring-up. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'g' && (ln[2] == 0 || ln[2] == ' ')) {
+                printf("gpio: OUT 0x%08X ENABLE 0x%08X IN 0x%08X | pad8 0x%08X pad11 0x%08X pad13 0x%08X\n",
+                       (unsigned)REG_READ(RTC_GPIO_OUT_REG), (unsigned)REG_READ(RTC_GPIO_ENABLE_REG),
+                       (unsigned)REG_READ(RTC_GPIO_IN_REG),
+                       (unsigned)REG_READ(RTC_IO_TOUCH_PAD0_REG + 8 * 4),
+                       (unsigned)REG_READ(RTC_IO_TOUCH_PAD0_REG + 11 * 4),
+                       (unsigned)REG_READ(RTC_IO_TOUCH_PAD0_REG + 13 * 4));
                 fflush(stdout);
                 n = 0;
                 continue;
@@ -1200,8 +1396,88 @@ img_done:   ;
 
 static void block_task(void *arg);
 
+/* LoRa pads for the Heltec V3 (SX1262): SCK 9, MOSI 10, MISO 11, NSS 8, NRST 12, BUSY 13, DIO1 14.
+ *
+ * GUARDRAIL: the ULP cannot put a pad into RTC GPIO mode by itself reliably - measured on this board, a Forth driver that
+ * wrote RTC_IO_TOUCH_PADn / RTC_GPIO_ENABLE by hand read every pin back as 0, and "BUSY is low" then made a completely
+ * dead SPI link look like a successful radio init. The main core does it here, exactly as the working C driver does
+ * (probe/lora/main/lora_main.c), and it costs APP flash - not one byte of the 7 892 B ULP pool.
+ * GUARDRAIL: rtc_gpio_hold_en() must NOT be called on these: hold freezes the pad and the ULP can no longer drive it. */
+static void lora_pads_setup(void)
+{
+    const int outs[4] = { 8, 9, 10, 12 };
+    const int ins[3]  = { 11, 13, 14 };
+    /* GUARDRAIL: detach every pad from the GPIO matrix BEFORE rtc_gpio_init(). This is the one call the working driver
+     * (probe/lora start_ulp) makes and this firmware did not, and it is what the reference build's own comment says:
+     * "gpio_reset_pin(): detach from the GPIO matrix before handing to RTC". With the pads still claimed by the digital
+     * side, MUX_SEL says RTC while the pad is not actually under RTC control - so the ULP's RTCIO accesses are accepted
+     * and discarded (measured: an unconditional C store to OUT_W1TS lost on every wake, res=0, while the same store
+     * transmits on the reference firmware). */
+    for (int i = 0; i < 4; i++) gpio_reset_pin((gpio_num_t)outs[i]);
+    for (int i = 0; i < 3; i++) gpio_reset_pin((gpio_num_t)ins[i]);
+    for (int i = 0; i < 4; i++) {
+        rtc_gpio_init((gpio_num_t)outs[i]);
+        rtc_gpio_set_direction((gpio_num_t)outs[i], RTC_GPIO_MODE_OUTPUT_ONLY);
+        rtc_gpio_pullup_dis((gpio_num_t)outs[i]);
+        rtc_gpio_pulldown_dis((gpio_num_t)outs[i]);
+    }
+    for (int i = 0; i < 3; i++) {
+        rtc_gpio_init((gpio_num_t)ins[i]);
+        rtc_gpio_set_direction((gpio_num_t)ins[i], RTC_GPIO_MODE_INPUT_ONLY);
+        rtc_gpio_pullup_dis((gpio_num_t)ins[i]);
+        rtc_gpio_pulldown_dis((gpio_num_t)ins[i]);
+    }
+    rtc_gpio_set_level((gpio_num_t)8, 1);    /* NSS idle high */
+    rtc_gpio_set_level((gpio_num_t)12, 1);   /* NRST idle high */
+    rtc_gpio_set_level((gpio_num_t)9, 0);    /* SCK idle low */
+}
+
 void app_main(void)
 {
+    lora_pads_setup();
+#if defined(ULP_EARLY)
+    /* GUARDRAIL: F-160 app bisect. Start the coprocessor immediately after the pads are configured, before the watchdog,
+     * the UART driver and the flash store - the three things this firmware does that the working reference does not. If
+     * the store lands here, the cause is one of them; if it does not, it is earlier still (the bootloader image or the
+     * linker layout). GUARDRAIL: canary_paint() MUST be skipped in this build - it writes 260 B of paint at CANARY_BASE,
+     * which is the ULP's own stack, so painting after the coprocessor starts silently kills it (F-159). */
+    /* GUARDRAIL: keep the RTC peripheral power domain ON. The reference firmware (probe/lora) calls
+     * esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON) and THIS firmware never did - and the RTCIO block
+     * lives in that domain, so a ULP access to it is not guaranteed to be served while the domain is left to its
+     * default. This is the last HP-side call the two firmwares differ on. */
+    ESP_ERROR_CHECK(esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON));
+#if defined(FOREIGN_ULP)
+    ESP_ERROR_CHECK(ulp_riscv_load_binary(foreign_ulp_bin, foreign_ulp_bin_len));
+    printf("FOREIGN_ULP: booted probe/lora's image, %u B\n", (unsigned)foreign_ulp_bin_len);
+#else
+    ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
+#endif
+    ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
+    /* GUARDRAIL: F-163 was tested and REJECTED here, and the rejection is the finding: setting
+     * RTC_CNTL_COCPU_START_2_RESET_DIS (the one bit that differed in the 544-word register dump) both before and after
+     * ulp_riscv_run() left the store LOST, and the read-back proved the register is a dynamic snapshot - it read
+     * 0x0010023F microseconds after the set, so 0x60-vs-0x62 was two machines sampled at different points in the ULP
+     * timer sequence, not a configuration difference. Do not re-pursue this bit. */
+    ESP_ERROR_CHECK(ulp_riscv_run());
+#if defined(ULP_EARLY)
+    /* GUARDRAIL: clear pad 8's data bit AFTER arming the coprocessor, then sample on the ULP's own cadence (it wakes
+     * every 6.46 ms, so a 200 ms window contains ~30 wakes). The bit returning SET can only mean the ULP's store landed -
+     * nothing else drives pad 8, and lora_pads_setup's own set already happened. Sampling the EVENT, not a guess. */
+    {
+        REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+        for (int i = 0; i < 20; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            uint32_t o = REG_READ(RTC_GPIO_OUT_REG);
+            if (o & (1u << (8 + 10))) {
+                printf("EARLYTEST: ULP store LANDED after %d ms (OUT 0x%08X)\n", i * 10 + 10, (unsigned)o);
+                break;
+            }
+            if (i == 19) printf("EARLYTEST: ULP store LOST (OUT 0x%08X)\n", (unsigned)o);
+        }
+        fflush(stdout);
+    }
+#endif
+#endif
     /* Watchdog first (P06): a hung bridge takes the console *and* the flashing port with it. */
     esp_task_wdt_config_t wdt = { .timeout_ms = 5000, .idle_core_mask = 0, .trigger_panic = true };
     esp_task_wdt_reconfigure(&wdt);
@@ -1229,12 +1505,22 @@ void app_main(void)
     /* GUARDRAIL: boot the store BEFORE the ULP is started, so the first block request is answered from a validated
      * store rather than from a zeroed RAM array. A refusal here is named and printed; the console's `#x` formats. */
     store_boot();
+#if !defined(ULP_EARLY)
     ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
+#endif
 
     /* Loud before anything else: if these disagree, every byte the user types is written to the wrong
      * place in the coprocessor's memory and the symptom looks like Forth corruption, not like a bug in
      * a size constant. Refuse to run the bridge at all rather than serve a broken console. */
+#if defined(FOREIGN_ULP)
+    /* GUARDRAIL: the first version wrote `if (0) {} else if (mismatch)` and the mismatch STILL fired - an else-if keeps
+     * the test, it only re-homes where it runs. Disabling a check means replacing its condition, not wrapping it.
+     * The handshake tests nothing here anyway: the foreign image defines none of these variables, so the values read are
+     * whatever its own data occupies, and FATALing on them would boot nothing at all. */
+    if (0) {
+#else
     if (ulp_repl_cmd_bytes != CMD_SIZE || ulp_repl_out_bytes != OUT_SIZE) {
+#endif
         printf("FATAL: ring size mismatch — ULP cmd=%u out=%u, host cmd=%u out=%u\n",
                (unsigned)ulp_repl_cmd_bytes, (unsigned)ulp_repl_out_bytes,
                (unsigned)CMD_SIZE, (unsigned)OUT_SIZE);
@@ -1243,10 +1529,12 @@ void app_main(void)
     }
     /* 1 000 ticks at the measured 6.46 us/tick = 6 460 us. The API takes microseconds. */
     ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
-#if defined(CANARY)
+#if defined(CANARY) && !defined(ULP_EARLY)
     canary_paint();                      /* before the ULP runs: the only moment the stack is untouched */
 #endif
+#if !defined(ULP_EARLY)
     ESP_ERROR_CHECK(ulp_riscv_run());
+#endif
     ESP_LOGI(TAG, "ulp armed");
 
     /* GUARDRAIL: report the ULP's own wake counter before handing over. Without it, a silent console is

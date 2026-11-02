@@ -67,17 +67,50 @@ python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1
 # a missing DUP (underflow three steps later), a leaked digit (a stack cell per colour change), a word used before
 # it is defined, and a backslash comment that compiled as words. Run its selftest, then lint every example.
 python3 tools/lint_forth.py --selftest >/dev/null || { echo "FAIL  linter selftest" >&2; fail=1; }
+# GUARDRAIL: hashcheck is the only gate that sees the 12-bit dictionary identity - two names with the same hash
+# means the chip REFUSES the definition and answers `NAME?` two lines later, which cost 165 probe cycles once. It
+# existed as a hand-run tool, so drift went unnoticed; `DIO1PAD` in the driver collides with baked `AP1` and only
+# this line says so on every run. It refuses outright when the resident vocabulary is missing.
+for f in ../../examples/apps/lora/lora1.fs ../../examples/apps/shelf/shelf1.fs \
+         ../../examples/apps/shelf/shelfb.fs ../../examples/apps/calc/calc1.fs \
+         ../../examples/apps/mail/mail1.fs ../../examples/apps/reader/read1.fs; do
+  python3 tools/hashcheck.py "$f" >/dev/null 2>&1 || { echo "FAIL  hash collision or missing vocabulary in $f" >&2; fail=1; }
+done
 # Strict lint for everything that can actually run on the machine.
 # GUARDRAIL: the launchers are linted here, not only on the board. `boot.fs`/`menu.fs` carried a bare `' NOOP` in PICKX's
 # refusal arm - a RUN-time parse inside a definition - for a whole turn; the linter had no rule for it, the device tests
 # never executed the refusal, and the bug was found by hand (F-134). A shippable file that no host check reads is a file
 # whose next regression waits for a chip session.
 for f in ../../examples/tui_min.fs ../../examples/boot.fs ../../examples/menu.fs; do
-    if python3 tools/lint_forth.py "$f" >/tmp/lint.$$ 2>&1; then :; else
-        echo "FAIL  lint $(basename "$f")" >&2; sed 's/^/      /' /tmp/lint.$$ >&2; fail=1
+    if python3 tools/lint_forth.py "$f" >lint.$$ 2>&1; then :; else
+        echo "FAIL  lint $(basename "$f")" >&2; sed 's/^/      /' lint.$$ >&2; fail=1
     fi
 done
-rm -f /tmp/lint.$$
+# GUARDRAIL: the LoRa driver is TYPED into the machine line by line (tools/lora_device.py), so it is not in the list above
+# and no host check used to read it - which is exactly how a stray duplicate `: !P` reached the board and answered `S?` two
+# definitions later, costing a flash cycle per attempt. `--repl` selects the rules that hold for a typed load (R21 line
+# length, R22 definition structure, R23 register width, R24 pad register) and drops the block-only ones (R1, R11).
+# GUARDRAIL: every Forth source in the tree goes through the linter (AGENTS.md rule). These are the typed-at-the-prompt
+# sources added for the LoRa stack; a refusal here is a build error, not advice.
+for f in ../../examples/apps/lora/lorainit.fs ../../examples/apps/lora/loratx.fs \
+         ../../examples/apps/lora/lora_rx.fs ../../examples/apps/lora/lora_aes.fs \
+         ../../examples/apps/lora/lora_ctr.fs ../../examples/apps/lora/lora_keysched.fs \
+         ../../examples/apps/lora/lora1.fs; do
+  # lora_rx.fs depends on the driver's words, so it is checked with the driver as context
+  ctx=""
+  case "$f" in
+    *lora_rx.fs)  ctx="--after ../../examples/apps/lora/lorainit.fs" ;;
+    *lora_ctr.fs) ctx="--after ../../examples/apps/lora/lora_aes.fs" ;;
+  esac
+  python3 tools/lintgate.py --repl $ctx "$f" >/dev/null 2>&1 || { echo "FAIL  lintgate: $f" >&2; fail=1; }
+done
+
+if python3 tools/lint_forth.py --repl ../../examples/apps/lora/lora1.fs >lint.$$ 2>&1; then :; else
+    echo "FAIL  lint (--repl) lora1.fs" >&2; sed 's/^/      /' lint.$$ >&2; fail=1
+fi
+# GUARDRAIL: never /tmp. The project's own rule is that every artefact lives under the working directory, so a stale
+# linter file from another checkout cannot be read here and this tree stays self-contained.
+rm -f lint.$$
 echo "PASS  linter (11 rules) on the shippable examples"
 # terminal_demo.fs is a WORK IN PROGRESS, and the reason is not laziness: it needs ~2 100 B of dictionary and the machine
 # has 1 366, so it cannot be loaded, cannot be tested on the board, and its 41 lint findings cannot be separated from
@@ -203,6 +236,17 @@ case "$unk" in
     *"ERR_ULPCODE 0x91"*) echo "PASS  unknown message code is named" ;;
     *) echo "FAIL  unknown code printed '$unk'" >&2; fail=1 ;;
 esac
+
+# --- the Forth SX1262 driver: decodes its bit-banged SPI from the host's own pin trace -----------------
+# GUARDRAIL: this runs on the host with NO simulated radio. It asserts the wire bytes only, and it names the one thing it
+# cannot know (DIO1 never rises), rather than asserting a success the harness cannot produce.
+echo
+if python3 tests/lora_spi.py; then
+    echo "PASS  the Forth LoRa driver puts the C driver's byte stream on the wire"
+else
+    echo "FAIL  the Forth LoRa driver's wire bytes differ" >&2
+    fail=1
+fi
 
 # GUARDRAIL: the suite reports BEHAVIOUR only. It used to end with `./countdown.sh`, a third reporter of the
 # image budget: after the app-space re-bake it printed "app space 354 B, 131 B free pool" for a lever — two
