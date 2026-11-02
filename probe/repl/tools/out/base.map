@@ -192,7 +192,7 @@ LOAD /home/user/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp
 END GROUP
                 0x00000000                        . = ORIGIN (ram)
 
-.text           0x00000000     0x1242
+.text           0x00000000     0x123e
  *ulp_riscv_vectors.S.obj(.text.vectors)
  .text.vectors  0x00000000        0x4 /home/user/research/esp32-rv32/probe/repl/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_vectors.S.obj
                 0x00000000                reset_vector
@@ -249,52 +249,52 @@ END GROUP
  .text.blk_sum  0x0000028a       0x26 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
  .text.blk_xfer
                 0x000002b0       0x8e /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
- .text.word     0x0000033e      0x13e /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+ .text.word     0x0000033e      0x13a /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
  .text.hash_pad
-                0x0000047c       0x2c /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
- .text.find     0x000004a8       0x74 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
- .text.pl_emit  0x0000051c       0x42 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
-                0x0000051c                pl_emit
- .text.err      0x0000055e       0x36 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+                0x00000478       0x2c /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+ .text.find     0x000004a4       0x74 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+ .text.pl_emit  0x00000518       0x42 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+                0x00000518                pl_emit
+ .text.err      0x0000055a       0x36 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
  .text.errf_msg
-                0x00000594       0x10 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
- .text.mkhdr    0x000005a4       0xd2 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
- .text.pl_key   0x00000676       0x18 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
-                0x00000676                pl_key
+                0x00000590       0x10 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+ .text.mkhdr    0x000005a0       0xd2 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+ .text.pl_key   0x00000672       0x18 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+                0x00000672                pl_key
  .text.vm_enter
-                0x0000068e      0x838 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+                0x0000068a      0x838 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
  .text.interpret
-                0x00000ec6      0x12e /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+                0x00000ec2      0x12e /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
  .text.startup.main
-                0x00000ff4      0x216 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
-                0x00000ff4                main
+                0x00000ff0      0x216 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+                0x00000ff0                main
  .text.ulp_riscv_rescue_from_monitor
-                0x0000120a       0x14 /home/user/research/esp32-rv32/probe/repl/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
-                0x0000120a                ulp_riscv_rescue_from_monitor
+                0x00001206       0x14 /home/user/research/esp32-rv32/probe/repl/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+                0x00001206                ulp_riscv_rescue_from_monitor
  .text.ulp_riscv_halt
-                0x0000121e       0x24 /home/user/research/esp32-rv32/probe/repl/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
-                0x0000121e                ulp_riscv_halt
+                0x0000121a       0x24 /home/user/research/esp32-rv32/probe/repl/build/esp-idf/main/ulp_main/CMakeFiles/ulp_main.dir/home/user/research/esp32/esp-idf/components/ulp/ulp_riscv/ulp_core/ulp_riscv_utils.c.obj
+                0x0000121a                ulp_riscv_halt
 
-.rodata         0x00001244       0x9e
+.rodata         0x00001240       0x9e
  *(.rodata)
  *(.rodata*)
- .rodata.t.0    0x00001244        0xe /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
- *fill*         0x00001252        0x2 
+ .rodata.t.0    0x00001240        0xe /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+ *fill*         0x0000124e        0x2 
  .rodata.disp_tbl.1
-                0x00001254       0x8e /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+                0x00001250       0x8e /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
 
 .srodata.CSWTCH.283
-                0x000012e4        0x6
+                0x000012e0        0x6
  .srodata.CSWTCH.283
-                0x000012e4        0x6 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+                0x000012e0        0x6 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
 
-.rela.dyn       0x000012ec        0x0
- .rela.text     0x000012ec        0x0 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+.rela.dyn       0x000012e8        0x0
+ .rela.text     0x000012e8        0x0 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
 
-.data           0x000012ec      0xa14
+.data           0x000012e8      0xa18
  *(.data)
  *(.data*)
- .data.mem      0x000012ec      0xa02 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
+ .data.mem      0x000012e8      0xa06 /home/user/research/esp32-rv32/probe/repl/tools/out/base.o
  *(.sdata)
  *(.sdata*)
  *fill*         0x00001cee        0x2 

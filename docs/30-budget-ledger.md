@@ -145,3 +145,33 @@ Conclusion stands, and is now quantified to the byte: App Store 16/16 needs ~40 
 coprocessor text that no compiler knob in the swept set provides. The shelf's own source is
 already lean enough that remaining savings would change what it draws, and shared vocabulary
 (`COLR`, `COLL`, `RW`) is used by other apps or by tests, so it cannot be removed.
+
+## Continuation 7 - the shelf's deficit is ~100 B, and the probe that misled me
+
+* `946 B of 999 B` was read **mid-drop**: the board had already discarded the phase's tail, so
+  the figure measured a partial build. Adding the missing definitions back (`KK`, `KHL`, `KENT`,
+  `KEYDO`, `WAIT`, `RUNSHELF` - about 150 B of code plus their 3-byte headers) the phase wants
+  roughly **1 096 B**, i.e. it is about 100 B over a 999 B window, not the 40 B written above.
+* A probe typed the shelf definitions at the prompt one at a time and the device refused them
+  **by name** (`SHELF_ST?`, `MARK?`, `CHAIN?`, `COLR?`) - but that boot had no seeded store, so
+  those refusals were the probe's own fault. The rule it does prove, cheaply: a definition
+  containing an unresolved word is refused and says which word. It is worth re-running that way
+  (seed first, then type) the next time a phase tail disappears, because it separates "word
+  missing" from "dictionary full" - the two failures the shelf has been bouncing between.
+* Read-path `noinline` was priced and loses: pinning `rd16`/`rd32`/`rd8` gave `.text 4 676`
+  against `4 670` (derived from measured sizes), so the lever that worked for `wr8`/`wr16` does
+  not work for their read-side twins. `P30_NOINLINE`/`P30_OUTOFLINE` measured no better.
+* `tools/measure.sh <variant> <extra-defines>` was found to be unreliable for appended defines:
+  `-DSD=8` changed the variant's `.text` (4 670 -> 4 666, measured) but left `pool span` at
+  7 937, and `-DMEMSZ=2000` changed nothing at all. Conclusions from span-only sweeps therefore
+  stand only for *flag* changes; any define that moves data must be priced with a real
+  `idf.py build` and `riscv32-esp-elf-size`, which is how MEMSZ 2 566 / 7 931 B was settled.
+* A second shelf phase at block 72 (`SHELF-OPEN`, the open path only, entered by `72 CHAIN` from
+  `KENT`) was built and tried; it does move ~55 B out of the drawing phase, which is the right
+  direction on its own, and was reverted because the phase still did not fit and an unverified
+  demo is worse than a verified one. The remaining routes are: split the shelf again (draw phase
+  vs dispatch phase - phases cannot share words, so ~40 B of primitives would be duplicated and
+  the net win is maybe 60 B, which is not enough on its own), or shrink resident code so the
+  window grows (the window is `MEMSZ` minus resident text, and resident text is where
+  `msg_*`/error strings live: `msg_load` 176 B, `msg_bad` and `msg_badblock` 81 B each - but
+  `LOAD?` and `BAD+` are load-bearing for tests and `docs/26`, so only some of that is free.)
