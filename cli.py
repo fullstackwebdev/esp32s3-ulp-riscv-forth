@@ -418,7 +418,11 @@ def library(dev, root):
         # which reads like "the app is too big". Refuse here with the reason instead.
         say(f"  the machine already has a program loaded (HERE {here}); reset it first", YL)
         return None
-    n, bad = upload(dev, str(root / "examples/menu.fs"), LIB_FIRST)
+    # GUARDRAIL: the launcher's SOURCE is staged in the transient range, not at LIB_FIRST=70. Blocks 70..96 are reader and
+    # mail CONTENT on the App Store table (72..119), so `--library` was overwriting content with launcher source - measured
+    # as the reader phase drawing `: ALT ESC CSI 63 EMIT ...` instead of its page. Source is transient by design (docs/26);
+    # only descriptors are durable, so every upload goes to 120..127 in 8-block passes.
+    n, bad = upload(dev, str(root / "examples/menu.fs"), STAGING, staging=STAGING_BLOCKS)
     if bad:
         return None
     # GUARDRAIL: capture the launcher's block count HERE. The loop below reuses `n` for each phase, so reading it

@@ -155,6 +155,14 @@ volatile u8  repl_cmd[CMD_SIZE];
 volatile u8  repl_out[OUT_SIZE];
 volatile u32 repl_cmd_head;      /* written by the HP */
 volatile u32 repl_cmd_tail;      /* written by the ULP */
+/* GUARDRAIL: the drop counter is BACK, and the difference from last time is that the main core now READS it (`#u`).
+ * It was deleted because "nothing on the ULP or the main core ever read it - it counted drops for nobody", which was a
+ * statement about the reader, not about the counter. A byte that the ring could not hand over is gone with no other
+ * symptom: the screen simply comes out short (measured - the reader lost the tail of every 70-column row until it was
+ * paced, F-140). The counter costs a load/add/store on the hot path and 4 B of .bss, and it buys the one thing that makes
+ * pacing verifiable: a number. The ring still DROPS rather than overwriting unread bytes - overwriting would serve the
+ * host half a word, which is worse than losing it. */
+volatile u32 repl_out_drop;      /* bytes dropped because the ring was full; zeroed at ULP boot */
 volatile u32 repl_out_head;      /* written by the ULP */
 volatile u32 repl_out_tail;      /* written by the HP */
 volatile u32 repl_wake_count;
@@ -198,7 +206,7 @@ void pl_emit(int c)
 {
     u32 h = repl_out_head;
     u32 t = repl_out_tail;
-    if ((h - t) >= OUT_SIZE) return;   /* full: drop, never overwrite unread bytes */
+    if ((h - t) >= OUT_SIZE) { repl_out_drop = repl_out_drop + 1u; return; }  /* full: drop and COUNT it */
     repl_out[h & OUT_MASK] = (u8)(c & 0xff);
     repl_out_head = h + 1u;
 }
@@ -502,7 +510,7 @@ int main(void)
     if (repl_magic != REPL_MAGIC_RAN) {
         repl_magic = REPL_MAGIC_RAN;
         repl_cmd_head = 0; repl_cmd_tail = 0;
-        repl_out_head = 0; repl_out_tail = 0;
+        repl_out_head = 0; repl_out_tail = 0; repl_out_drop = 0;
         repl_wake_count = 0;
         repl_status = 1;
         tl = 0; ti = 0; sp = 0; rsp = 0;

@@ -525,11 +525,15 @@ static void seed_poll(void)
                     printf(" | total %u\n", (unsigned)req_total);
                     fflush(stdout);
                 }
-                printf("info: ulp blk_out %u req %u off %u sz %u | cmd h%u t%u (%u B) | out h%u t%u (%u B) | wakes %u\n",
+                /* GUARDRAIL: the ring DROPS bytes when it is full and used to do so invisibly - the phase's screen simply
+                 * came out short (measured: the reader lost the tail of every 70-column row). This line is the reader the
+                 * old counter never had: `dropped 0` after a paced frame is proof the pacing works, and any non-zero value
+                 * says exactly how many bytes to give back. */
+                printf("info: ulp blk_out %u req %u off %u sz %u | cmd h%u t%u (%u B) | out h%u t%u (%u B) | dropped %u | wakes %u\n",
                        (unsigned)ulp_repl_blk_out, (unsigned)ulp_repl_blk_req, (unsigned)ulp_repl_blk_off,
                        (unsigned)ulp_repl_blk_sz, (unsigned)ulp_repl_cmd_head, (unsigned)ulp_repl_cmd_tail,
                        (unsigned)ulp_repl_cmd_bytes, (unsigned)ulp_repl_out_head, (unsigned)ulp_repl_out_tail,
-                       (unsigned)ulp_repl_out_bytes, (unsigned)ulp_repl_wake_count);
+                       (unsigned)ulp_repl_out_bytes, (unsigned)ulp_repl_out_drop, (unsigned)ulp_repl_wake_count);
                 /* GUARDRAIL: blk_out alone cannot say whether the HP ever SAW the edge, and the two readings have different
                  * owners: a set blk_out with blk_out_prev=0 means this task has not polled since the request (HP-side);
                  * both set means the request was seen and answered or dropped (ULP-side). Print both. */
