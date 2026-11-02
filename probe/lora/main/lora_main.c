@@ -12,10 +12,15 @@
 #include "driver/rtc_io.h"
 #include "driver/spi_master.h"
 #include "esp_sleep.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ulp_riscv.h"
 #include "ulp_lora.h"
+
+/* GUARDRAIL: this is the main core's own variable, NOT one of the ULP's exported symbols - naming it ulp_* would make
+ * the linker look for a symbol the ULP never defines (and, worse, could alias one it does). Prefix is a contract. */
+static uint32_t ulp_busy_us;
 
 extern const uint8_t ulp_lora_bin_start[] asm("_binary_ulp_lora_bin_start");
 extern const uint8_t ulp_lora_bin_end[]   asm("_binary_ulp_lora_bin_end");
@@ -135,10 +140,27 @@ void app_main(void)
     }
 
     for (int i = 0; i < 20; i++) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        /* Time the ULP's awake window from here, with this core's clock: the ULP cannot be trusted to time itself until
+         * ccount_cal says its counter is sane (measured: it is not, see ulp_ccount_cal). 200 us sampling resolves the
+         * ~108 ms expected air time to ~0.2 %. */
+        int64_t t_start = 0;
+        int64_t t_end = 0;
+        int64_t deadline = esp_timer_get_time() + 4500000;
+        bool seen = false;
+        while (esp_timer_get_time() < deadline) {
+            uint32_t a = (uint32_t)ulp_awake;
+            int64_t now = esp_timer_get_time();
+            if (a && !seen) { seen = true; t_start = now; }
+            else if (!a && seen) { t_end = now; break; }
+            esp_rom_delay_us(200);
+        }
+        if (seen && t_end > t_start) {
+            ulp_busy_us = (uint32_t)(t_end - t_start);
+        }
+        vTaskDelay(pdMS_TO_TICKS(900));
         printf("wakes %3" PRIu32 "  tx_ok %3" PRIu32 "  tx_fail %3" PRIu32 "  err %" PRId32
                "  cfg %s  status 0x%02" PRIx32 "  spi %" PRIu32 " cyc/B (%" PRIu32 " kHz SCK)  pads %" PRIu32
-               "  ulp %u B\n",
+               "  cold %" PRIu32 "  cal %" PRIu32 " cyc/10ms  busy %" PRIu32 " us  buf %" PRIu32 "  ulp %u B\n",
                (uint32_t)ulp_run_count, (uint32_t)ulp_tx_ok_count, (uint32_t)ulp_tx_fail_count,
                (int32_t)ulp_last_error,
                ulp_cfg_used == 0 ? "no-tcxo" : (ulp_cfg_used == 1 ? "tcxo" : "?"),
@@ -146,6 +168,10 @@ void app_main(void)
                (uint32_t)ulp_spi_cycles_per_byte,
                (uint32_t)ulp_spi_cycles_per_byte ? (uint32_t)(8u * 17500u / ulp_spi_cycles_per_byte) : 0u,
                (uint32_t)ulp_pad_selftest,
+               (uint32_t)ulp_cold_count,
+               (uint32_t)ulp_ccount_cal,
+               (uint32_t)ulp_busy_us,
+               (uint32_t)ulp_buf_verify,
                (unsigned)(ulp_lora_bin_end - ulp_lora_bin_start));
         fflush(stdout);
     }

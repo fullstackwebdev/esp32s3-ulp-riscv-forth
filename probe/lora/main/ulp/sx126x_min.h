@@ -35,7 +35,16 @@ typedef struct {
 } sx126x_cfg_t;
 
 int sx126x_cold_init(const sx126x_cfg_t *c);
-int sx126x_send(const sx126x_cfg_t *c, const uint8_t *buf, uint8_t len, uint32_t timeout_ms);
+/* GUARDRAIL: tx_cycles is an OUT parameter, not an exported global — the ULP's own cycle counter around SET_TX..TxDone
+ * is the only way to tell "the radio transmitted" from "the radio transmitted what we asked for". Compare it with the
+ * datasheet air-time formula: a wrong SF/BW/bandwidth config changes it by tens of milliseconds, and a dead TCXO
+ * changes nothing (it never completes at all). */
+int sx126x_send(const sx126x_cfg_t *c, const uint8_t *buf, uint8_t len, uint32_t timeout_ms,
+                uint32_t *tx_cycles);
+
+/* Reads the packet back out of the radio's own TX buffer (opcode 0x1E ReadBuffer) and compares it with what we wrote,
+ * returning 0 on a match. Proves the SPI payload path end to end: NSS, command framing, address and data phases. */
+int sx126x_verify_buffer(const uint8_t *buf, uint8_t len);
 int sx126x_sleep(int warm);
 
 /* Reads the chip's own status byte (GetStatus, opcode 0xC0): chip mode in bits 6:4, command status in bits 3:1.

@@ -19,6 +19,11 @@ volatile uint32_t cfg_used;               /* 0 = tried no TCXO, 1 = TCXO needed 
 volatile uint32_t spi_cycles_per_byte;    /* measured, 0 = not measured yet                 */
 volatile uint32_t status_byte;            /* GetStatus reply from the chip, 0 = none        */
 volatile uint32_t pad_selftest;           /* 0 = every driven pad followed; else see hal_pad_selftest */
+volatile uint32_t tx_cycles;              /* SET_TX -> TxDone, in 17.5 MHz cycles: the measured air time */
+volatile uint32_t buf_verify;             /* 0 = the radio's TX buffer matched what we wrote */
+volatile uint32_t ccount_cal;             /* cycles measured across a known 10 ms delay: calibrates the counter */
+volatile uint32_t awake;                  /* 1 while the ULP is running: the main core times this window */
+volatile uint32_t cold_count;             /* cold inits performed: if this tracks run_count, warm start is NOT working */
 
 /* Heltec V3: the SX1262's TCXO is powered from DIO3 at 1.8 V, and DIO2 drives the antenna switch. Both are facts about
  * this module that the bring-up *proves* rather than assumes: cfg A is tried without the TCXO and cfg B with it, and
@@ -63,8 +68,18 @@ int main(void)
     int e;
 
     run_count++;
+    awake = 1;
 
     hal_init();
+
+    if (ccount_cal == 0) {
+        /* GUARDRAIL: calibrate before believing any cycle-based duration. ULPs' cycle counter is a 32-bit free-running
+         * value and a plain end-start across a long gap silently wraps; measuring it against a KNOWN delay turns that
+         * from a wrong number into a visible one (17.5 MHz * 10 ms = 175 000). */
+        uint32_t c0 = (uint32_t)ULP_RISCV_GET_CCOUNT();
+        hal_delay_ms(10);
+        ccount_cal = (uint32_t)ULP_RISCV_GET_CCOUNT() - c0;
+    }
 
     if (pad_selftest == 0) {
         pad_selftest = hal_pad_selftest() + 1u;   /* +1 so "ran and clean" is distinguishable from "not run" */
@@ -84,19 +99,21 @@ int main(void)
     }
 
     /* First attempt: whatever we believe works. On a cold start that is cfg A, so the TCXO question gets answered. */
-    e = radio_ready ? sx126x_send(&cfg_b, pkt, sizeof pkt, 3000) : -100;
+    e = radio_ready ? sx126x_send(&cfg_b, pkt, sizeof pkt, 3000, &tx_cycles) : -100;
 
     if (e != 0) {
         /* Cold init, in the order that answers the hardware question: no TCXO first, then TCXO. */
+        cold_count++;
         e = sx126x_cold_init(&cfg_a);
         if (e == 0) {
-            e = sx126x_send(&cfg_a, pkt, sizeof pkt, 3000);
+            e = sx126x_send(&cfg_a, pkt, sizeof pkt, 3000, &tx_cycles);
             cfg_used = 0;
         }
         if (e != 0) {
+            cold_count++;
             e = sx126x_cold_init(&cfg_b);
             if (e == 0) {
-                e = sx126x_send(&cfg_b, pkt, sizeof pkt, 3000);
+                e = sx126x_send(&cfg_b, pkt, sizeof pkt, 3000, &tx_cycles);
                 cfg_used = 1;
             }
         }
@@ -111,6 +128,9 @@ int main(void)
         }
     }
 
+    /* Read the payload back out of the radio: TxDone says the modem ran, this says it ran on OUR bytes. */
+    buf_verify = (uint32_t)sx126x_verify_buffer(pkt, sizeof pkt);
+
     (void)sx126x_sleep(1);
 
     if (e == 0) {
@@ -120,6 +140,7 @@ int main(void)
         radio_ready = 0;
     }
     last_error = e;
+    awake = 0;
 
     ulp_riscv_halt();
     return 0;

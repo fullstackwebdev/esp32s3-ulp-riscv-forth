@@ -825,3 +825,26 @@ outputs must enable the input first (and may disable it again afterwards, since 
 the self-test is blind in exactly the case it was written for, and its "everything is broken" verdict is the one lie a
 diagnostic must never tell.
 
+### F-143 — An instrument can be accurate at one interval and useless at the next
+
+`ULP_RISCV_GET_CCOUNT()` calibrated to **175 503 cycles per 10 ms** (17.55 MHz, 0.3 % of nominal) and was still wrongly
+read for the measurement it was added for: across `SET_TX → DIO1` the same subtraction reported **3.4e9 cycles (195 s)**
+for a ~190 ms packet. Switching to signed arithmetic (the macro yields a signed `int`) changed nothing, which is the
+useful part of the story — the calibration could not have caught it.
+
+**Rule.** Calibrate an instrument on *the interval you are about to measure*, not on a convenient one. If the same
+primitive gives two answers three orders of magnitude apart, do not adjust the arithmetic until it agrees: replace the
+instrument. Here the replacement was the main core timing the ULP's awake window at 200 µs resolution, which produced
+**195.8 ms** — and that number then exposed a different error entirely: the expected air time had been computed without
+the `(CR + 4)` factor in the payload-symbol count (§ F-144).
+
+### F-144 — The wrong expected value made a correct measurement look broken
+
+The 195.8 ms window was first read as a fault, because the expectation had been derived as "~108 ms": 8 + 6 = 14 payload
+symbols instead of 8 + 6·(CR+4) = 33. Recomputed properly (Tsym 4.096 ms, preamble 50.18 ms, payload 135.17 ms) the
+prediction is **185.3 ms** and the measurement is **105.6 %** of it.
+
+**Rule.** When a measurement and an expectation disagree, the expectation is a hypothesis too — derive it from a formula
+you can print, in the open, before you believe either. The units error in `token_rate.py` (1000× low SCK) and this one
+(the missing CR+4 factor) are the same failure: arithmetic done in a comment instead of by a program that shows its work.
+

@@ -19,7 +19,10 @@ wakes   4  tx_ok   4  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 975 cyc/B (
 | chip status read by the ULP | **0x2c** (chipmode 2 = STDBY_RC) | matches the hardware-SPI probe's `0x2a` |
 | TCXO | **required**: DIO3 @ 1.8 V | cfg without TCXO never reaches `TxDone`; cfg with it does, every wake |
 | DIO2 → RF switch | enabled | as configured |
-| warm start | **works**: `SET_SLEEP(0x04)` retains the configuration across ULP wakes | after the first cold init, later wakes go straight to `SET_TX` and still succeed |
+| warm start | **works** — proven with a counter, not assumed | `cold 2` while `wakes 6`/`tx_ok 6`: exactly two cold inits ever, every later wake goes straight to `SET_TX` |
+| payload in the radio's TX buffer | **matches** (`ReadBuffer` 0x1E, `buf 0`) | the SPI data path (NSS, command framing, address phase) is proven, not just "no error" |
+| ULP awake window per warm transmit | **195.8 ms**, measured from the main core | predicted 185.3 ms from the datasheet formula → 105.6 % |
+| ULP cycle counter | **17.55 MHz** (175 503 cycles per 10 ms delay) | accurate for short intervals; see the note below |
 
 ## What was proven, and how
 
@@ -35,6 +38,10 @@ wakes   4  tx_ok   4  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 975 cyc/B (
   and is silently discarded: the ULP runs, the SPI loop executes, MISO reads 0, `GetStatus` returns 0x00, and every
   command "succeeds" while no pad ever moves. Four flash cycles were spent on pin maps and handover before the pad
   read-back inside the ULP showed it.
+* **The cycle counter is not usable for the air-time measurement.** Calibrated at 0.3 % over 10 ms, the same
+  `end - start` across `SET_TX → DIO1` returned 3.4e9 cycles (195 s) for a 108 ms-ish packet — a wrap read as a huge
+  positive, even after switching to signed arithmetic. The instrument was replaced instead of trusted: the main core now
+  times the ULP's awake window at 200 µs resolution, which is where the 195.8 ms comes from.
 * **`RTC_GPIO_IN` only reports a pad whose input buffer is enabled** (`RTC_IO_x_FUN_IE`). A read-back self-test that
   forgets this reports "all four pads dead" for a perfectly working bus.
 
@@ -66,6 +73,13 @@ The app prints for 20 s and then idles with the ULP still running. Deep sleep is
 cd backup && sha256sum -c *.sha256
 python -m esptool --port /dev/ttyUSB0 --baud 460800 write_flash 0x0 heltec-v3-meshtastic-xxxxxxxxxxxx-8MB-20261101-1653.bin
 ```
+
+## Air time, derived (and why the first number was wrong)
+
+Tsym = 2^9 / 125 kHz = 4.096 ms · preamble (8 + 4.25)·Tsym = 50.18 ms · payload symbols
+8 + ⌈(8·20 − 4·9 + 28 + 16)/(4·9)⌉ · **(CR + 4)** = 33 → 135.17 ms · **total 185.34 ms**. Measured 195.8 ms = 105.6 %.
+The `(CR+4)` factor is the one that got dropped the first time, which is how a 185 ms packet became a "~108 ms"
+expectation in a comment — and why the measured number looked wrong when it was the arithmetic that was wrong.
 
 ## Next
 

@@ -25,6 +25,7 @@
 #define OP_READ_REGISTER        0x1D
 #define OP_WRITE_REGISTER       0x0D
 #define OP_GET_STATUS           0xC0
+#define OP_READ_BUFFER          0x1E
 
 #define IRQ_TX_DONE             0x0001u
 #define IRQ_TIMEOUT             0x0200u
@@ -137,7 +138,26 @@ int sx126x_cold_init(const sx126x_cfg_t *c)
     return 0;
 }
 
-int sx126x_send(const sx126x_cfg_t *c, const uint8_t *buf, uint8_t len, uint32_t timeout_ms)
+int sx126x_verify_buffer(const uint8_t *buf, uint8_t len)
+{
+    uint8_t got[32];
+    uint8_t cmd[3] = { OP_READ_BUFFER, 0x00, 0x00 };   /* opcode, offset, then read (dummy clock) */
+    if (len > sizeof got) {
+        return -1;
+    }
+    if (hal_read(cmd, sizeof cmd, got, len) != HAL_OK) {
+        return -2;
+    }
+    for (uint8_t i = 0; i < len; i++) {
+        if (got[i] != buf[i]) {
+            return (int)i + 1;      /* first mismatching byte, 1-based so 0 means match */
+        }
+    }
+    return 0;
+}
+
+int sx126x_send(const sx126x_cfg_t *c, const uint8_t *buf, uint8_t len, uint32_t timeout_ms,
+                uint32_t *tx_cycles)
 {
     int e;
     uint8_t p[3];
@@ -163,11 +183,18 @@ int sx126x_send(const sx126x_cfg_t *c, const uint8_t *buf, uint8_t len, uint32_t
     p[0] = (uint8_t)(ticks >> 16); p[1] = (uint8_t)(ticks >> 8); p[2] = (uint8_t)ticks;
     if ((e = cmd(OP_SET_TX, p, 3)) != 0) return e;
 
-    /* Bound the wait in cycles (17.5 MHz), not in poll counts. */
+    /* Bound the wait in cycles (17.5 MHz), not in poll counts, and keep the elapsed count: it is the air time. */
     start = ULP_RISCV_GET_CCOUNT();
     limit = timeout_ms * 17500u;
     while (!hal_dio1()) {
         if ((uint32_t)(ULP_RISCV_GET_CCOUNT() - start) > limit) return SX126X_ERR_TIMEOUT;
+    }
+
+    if (tx_cycles != 0) {
+        /* GUARDRAIL: ULP_RISCV_GET_CCOUNT() yields a SIGNED int, and the counter is 32 bits (245 s at 17.5 MHz). A
+         * plain unsigned end-start is correct only if no wrap happened; measured, it produced 3.4e9 cycles (194 s of
+         * "air time") for a ~108 ms packet, which is a wrap read as a huge positive. Subtract as signed, then cast. */
+        *tx_cycles = (uint32_t)((int32_t)ULP_RISCV_GET_CCOUNT() - (int32_t)start);
     }
 
     {

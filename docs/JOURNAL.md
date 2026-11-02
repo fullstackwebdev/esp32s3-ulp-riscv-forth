@@ -2323,3 +2323,18 @@ open question.
 Standing: decode a packet on a receiver (TxDone proves the radio transmitted, not that the bytes are right), then deep
 sleep, then the Forth question with real sizes - 2 584 B of C against a 7 892 B pool holding everything and 1 B free.
 
+**J-119 · Air side verified without a receiver: 195.8 ms against a derived 185.3 ms.**
+The packet's payload was read back out of the radio's own TX buffer (`ReadBuffer 0x1E`) and matches byte for byte, so the
+SPI data path is proven rather than merely error-free. The ULP's awake window per warm transmit, timed by the main core at
+200 us resolution, is **195.8 ms** against **185.3 ms** predicted for SF9/125 kHz/20 B/CR 4-5 - 105.6 %, i.e. the modem
+really is configured the way the driver claims.
+
+Two instruments were caught lying on the way. **F-143**: `ULP_RISCV_GET_CCOUNT()` calibrated to 0.3 % over 10 ms and then
+read 3.4e9 cycles (195 s) across SET_TX -> DIO1, even after switching to signed arithmetic; it was replaced with the main
+core's clock rather than "fixed". **F-144**: the replacement number then looked impossible because the expected air time
+had been computed as ~108 ms without the (CR+4) factor - 14 payload symbols instead of 33. A correct measurement was
+rejected because a bad derivation sat next to it.
+
+Also now proven with a counter instead of an assumption: **warm start**. `cold 2` against `wakes 6`/`tx_ok 6` - exactly two
+cold inits ever, every later wake going straight to SET_TX. docs/28 §6 and probe/lora/README.md carry the measured table.
+

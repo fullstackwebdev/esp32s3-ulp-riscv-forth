@@ -828,6 +828,12 @@ kilobytes an hour, C.
 
 ## 6. What was measured, and what is still open
 
+**Air side verified without a receiver** (2026-11-01): the ULP's awake window per warm transmit is **195.8 ms** as timed by
+the main core, against **185.3 ms** predicted by the datasheet formula for SF9/125 kHz/20 B at CR 4/5 — 105.6 %, which is
+the modem confirming it really is configured the way the driver says. The payload was also read back out of the radio's own
+TX buffer (`ReadBuffer 0x1E`) and matches byte for byte, so the SPI data path is proven rather than merely silent.
+Warm-start retention is proven with a counter (`cold 2` against `wakes 6`), not with an assumption.
+
 **Measured on the Heltec V3 (2026-11-01, `probe/lora/README.md`)**: the ULP alone transmits (`TxDone` on 4 of 4 wakes, 5 s
 timer, main core never touching the bus); chip status `0x2c` read by the ULP matches the hardware-SPI probe's `0x2a`;
 SPI runs at **975 cycles/byte = 143 kHz SCK**; the driver is **2 584 B**; **the TCXO on DIO3 at 1.8 V is required** (the
