@@ -38,6 +38,28 @@ RX = REPO / "examples/apps/lora/lora_rx.fs"
 MARKER = bytes([0xA5, 0x31, 0x32, 0x33])       # what SEND writes: marker + "123"
 
 
+def last_line(rep):
+    lines = [l.strip() for l in rep.strip().splitlines() if l.strip()]
+    return lines[-1] if lines else ""
+
+
+def name_free(dev, name):
+    """True when the machine does NOT know `name`.
+
+    GUARDRAIL: judge the LAST LINE only, and sync first. Two traps here, both measured: a name with a digit in it
+    (`RD2`) made a digit-extracting parser read the '2' out of `RD2?` and call a free name taken; and a leftover
+    `ok` from the previous reply made an `"ok" in rep` test call a free name taken too. One question, then the
+    reply's shape: a free name answers exactly `NAME?`.
+    """
+    dev.cmd("0 .", timeout=5.0, allow_error=True)      # sync point: whatever was pending is consumed
+    return last_line(dev.cmd(f"' {name} .", timeout=6.0, allow_error=True)) == f"{name}?"
+
+
+def word_defined(dev, name):
+    rep = dev.cmd(f"' {name} .", timeout=6.0, allow_error=True)
+    return bool(re.fullmatch(r"-?\d+\s+ok", last_line(rep)))
+
+
 def lint(paths, label):
     """Refuse a source the project's own linter rejects for the typed-at-the-prompt path.
 
@@ -75,12 +97,15 @@ def load(dev, label):
             m = re.match(r":\s+(\S+)", line)
             if m and not pend:
                 name = m.group(1)
+                if not name_free(dev, name):
+                    raise SystemExit(f"{label}: `{name}` already exists on the machine - a resident name cannot "
+                                     "be redefined, and one refusal makes every later definition fail too")
             if name:
                 pend.append(line)
                 if line.endswith(";"):
                     for one in pend:
                         dev.cmd(one, timeout=8.0, allow_error=True)
-                    if not dev.nums(dev.cmd(f"' {name} .", timeout=5.0, allow_error=True)):
+                    if not word_defined(dev, name):
                         raise SystemExit(f"{label}: `{name}` did not appear after its definition closed - refused "
                                          f"silently (dictionary full, hash collision, or line too long)")
                     pend, name = [], None

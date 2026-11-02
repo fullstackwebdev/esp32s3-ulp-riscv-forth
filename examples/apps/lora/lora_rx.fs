@@ -47,8 +47,8 @@
 \ + length 4 + CRC, which is what both
 \ ends of this test send. Setting a larger maximum cost 34 B in
 \ a dictionary that had none to give.
-: RL NSSLO 19 >BYTE RD-BYTE RD-BYTE NSSHI ;
-: RDUMP BEGIN DUP WHILE RD-BYTE . 1- REPEAT DROP ;
+: RL NSSLO 19 >BYTE RD-BYTE DROP RD-BYTE RD-BYTE NSSHI ;
+: RDUMP BEGIN DUP WHILE RD-BYTE . 32 EMIT 1- REPEAT DROP ;
 : RB NSSLO 30 >BYTE >BYTE RD-BYTE DROP RDUMP NSSHI ;
 : RXTAKE DUP 2 AND IF DROP RL RB RC 1 ELSE DROP RC 0 THEN ;
 : RX1 RC SR 250 MS IQ ;

@@ -199,3 +199,32 @@ The structure that removes it:
 5. **Performance is not the constraint — memory is.** AES-128 CTR over a ~66 B packet is ~5 blocks × 10 rounds;
    at the ULP's 17.5 MHz (measured cycle counter) with this token-threaded engine that is a few tens of ms, against
    an air time of ~180 ms at SF9/BW125 for that size. The radio dominates; the cipher fits in the gaps.
+
+## Appendix C — INIT is now a phase, and it is verified (measured)
+
+`examples/apps/lora/lorainit.fs` is the bring-up as a chained job: its own primitives, the radio configuration as a
+**byte table**, and `RADIO-INIT`/`STAT`/`PTYPE` as its entry points. Measured footprint on the board: **code 710 B +
+headers 69 B = 779 B**, self-contained, leaving 549 B free - it fits a 999 B phase window with room to spare.
+`tests/lora_init_phase.py` proves it (7/7 checks): `RADIO-INIT → 1`, chipmode `STDBY_RC`, `GetPacketType → 1` (LoRa),
+`SR → chipmode 5` (RX), and a frame from the **app-phase** radio on the other board decodes with its exact marker
+`[165, 49, 50, 51]`.
+
+Why a phase is the right home for it: as Forth code in the app it cost **491 B of the app's 1 328 B**; as a phase it
+costs the app nothing, because the pool is rewound at each hop. The app-side set becomes primitives (382) + `SEND`
+(127) + receive words (~266) ≈ **775 B**, which leaves ~550 B of the same budget for AES-CTR and the protobuf writer -
+the difference between "impossible" and "tight but real".
+
+Three bugs this phase found, all of them silent, all now gated:
+
+| bug | how it presented | gate |
+|---|---|---|
+| table length bytes one too high (`3 C, 128 C, 0 C,` for a 2-byte command) | every command after the first was garbage: the radio stayed in standby, `SetRx` did nothing, the receiver looked dead, yet `RADIO-INIT` still answered 1 (SetStandby with a junk parameter is still SetStandby) | the table's lengths are now checked against the bytes that follow them, and the test asserts `PTYPE`/chipmode/RX rather than the return code |
+| an odd `C,` count leaves `HERE` odd | the next eleven definitions answered `ERR_DICT` with 848 B still free - an error that names the dictionary for a fault that is alignment | **lint R28** (parity of interpret-state `C,`) |
+| `Dev.reset()` shelled out to `esptool --after hard_reset` | esptool 5.x rejects that spelling, the error was captured and discarded, the readiness probe then succeeded on the *already running* board, so no reset ever happened and tests read the previous session's dictionary (a phase was accused of defining `SR`; a resident-name collision appeared from nowhere) | `reset()` uses `hard-reset` and now **asserts the dictionary is fresh** (`HERE` must be the baked 786, not a leftover) |
+
+Two measurement corrections in the same pass, both from trusting a byte I had not verified:
+
+* a register readback of the frequency at `0x0880` was asserted as "868.1 MHz" while the offset itself was a guess
+  (it answered `3 0 0 95`). It was replaced by `GetPacketType`, a documented command: `1` = LoRa.
+* `RL` read GetRxBufferStatus as two bytes, so the **status** byte became the payload length and `RB` dumped 208
+  bytes instead of 4. The marker was at the front of the dump, which would have passed a sloppier check.

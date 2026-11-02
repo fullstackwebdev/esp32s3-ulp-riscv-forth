@@ -432,6 +432,25 @@ def check_source_shape(src, phase=False, repl=False):
     # bits 0..21 are RTC GPIO 0..21, which include the pads tied to flash, PSRAM and the brownout detector. Measured:
     # `12345 1610646528 !` produced `ESP-ROM:esp32s3-20210327` on the console. Single pads go through OUT_W1TS (…404)
     # and OUT_W1TC (…408), which touch one bit each.
+    # GUARDRAIL: R28. An ODD number of interpret-state `C,` bytes leaves HERE odd, and mkhdr_pad refuses EVERY
+    # later definition while HERE is odd (`if (x + 2u > h || (x & 1u)) errf_msg(MSG_ERR_DICT)`, uforth.c) because
+    # xt is stored as xt/2 and an odd offset would halve into a wrong-word dispatch. Measured: a 69-byte config table
+    # made the next eleven definitions answer ERR_DICT with 848 B still free - the message names the dictionary and
+    # the fault is alignment, which cost an hour of hunting space that was never the problem. Count only
+    # interpret-state uses: a `C,` inside a definition runs later and does not move the load-time parity.
+    carity, in_def = 0, False
+    for line in scan_lines:
+        for tk in line.split():
+            if tk == ":":
+                in_def = True
+            elif tk == ";":
+                in_def = False
+            elif tk == "C," and not in_def:
+                carity += 1
+    if carity % 2:
+        findings.append((1, "R28 alignment",
+                         f"{carity} interpret-state `C,` bytes is ODD: HERE stays odd and every later definition is "
+                         "refused with ERR_DICT however much room is left. Add one filler `0 C,`"))
     # GUARDRAIL: R26. The coprocessor does NOT decode the SoC address map: A10/A11 are dropped, so an absolute
     # 0x6000_84xx access from pool code lands in RTC_CNTL and nothing answers it - the root cause that cost months,
     # and the reason every driver constant is written in the ALIAS WINDOW (`esp32s3.peripherals.ld`: RTCIO 0xA400,
@@ -817,6 +836,8 @@ def check_blocks(src, base=None, blocks=None):
 
 
 BUGS = {
+ "odd number of C, bytes leaves HERE odd (ERR_DICT on everything after)":
+   ("""CREATE T 1 C, 2 C, 3 C,\n: X 5 ;\n""", "R28 alignment"),
  "SoC absolute address from pool code (the alias-window root cause)":
    (""": PADSET 1610646532 ! ;\n""", "R26 alias window"),
  "nested counted loop in one definition (loader refuses it silently)":
