@@ -100,12 +100,6 @@ def main():
     print(f"  receiver: {h1-h0} B code + {l0-l1} B headers, {l1-h1} B free")
     check("receiver RADIO-INIT configures the chip", B.num("RADIO-INIT .", 30.0) == 1)
     # match the transmitter: preamble 16, explicit header, payload length 26, CRC on
-    for line in (": RPP ( -- )",
-                 "  NSSLO 140 >BYTE 0 >BYTE 16 >BYTE 0 >BYTE",
-                 "  26 >BYTE 1 >BYTE 0 >BYTE NSSHI ;"):
-        B.cmd(line, 10.0, allow_error=True)
-    if not re.fullmatch(r"-?\d+\s+ok", last_line(B.cmd("' RPP .", 8.0, allow_error=True))):
-        raise SystemExit("receiver: RPP did not appear after its definition")
     B.cmd("RPP", 10.0, allow_error=True)
     # continuous RX: clear then SetRx ONCE. A 250 ms windowed listen misses frames 400 ms apart (measured).
     B.cmd("RC SR", 10.0, allow_error=True)

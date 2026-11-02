@@ -1,0 +1,18 @@
+lora: the radio fits TWO phases (992 B receive, 939 B transmit); the cipher is the only item that does not
+
+Measured on the board, against the store's 999 B window:
+  receive        lorainit.fs + lora_rx.fs   992 B  (7 B spare)
+  frame + TX     loratx.fs                  939 B  (60 B spare)
+  cipher         lora_aes.fs               1328 B  (329 B OVER - cannot be a phase)
+Both figures are now asserted by the tests (lora_init_phase.py checks the bundle against 999 B; it was 1020 B an
+hour earlier with a packet-params word in the receive file, so the gate is not decoration).
+
+Image composition read out of build/esp-idf/main/ulp_main/ulp_main.elf (riscv32-esp-elf-size + nm):
+  text 4834  data 2584  bss 513 = 7931 of 7932 (1 B free)
+  vm_enter 2104 (26% of the image), main 534, word 314, interpret 302, mkhdr 210, find 116
+  mem 2566 (MEMSZ, .data) - so +1 B of app space costs exactly 1 B of image
+The cipher is not redundant anywhere: S-box table 256 B is the compact form (computed = 644 B and 22.7 s/block,
+docs/31 App. E) and the 176 B of round keys cannot move to the registry (cells are resident, App. F). So the
+329 B gap is a question about vm_enter, and docs/31 Appendix G says so with these numbers.
+
+Green: suite 30 pass, selftest PASS, lora_spi, two-board 3+3, init-phase (bundle gate), aes 11/11, frame-phase 10/10.

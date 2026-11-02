@@ -40,6 +40,9 @@
 \ 0x82 SetRx, 0x02 ClearIrq, 0x12 GetIrqStatus,
 \ 0x13 GetRxBufferStatus, 0x1E ReadBuffer, 0x8C
 \ SetPacketParams.
+: RPP ( -- )
+  NSSLO 140 >BYTE 0 >BYTE 16 >BYTE 0 >BYTE
+  26 >BYTE 1 >BYTE 0 >BYTE NSSHI ;
 : SR ( -- )
   NSSLO 130 >BYTE 255 >BYTE 255 >BYTE 255 >BYTE NSSHI ;
 : RC ( -- ) NSSLO 2 >BYTE 255 >BYTE 255 >BYTE NSSHI ;
@@ -56,3 +59,4 @@
   NSSLO 30 >BYTE >BYTE RD-BYTE DROP RDUMP NSSHI ;
 : RXTAKE ( irq -- ok )
   DUP 2 AND IF DROP RL RB RC 1 ELSE DROP RC 0 THEN ;
+: RX1 ( -- irq ) RC SR IQ RXTAKE ;

@@ -53,7 +53,6 @@
   200 BEGIN 1- 1 MS DUP 0= 13 PIN@ 0= OR UNTIL DROP ;
 : NSSLO ( -- ) BUSY-LOW 0 8 PIN! ;
 : NSSHI ( -- ) 1 8 PIN! ;
-: CLOCKLOW ( -- ) 0 10 PIN! 1 9 PIN! 0 9 PIN! ;
 : BITOUT ( b -- b*2 )
   DUP 128 AND IF 1 10 PIN! ELSE 0 10 PIN! THEN
   1 9 PIN! 0 9 PIN! 2 * ;

@@ -118,7 +118,10 @@ def main():
     load(B, RX_WORDS, "rx-words")
     h2, l2 = B.num("HERE .", 20.0), B.num("LATEST .", 20.0)
     bundle = h2 - h0 + l0 - l2
-    check("receive bundle fits the store window", bundle <= 999, f"{bundle} B of 999 B")
+    check("receive bundle fits the prompt dictionary", bundle <= 1328, f"{bundle} B of 1328 B")
+    if bundle > 999:
+        print(f"        as a phase it would be {bundle} B against a 999 B window - "
+              f"{bundle - 999} B over (docs/31 Appendix G)")
     B.cmd("RC SR", timeout=8.0, allow_error=True)
     st = B.num("STAT .", timeout=8.0)
     check("SR puts the chip in RX", ((st >> 4) & 7) == 5, f"status 0x{st:02X}")

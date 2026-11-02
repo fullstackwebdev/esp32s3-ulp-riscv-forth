@@ -393,23 +393,30 @@ solution shape, not an unknown.
    So the receive length must name the frame, the params belong to the *scenario* rather than to `SR`, and a
    length change must be paired with a transmitter that waits for TxDone instead of sleeping.
 
-## Appendix G — the radio fits two phases; the cipher is the only thing that does not
+## Appendix G — where each piece fits, measured after the table-driven INIT
 
-Both halves of the radio link now fit the store's **999 B** window, measured on the board:
+The driver's configuration stopped being 491 B of hard-coded code and became a **70 B table** plus five short
+words, generated from the old body so the wire is unchanged (`INIT` -> 1, two-board PASS both directions).
+That changed every number below:
 
-| phase | contents | measured | spare |
-|---|---|---:|---:|
-| **receive** | `lorainit.fs` + `lora_rx.fs` (primitives, config table, `SR`/`RC`/`IQ`/`RL`/`RBUMP`/`RXTAKE`) | **992 B** | 7 B |
-| **frame + transmit** | `loratx.fs` (primitives, config table, 26-byte frame, `WriteBuffer`, `SetTx`, polled TxDone) | **939 B** | 60 B |
-| cipher | `lora_aes.fs` | **1 328 B** | **−329 B** |
+| piece | measured | window | fits |
+|---|---:|---:|---|
+| driver (`lora1.fs`, table-driven INIT + `SEND`) | **855 B** | prompt 1 328 B | yes |
+| receive words (`lora_rx.fs`: `SR` `RC` `IQ` `RL` `RDUMP` `RB` `RXTAKE` `RX1` `RPP`) | **322 B** | — | — |
+| driver + receive words, together, in the PROMPT | **1 177 B** | 1 328 B | **yes, 151 B spare** |
+| `lorainit.fs` + `lora_rx.fs` as one PHASE | **1 023 B** | 999 B | no, **24 B over** |
+| frame + TX phase (`loratx.fs`) | **939 B** | 999 B | yes, 60 B spare |
+| cipher (`lora_aes.fs`) | **1 328 B** | 999 B | no, **329 B over** |
 
-So a chained device that *speaks LoRa in both directions and builds a Meshtastic-shaped packet* needs no app
-dictionary at all — and the cipher is the single item that cannot be a phase. Both numbers are now gates:
-`tests/lora_init_phase.py` asserts the receive bundle against 999 B, `tests/lora_frame_phase.py` asserts the
-transmit phase. It was 1 020 B an hour earlier with a packet-params word in the receive file, so the check is
-not decoration.
+So today's device shape is: the radio lives in the prompt (proven by `lora_two_board.py`, 3+3 frames), the
+26-byte frame and its transmission live in a phase, and the cipher is the one item with no home. The receive
+bundle *would* fit a phase 24 B short of where it is, so a "receive as a phase" design needs 24 B of app space,
+not a redesign.
 
-### Where the app-space gap could actually come from
+`RPP` and `RX1` are **back** in `lora_rx.fs`. They were removed earlier in the session to make the numbers fit,
+which is the wrong trade — a feature is not slack — and the driver's table paid for them instead.
+
+### Where the remaining app space could come from
 
 Read out of the built ULP binary (`riscv32-esp-elf-size` and `nm` on `build/esp-idf/main/ulp_main/ulp_main.elf`):
 
@@ -428,10 +435,30 @@ Read out of the built ULP binary (`riscv32-esp-elf-size` and `nm` on `build/esp-
    2566 d mem            <- the dictionary itself (MEMSZ)
 ```
 
-`mem` is `.data`, so **+1 B of app space costs exactly 1 B of image**. The 329 B the cipher is short by is
-therefore a 329 B question about `vm_enter`, not about the cipher: nothing in the cipher is redundant. The S-box
-table is 256 B and the computed replacement was measured at 644 B and 22.7 s per block (Appendix E); the round
-keys are 176 B and the registry cannot hold them (Appendix F).
+`mem` is `.data`, so **+1 B of app space costs exactly 1 B of image**. The cipher's 329 B, the receive phase's
+24 B and the Meshtastic payload growth all draw on the same 1 B. Nothing in the cipher is redundant: the S-box
+table is the compact form (computed = 644 B and 22.7 s per block, Appendix E) and the round keys cannot move to
+the registry (cells are resident, Appendix F).
 
-That is the honest state: **the radio is done in both directions and in both directions as phases; Meshtastic
-interoperability now depends on shrinking the interpreter or raising `MEMSZ` with bytes that do not exist yet.**
+### The candidate list for that space, and the method to price one
+
+27 of **231** resident names are never named by the App Store corpus, the tests, the tools or the prelude. That
+is a raw list, not a removal list — several are runtime primitives the compiler emits (`LIT`, `LIT2`, `(DO)`,
+`(LOOP)`, `(+LOOP)`, `(.")`) or engine state the interpreter reads (`Q`, `QH`, `QT`, `QOVF`, `VS`, `BH`,
+`CURBLK`, `OVLRUN`, `BL`):
+
+```
+LIT (DO) (LOOP) (+LOOP) UNLOOP U/MOD (.") GPIO@ GPIO! ADC@ WAKE LIT2 VS BH BL OVLRUN CURBLK Q QH QT QOVF
+BRT EV@ PUMP 324, 1272 2510,
+```
+
+Priced one at a time: delete the name, rebuild, `riscv32-esp-elf-size` for the image, `HERE`/`LATEST` on the
+board for the dictionary, raise `MEMSZ` by exactly the bytes freed, then re-run suite (30), linter selftest,
+`lora_spi`, `lora_two_board`, `lora_init_phase`, `lora_aes`, `lora_frame_phase`. A name absent from the corpus
+can still be emitted by the compiler, which is why this is a candidate list and not a plan.
+
+### Two dead ends already priced (do not retry these)
+
+* **computed S-box**: correct for all 256 values, 644 B and 22.7 s per block against a 256 B table. Appendix E.
+* **registry for round keys**: cells are RESIDENT (`cli.py:registry_cells`, "every cell costs 4 B of the
+  window"), so moving 176 B of `W` there shrinks the window by as much as it saves. Appendix F.
