@@ -27,9 +27,12 @@
 \
 \ Lines stay under 63 bytes (the device input ring).
 \
-\ BUDGET: this driver needs MEMSZ >= 2550 of the pool. At 2540 the last two words (INIT, SEND) fall off the
-\ end of the dictionary - the code area and the header area meet in the middle, so the name that disappears
-\ is whichever is furthest down, and NOTHING reports it. `#k` and a `WORDS`-style probe will not show it;
+\ BUDGET: this driver needs MEMSZ >= 2550 of the pool. At
+\ 2540 the last two words (INIT, SEND) fall off the
+\ end of the dictionary - the code area and the header area
+\ meet in the middle, so the name that disappears
+\ is whichever is furthest down, and NOTHING reports it.
+\ `#k` and a `WORDS`-style probe will not show it;
 \ only loading the file and asking for the last word does.
 
 1610646532 CONSTANT PADSETW
