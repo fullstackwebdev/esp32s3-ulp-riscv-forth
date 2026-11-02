@@ -23,25 +23,17 @@
 \ it; only loading the file and asking for the last word
 \ does.
 \
-41988 CONSTANT PADSETW
-41992 CONSTANT PADCLRW
-42020 CONSTANT PADINRD
-42000 CONSTANT PADENAB
-42116 CONSTANT PADIO000
-51460 CONSTANT PADCLKG
 \
 8  CONSTANT NSSPAD
 9  CONSTANT SCKPAD
 10 CONSTANT MOSIPAD
-11 CONSTANT MISOPAD
 12 CONSTANT NRSTPAD
 13 CONSTANT BUSYPAD
-14 CONSTANT DIO1PAD
 \
 \
 : PIN! ( level pin -- )
-  10 + 1 SWAP LSHIFT SWAP IF PADSETW ELSE PADCLRW THEN ! ;
-\ GUARDRAIL: the register must be READ. `PADINRD AND` (no
+  10 + 1 SWAP LSHIFT SWAP IF 41988 ELSE 41992 THEN ! ;
+\ GUARDRAIL: the register must be READ. `42020 AND` (no
 \ `@`) ANDs the bit
 \ mask with the ADDRESS 0xA424, which is nonzero only for
 \ the very bits the
@@ -54,7 +46,7 @@
 \ IN = 0x80400 and a bare `42020 @` = 0x80400 agreed, while
 \ PIN@ said 0.
 : PIN@ ( pin -- level )
-  10 + 1 SWAP LSHIFT PADINRD @ AND 0= 0= ;
+  10 + 1 SWAP LSHIFT 42020 @ AND 0= 0= ;
 \
 \
 \
@@ -88,10 +80,9 @@
 : NSSLO BUSY-LOW 0 NSSPAD PIN! ;
 : NSSHI 1 NSSPAD PIN! ;
 : BITREAD ( b -- b' )
-  2 * 1 SCKPAD PIN! MISOPAD PIN@ 0 SCKPAD PIN! IF 1 + THEN ;
+  2 * 1 SCKPAD PIN! 11 PIN@ 0 SCKPAD PIN! IF 1 + THEN ;
 : CLOCKLOW ( -- ) 0 MOSIPAD PIN! 1 SCKPAD PIN! 0 SCKPAD PIN! ;
 \
-: BUSYOK ( -- ok ) 1 MS BUSYPAD PIN@ 0= ;
 \
 \ GUARDRAIL: GetIrqStatus answers with TWO bytes, MSB first,
 \ and TxDone is bit 0 of that 16-bit word. Clocking dummy
@@ -119,9 +110,7 @@
 \ ClearIrqStatus(0xFFFF) BEFORE SetTx, and because the
 \ answer below is the chip's own GetIrqStatus word, not this
 \ program's opinion of timing.
-: WAIT-AIRTIME ( -- ) 200 MS ;
 \
-  0 NRSTPAD PIN! 2 MS 1 NRSTPAD PIN! 5 MS BUSYOK ;
 \ GUARDRAIL: the pads are already RTC-driven when INIT runs.
 \ The main core configures them at boot (lora_pads_setup);
 \ measured as ENABLE 0x005C0000 with no coprocessor code
@@ -137,8 +126,6 @@
 \ answers every command
 \ with a NAK, and the first symptom would be a TxDone that
 \ never appears.
-: RADIORESET ( -- ok )
-  0 NRSTPAD PIN! 2 MS 1 NRSTPAD PIN! 5 MS BUSYOK ;
 \
 \ GUARDRAIL: a pad's INPUT BUFFER (RTC_IO_x_FUN_IE, bit 13
 \ of the pad
@@ -154,13 +141,20 @@
 \ PADIO000 + 4*pad.
 : INEN ( padreg -- )
   DUP @ 8192 OR 393216 INVERT AND SWAP ! ;
-: READPINS-ON ( -- )
-  42160 INEN 42168 INEN 42172 INEN ;
 
+\ GUARDRAIL: this definition wraps across lines because
+\ CMD_SIZE-1 = 63 B is the device input ring and an
+\ over-long line is dropped SILENTLY. Folding
+\ READPINS-ON/RADIORESET/BUSYOK into INIT once produced an 80 B
+\ line: the board accepted the first lines and quietly lost the
+\ reset check, so INIT returned 1 with an
+\ un-reset radio. tools/lint_forth.py --repl (R21) is the gate;
+\ tests/lora_two_board.py now calls it.
 : INIT ( -- ok )
-READPINS-ON
+  42160 INEN 42168 INEN 42172 INEN
   1 NSSPAD PIN! 1 NRSTPAD PIN! 0 SCKPAD PIN!
-  RADIORESET 0= IF 0 EXIT THEN
+  0 NRSTPAD PIN! 2 MS 1 NRSTPAD PIN! 5 MS
+  1 MS BUSYPAD PIN@ 0= 0= IF 0 EXIT THEN
   NSSLO 128 >BYTE 0 >BYTE NSSHI
   NSSLO 150 >BYTE 1 >BYTE NSSHI
   NSSLO 151 >BYTE 2 >BYTE 0 >BYTE 1 >BYTE 64 >BYTE NSSHI
@@ -187,5 +181,5 @@ READPINS-ON
   165 >BYTE 49 >BYTE 50 >BYTE 51 >BYTE NSSHI
   NSSLO 2 >BYTE 255 >BYTE 255 >BYTE NSSHI
   NSSLO 131 >BYTE 15 >BYTE 0 >BYTE 0 >BYTE NSSHI
-  WAIT-AIRTIME
+  200 MS
   NSSLO 18 >BYTE 0 >BYTE RD2 NSSHI 1 AND ;

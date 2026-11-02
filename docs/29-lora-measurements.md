@@ -148,3 +148,42 @@ therefore still open until something independent of this board listens on 868 MH
 an SDR. `lsusb` on this machine shows only the CP210x UART bridge (the Heltec's own console) and a
 mouse (measured this turn); `/dev/ttyACM*` does not exist, and `/dev/ttyUSB0` *is* the transmitting
 board, which cannot listen to itself.
+
+## Two-board test, and what it measured (2026-11-02)
+
+Both Heltec V3 boards run the same firmware (`probe/repl`, the ULP Forth REPL) and the same Forth driver;
+the second board was backed up first (`backup/esp32s3-xxxxxxxxxxxx-8MB-...`, three reads agreeing).
+
+**What works, measured:**
+- `examples/apps/lora/lora_rx.fs` loads on the board and the receive path is exercised: `INIT → 1`, `SR` puts the
+  chip in **chipmode 5 (RX)**, `IQ` reads the chip's own IRQ word, `RL`/`RB` read GetRxBufferStatus and ReadBuffer.
+- both boards transmit: `SEND → 1`, `SEND → 1`, `SEND → 1` (TxDone from GetIrqStatus), chipmode returns to 2.
+- the frequency is programmed: the driver writes `0x36419999`, which is **868.1 MHz** (868.1e6 × 2^25 / 32e6) -
+  the same value the C driver used. (An earlier note said 868.0; that was my arithmetic error, corrected here.)
+
+**What does not work, measured:** no frame crosses. Not one.
+
+| measurement | result |
+|---|---|
+| A sends 3 frames, B listening (Forth `RX1`) | 0 decoded, 0 CRC errors |
+| B sends 3 frames, A listening | 0 decoded, 0 CRC errors |
+| B listening while A runs the **C driver** (the transmitter that once reached an outside node 31/31) | 0 decoded |
+| A listening while B runs the C driver | 0 decoded |
+| RSSI sampled 234 times across three transmissions (20 ms apart) | only `210`/`212` = **-105 dBm**, never a spike |
+| `SetRx` with a finite 64 ms timeout, then 300 ms later | **no Timeout IRQ**, chipmode still 5 |
+| `SetRx` with DIO2 RF-switch control disabled | identical: RSSI `210`, no IRQ |
+
+The last two rows are the informative ones. A receiver that is genuinely running its state machine must raise
+`IRQ 0x0200` when a finite RX timeout expires, and must raise preamble/header/CRC interrupts for any energy above
+sensitivity. Neither happens, and the instantaneous RSSI never moves while a 14 dBm transmitter sits centimetres
+away on the same channel. So this is not a Forth defect and not a frequency mismatch: **no RF energy reaches the
+demodulator on either board's receive path** (or nothing leaves either PA, which the flat RSSI cannot distinguish).
+
+Next test that discriminates those two: a third, independent observer (another LoRa node, an SDR, or a phone app)
+watching for A's `0xA5 31 32 33` frame at 868.1 MHz / SF9 / BW125 / CR4-5, plus the same observer transmitting for
+A and B to hear. Until then the over-air claim stays open, and no amount of local measurement can close it.
+
+**Memory, measured, because it decided this test:** fresh dictionary `HERE 786 LATEST 2114` = **1 328 B free**;
+driver alone leaves `HERE 1814 LATEST 2033` = **219 B** (283 B after dropping constants used zero or once);
+after `SEAL` the phase window measured `LATEST - bh @` = **219 B**. Phases do not add memory - they are the same
+space, sealed - so the roomiest place for this driver is the plain prompt, and the only lever is a smaller driver.
