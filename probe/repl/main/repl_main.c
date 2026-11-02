@@ -599,6 +599,9 @@ static void seed_poll(void)
              * races the port and reports nothing at all (measured: EARLYTEST simply absent). Clear the bit, wait a
              * window that contains many ULP wakes, and read it back - all on demand, so the answer never depends on when
              * the harness happened to open the port. */
+            /* GUARDRAIL: `#z` measures the ULP's peripheral write in a build that has the HWPROBE store compiled in; in
+             * the shipping image there is no such store, so "LOST" here only means "this build is not the probe build".
+             * `strings build/*.elf | grep -c HWPROBE`-style checks, or `storetest`'s absence, decide that. */
             if (n >= 2 && ln[0] == '#' && ln[1] == 'z' && (ln[2] == 0 || ln[2] == ' ')) {
                 REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
                 uint32_t w0 = ulp_repl_wake_count;

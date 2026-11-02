@@ -151,6 +151,11 @@
  *   So the true price is ~40 B in every shape that leaves the stack alone, and the one cheap shape pays for it in stack.
  *   The machine has 1 B. The gate is implemented, correct and OFF; the day 40 B of real reclaim exists it is one flag. */
 
+#if !defined(HOST)
+/* GUARDRAIL: guarded by !HOST - the host build of this file has no ULP headers on its include path, and this include
+ * would break tests/build_host_app.sh, which is the suite's foundation. */
+#include "ulp_riscv_gpio.h"      /* F-162: the pads' clock gate is opened BY THE ULP here, as the reference does */
+#endif
 #include "uforth.c"
 
 /* ---------------------------------------------------------------- rings */
@@ -521,6 +526,14 @@ int main(void)
     /* GUARDRAIL: PAD 8 (bit 18), the output pad this firmware enables - not pad 11, which is INPUT_ONLY here so its OUT
      * data bit is not a meaningful target (that mistake made one whole bisect round inconclusive). The baseline trap (R18)
      * is handled on the HP side, which clears the bit after arming the coprocessor and watches it come back. */
+    /* GUARDRAIL: F-162. The reference ULP calls ulp_riscv_gpio_init() on every pad BEFORE touching a pin, and this
+     * firmware has always configured the pads from the HP core and skipped it. That helper's first statement is a
+     * SET_PERI_REG_MASK on SENS_SAR_PERI_CLK_GATE_CONF_REG (bit 31, the RTC IO MUX clock) executed *by the ULP*: the
+     * clock-enable may be per-master, so an HP-side set of the same bit would not open the ULP's own path - which would
+     * explain every symptom (HP sees its own writes, the ULP's reads and writes vanish, and the difference between the
+     * two firmwares is invisible in every dump because the register reads the same). */
+    ulp_riscv_gpio_init(8);
+    ulp_riscv_gpio_output_enable(8);
     *(volatile u32 *)0x60008404u = (1u << (8 + 10));
     /* GUARDRAIL: count this wake, or the HP side cannot tell "the probe ran and the store was lost" from "this image never
      * ran at all" - which is exactly how two earlier bisect results became void (F-159). The liveness counter must be in

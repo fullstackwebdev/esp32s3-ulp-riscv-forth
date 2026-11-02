@@ -562,3 +562,38 @@ and it is one build + one flash.
 
 `MEMSZ 2550`, no probe paths compiled in (`strings build/*.elf | grep -c EARLYTEST` → `0`),
 **7 931 / 7 932 B**, boot banner + store formatted, `1 2 + .` → `3 ok`.
+
+### F-162 — the ULP's own `ulp_riscv_gpio_init()` is not the fix either
+
+The last hypothesis that could explain the register-level evidence from the peripheral side: the reference ULP calls
+`ulp_riscv_gpio_init()` on every pad, and that helper's first statement is a `SET_PERI_REG_MASK` on the RTC IO MUX clock
+gate **executed by the ULP**. If that clock-enable were per-master, the HP core's set of the same bit would not open the
+ULP's path — which would explain every symptom (HP writes visible, ULP reads and writes vanish, register dumps look
+identical between the two firmwares).
+
+Tested: the probe image calls `ulp_riscv_gpio_init(8)` and `ulp_riscv_gpio_output_enable(8)` from the ULP immediately
+before the store (text grew 600 -> 700 B, so the helpers really linked and ran). Result, three times, with the ULP
+verified alive:
+
+```
+storetest: LOST (clear, 60 ULP wakes, OUT 0x00400000)
+```
+
+Hypothesis retired. That closes every hypothesis built from the register evidence.
+
+### The one experiment left, and where I stopped
+
+Blank cell of the §9 matrix: **the reference ULP source built and booted by this app**. `REPL_ULP_SRC` already accepts an
+alternative ULP tree, but `probe/lora/main/ulp/ulp_main.c` defines none of the variables this app links against
+(`repl_cmd`, `repl_out`, `mailbox`, `mem`, `repl_status`, ...), so it needs a small bridge shim carrying `src/ulp_stub.c`'s
+"touch every exported symbol or `--gc-sections` eats it" block. One build + one flash then separates "this app's HP side"
+from "this app's ULP build" for the last time. I am stopping there rather than guessing past it, because every guess in
+this investigation has already been paid for with a flash cycle that produced a void result (F-159, F-161).
+
+### State of the two radios, plainly
+
+| | status |
+|---|---|
+| `probe/lora` (C bit-bang ULP driver) | **transmits** — `tx_ok` rising, `status 0x2C`, 12/12 packets, including with the HP core awake |
+| `examples/apps/lora/lora1.fs` (Forth driver) | **does not transmit.** Wire-identical to the C driver on the host (14 transactions / 55 bytes, suite 30 PASS); refused by the board only by the peripheral access above |
+| App Store (the original goal) | done, merged to `main`, 16/16 through a pty |
