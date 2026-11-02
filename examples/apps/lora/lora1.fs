@@ -23,12 +23,12 @@
 : S ( b -- b*2 )
   DUP 128 AND IF 1 MOSI !P ELSE 0 MOSI !P THEN
   1 SCK !P 0 SCK !P 2 * ;
-: >B S S S S S S S S DROP ;
+: >B ( b -- ) S S S S S S S S DROP ;
 
 \ one clock with MOSI low and no read, for bits we throw away
 : K 0 MOSI !P 1 SCK !P 0 SCK !P ;
 \ one clock that returns MISO
-: <C 0 MOSI !P 1 SCK !P MISO @P 0 SCK !P ;
+: <C ( -- bit ) 0 MOSI !P 1 SCK !P MISO @P 0 SCK !P ;
 
 : [ 0 NSS !P ;
 : ] 1 NSS !P ;

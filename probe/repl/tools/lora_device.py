@@ -22,6 +22,9 @@ import time
 import serial
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
+# GUARDRAIL: TOOLS is needed by the pre-load lint below; deriving the linter path from ROOT rather than the cwd is what
+# keeps this working when the harness is run from the repo root (probe/lora/README documents that invocation).
+TOOLS = pathlib.Path(__file__).resolve().parent
 DRIVER = ROOT / "examples" / "apps" / "lora" / "lora1.fs"
 
 
@@ -71,9 +74,28 @@ def main():
     # GUARDRAIL: the DEVICE input ring holds 63 B per line, not the host TIB's 95. Everything longer is refused
     # with "line too long" and never runs, so a definition silently never exists and the failure surfaces later as
     # NAME? on a line that is fine (measured; it cost an hour).
+    # GUARDRAIL: the ad-hoc length check stays (it is the fail-fast one), but the LINT is what catches the mistakes a
+    # length check cannot see: a duplicate or unterminated `:` (R22) that swallowed the next definition and answered
+    # `S?` two definitions away, a narrow access to a register (R23), a write that reboots the board (R24). Those cost
+    # flash cycles today because nothing ran before the typing began. Only the rules that are TRUE for a typed load are
+    # blocking: R4/R11 describe block-split phases and are noise here (a typed definition is not cut into 92 B blocks).
     too_long = [(i + 1, len(l.encode())) for i, l in enumerate(lines) if len(l.encode()) > 63]
     if too_long:
         raise SystemExit("line(s) longer than the device input ring (63 B): %s" % too_long)
+    import subprocess, sys as _sys
+    lint = subprocess.run([_sys.executable, str(TOOLS / "lint_forth.py"), "--repl", str(DRIVER)],
+                          capture_output=True, text=True)
+    # GUARDRAIL: require CLEAN, not a whitelist. `--repl` mode is defined to hold only the rules that are true for a typed
+    # load (R1/R11 and the block checks are off inside it), so "zero findings" is a statement about this file's whole
+    # contract: no line the ring will refuse, no definition that swallows another, no narrow register access, no write
+    # that reboots the board. A whitelist would have let a new rule's finding through by default - which is how the `S?`
+    # bug reached the board in the first place.
+    if lint.returncode != 0:
+        print("driver lint refused the load:")
+        for ln in lint.stdout.splitlines():
+            if "finding(s)" not in ln:
+                print("  " + ln.strip())
+        raise SystemExit(1)
     if args.dry:
         for l in lines:
             print(l)

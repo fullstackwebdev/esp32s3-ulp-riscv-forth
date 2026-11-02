@@ -212,3 +212,46 @@ counts, banner text and "it answered" are not identity.
 same path looks identical to a tool that only knows the path. After any replug, re-establish identity before writing or
 reading anything you intend to keep.
 
+
+## R17 — One reader is not a measurement; use two
+
+A register read by one core is a claim, not a fact. On 2026-11-01 the ULP read `RTC_GPIO_IN` as `0x02010201` for every
+input state, and read back exactly the value it had written to a register the hardware never changed. From inside that
+reader the gate looked **correct**: the write echoed, the round-trip matched, the address arithmetic was right. Every one
+of those statements was true and the bus was not being touched.
+
+A second reader — the HP core, `#g`, same board state, same instant — said `0x00000400` and then `0x00800400` with the pad
+driven. The disagreement was the finding. Two rules follow:
+
+* **Before "the hardware ignores me", print the same address from another master.** If they agree, the register really
+  holds that and the fault is elsewhere; if they disagree, the fault is the access path, and no amount of staring at the
+  failing reader will show it.
+* **Give the second reader a different implementation.** Two readers of the same register through the same code path are
+  one reader. This is why the HP core's `REG_READ` is worth the extra command: it is a different core, a different
+  compiler, and a different bus init.
+
+Corollary, and it is F-149 again: a receiver must be able to **fail**. The `.` that answered `ok` was reading memory, not
+a peripheral, and nothing in its output could distinguish the two.
+
+## R18 — A test whose baseline already satisfies it proves nothing
+
+`#n` queued a ULP write that set bit 18 of `RTC_GPIO_OUT` and then reported `bit18 SET`. That looked like success and was
+worthless: `lora_pads_setup()` idles NSS **high**, so bit 18 was already set before the probe ran. The test could not have
+failed.
+
+The fix cost one line — clear the bit **from the other core** first, print the cleared value, then run the probe — and the
+answer immediately became `bit18 clear`, which retired the hypothesis the probe was built to confirm.
+
+State the baseline in the probe's own output (`cleared bit18 (HP), OUT now 0x00400000`), so the transcript proves the test
+started from the state that makes it meaningful. A probe that reports only its own verdict cannot be audited after the
+fact.
+
+## R19 — Never discard the flash output
+
+Two build cycles were spent chasing a "phantom" gate: the ELF contained the right code, the disassembly agreed, the source
+was correct, and the board behaved as if none of it existed. The cause was a `flash` invocation whose output went to
+`/dev/null`; it had failed, and the board was still running the previous firmware.
+
+`idf.py flash` prints `Hash of data verified` **once per staged image** (bootloader, partition table, app). Grep for that
+count and require it, or let the full transcript through. A flash is a measurement: treat its output like any other
+measurement, and never pipe it somewhere that cannot show you a failure.

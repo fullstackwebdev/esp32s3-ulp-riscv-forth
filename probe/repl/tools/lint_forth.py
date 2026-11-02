@@ -36,6 +36,21 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
   R18 no return (PHASE sources only, `--phase`) a phase that never names its return path (no CHAIN, no `NXT !`, no
                 SHELF) cannot be left except by resetting the machine. docs/26 anti-slop item 4: every phase returns
                 to the shelf with q/Esc, and `q` returning to a dispatcher that then has nowhere to go is a reset.
+  R21 line length (--repl only) a source line over 63 B. The device input ring holds CMD_SIZE-1 = 63 and REFUSES the
+                rest with `line too long: N bytes, the ring holds 63 - NOT sent`, so the line never reaches the machine,
+                the definition never exists, and the failure shows up later as `NAME?` on an innocent line. Measured four
+                times in one LoRa session on COMMENT lines of 64..80 B. Block uploads are exempt: the corpus compiles
+                72 and 77 B lines today, because they travel as 92 B blocks through `#b` + `LOAD`.
+  R22 definition a `:` that opens while a previous definition has not reached `;`, or a name defined twice. Measured:
+                a stray duplicate `: !P ...` (left by an edit) swallowed the next definition, so the load answered `S?`
+                on the line that USED it, two definitions away from the mistake. Duplicates matter twice as much here
+                because the dictionary is a 12-bit hash (R15 in docs/14): the second definition is silent.
+  R23 access width  `W!`/`W@`/`C!`/`C@` on a literal >= 0x10000, i.e. a register: RTCIO does not answer byte or
+                halfword accesses, so those read 0 and write nothing while `!`/`@` work. Measured twice on the board
+                (F-151 stores, F-153 loads) - every probe read 0x00, with no error.
+  R24 pad register  writing 1610646528 (RTC_GPIO_OUT_REG). Measurement: `12345 1610646528 !` REBOOTS the S3
+                (`ESP-ROM:esp32s3-20210327` on the console) - bits 0..21 are RTC GPIO 0..21 including the pads tied to
+                flash, PSRAM and the brownout detector. Single pads go through OUT_W1TS 1610646532 / W1TC 1610646536.
   R9 (RETIRED)  `MS does not sleep` was earned when the primitive returned the wake count (measured: twenty
                 `200 MS` in 0.05 s). MS now busy-waits on rdcycle (tests/ms_clock.py: 100 MS = +100 ms,
                 300 MS = +301 ms), so the rule's premise is gone and it was removed instead of left as
@@ -48,6 +63,7 @@ word that genuinely passes values must say so, and that declaration is documenta
 
     tools/lint_forth.py examples/tui_min.fs        lint a file (exit 1 on findings)
     tools/lint_forth.py --phase examples/apps/x.fs  lint a PHASE source: R1-R12 plus R16 and R18
+    tools/lint_forth.py --repl examples/apps/lora/lora1.fs  add R21: no line over 63 B (typed path only)
     tools/lint_forth.py --selftest                 prove every rule fires on the bug it came from
     tools/sink.py                                  the CORPUS: 14 programs with their expected verdicts
 
@@ -311,9 +327,89 @@ def collect_vocab(src):
     return v
 
 
-def lint_definitions(src, base=None):
-    """Yield findings for a source file. R1 runs over raw lines; R2/R3/R4 run per definition."""
+def check_source_shape(src, phase=False, repl=False):
+    """R21-R24: rules about the FILE, not about a definition's stack effect.
+
+    Every one of these is from the 2026-11-01 LoRa bring-up, and every one of them produced a failure with NO error
+    message on the device - which is the only reason they are worth a rule.
+    """
     findings = []
+    lines = src.split("\n")
+    # GUARDRAIL: R21. The device input ring holds CMD_SIZE-1 = 63 bytes per line and REFUSES longer ones silently - the
+    # phrase is `line too long: N bytes, the ring holds 63 - NOT sent`, printed by the HP bridge, and the definition then
+    # simply does not exist, so the failure surfaces later as `NAME?` on an innocent line. Measured four times in one
+    # session on COMMENT lines of 64..80 B that nobody thought of as code. Block sources (--phase) are cut by the
+    # splitter against 92 B blocks and are exempt; this is the REPL-typed path.
+    # GUARDRAIL: opt-in, not default. The corpus and every phase are uploaded as BLOCKS (`cli.upload` ->
+    # `split_defs(src, 92)` -> `#b` seed -> `LOAD`), so their source lines may legally be up to 92 B and the ring never
+    # sees them - the first version of this rule fired on 02_loops.fs (72 B) and 03_digits.fs (77 B), both of which the
+    # board compiles today. A rule that flags working code is worse than no rule. `--repl` is for sources a harness TYPES
+    # line by line (tools/lora_device.py).
+    if repl and not phase:
+        for i, ln in enumerate(lines, 1):
+            if len(ln.encode()) > 63:
+                findings.append((i, "R21 line length",
+                                 f"{len(ln.encode())} B: the device input ring holds 63 and refuses the rest silently, "
+                                 "so this line never reaches the machine and its definition never exists"))
+    # GUARDRAIL: R22. A `:` line that opens while a previous definition has not reached `;` SWALLOWS the next
+    # definition. Measured: a stray duplicate `: !P ( level pin -- ) 10 + 1 SWAP LSHIFT SWAP` (left by an edit) ate
+    # `: S ... ;`, so `S` did not exist and the load failed with `S?` on the line that USED it - two definitions away
+    # from the mistake. The same check catches a name defined twice, which on this machine is worse than it looks: the
+    # dictionary is a 12-bit hash (R15 in docs/14), so a duplicate is silent, and a duplicate with a DIFFERENT body is
+    # a live word whose behaviour depends on load order.
+    # GUARDRAIL: scan TOKENS, not lines. The first version tracked state per line and reported every ordinary
+    # `: NAME ... ;` as "unterminated", because a definition that opens and closes on one line set `open` and the
+    # closing `;` was never examined - 6 false positives on the corpus, which is how a rule gets switched off.
+    scan = re.sub(r"\\[^\n]*", "", code_only(src))          # `\\` comments are not code either
+    pend, seen = None, {}
+    for m in re.finditer(r":\s+(\S+)|;", scan):
+        if m.group(0) == ";":
+            pend = None
+            continue
+        name = m.group(1)
+        lineno = scan[:m.start()].count("\n") + 1
+        if pend is not None:
+            findings.append((lineno, "R22 definition",
+                             f"`:` {name} opens while the definition of {pend[1]} (line {pend[0]}) has not ended with "
+                             "`;` - the earlier body swallows this one and neither word exists"))
+        if name in seen:
+            findings.append((lineno, "R22 definition",
+                             f"{name} is defined twice (first on line {seen[name]}): the 12-bit hash makes the "
+                             "second definition silent, so load order decides which body runs"))
+        seen.setdefault(name, lineno)
+        pend = (lineno, name)
+    # GUARDRAIL: R23. A peripheral address needs a 32-bit access. `wr32`/`rd32` decompose into byte accesses for MEMORY
+    # (correct) and RTCIO does not answer byte accesses, so `W!`/`W@`/`C!`/`C@` on a register read 0 and write nothing -
+    # measured twice on the board (F-151 stores, F-153 loads): every register probe returned 0x00 while the same address
+    # round-tripped through `!`/`@`. Any literal >= 0x10000 is a register address on this machine: MEMSZ is ~2.5 KB, so
+    # nothing that large can be memory.
+    for i, ln in enumerate(lines, 1):
+        for tok in tokens(code_only(ln)):
+            if not tok.isdigit() or int(tok) < 0x10000:
+                continue
+            for narrow in ("W!", "W@", "C!", "C@"):
+                if narrow in tokens(code_only(ln)):
+                    findings.append((i, "R23 access width",
+                                     f"{narrow} at register address {tok}: write/read registers with `!`/`@` only - the "
+                                     "narrow accesses are not answered by the peripheral and fail with no error"))
+                    break
+            break
+    # GUARDRAIL: R24. 1610646528 is RTC_GPIO_OUT_REG (0x60008400) and writing an arbitrary value there REBOOTS the S3:
+    # bits 0..21 are RTC GPIO 0..21, which include the pads tied to flash, PSRAM and the brownout detector. Measured:
+    # `12345 1610646528 !` produced `ESP-ROM:esp32s3-20210327` on the console. Single pads go through OUT_W1TS (…404)
+    # and OUT_W1TC (…408), which touch one bit each.
+    for i, ln in enumerate(lines, 1):
+        toks = tokens(code_only(ln))
+        if "1610646528" in toks and "!" in toks:
+            findings.append((i, "R24 pad register",
+                             "writing RTC_GPIO_OUT_REG reboots the S3 (flash/PSRAM/brownout pads share those bits): set "
+                             "one pad at a time through OUT_W1TS 1610646532 / OUT_W1TC 1610646536"))
+    return findings
+
+
+def lint_definitions(src, base=None, repl=False):
+    """Yield findings for a source file. R1 runs over raw lines; R2/R3/R4 run per definition."""
+    findings = check_source_shape(src, repl=repl)
     # GUARDRAIL: R1 must scan OUTSIDE parentheses and `."` strings. The earlier regex missed a comment that followed
     # code on the same line, and the app then compiled the words `poll:` and `the` - which is exactly what R1 exists for.
     i, line_no, in_str = 0, 1, False
@@ -330,7 +426,10 @@ def lint_definitions(src, base=None):
             j = src.find(")", i)
             if j < 0: break
             line_no += src[i:j].count("\n"); i = j + 1; continue
-        if c == "\\":
+        # GUARDRAIL: R1 is a BLOCK rule, so `--repl` suppresses it: in typed source a `\` comment is legal and measured to
+        # work on the chip (the LoRa driver is written with them). Leaving it on made every typed file report a finding
+        # whose message - "a block has no line boundaries" - was false about the file in hand.
+        if c == "\\" and not repl:
             findings.append((line_no, "R1 comment",
                              "`\\` comment in a block source: a block has no line boundaries, so this compiles as words"))
             j = src.find("\n", i); i = len(src) if j < 0 else j
@@ -363,6 +462,12 @@ def lint_definitions(src, base=None):
     # `( a b -- c )` declaration IS a parenthesised comment - blanking it removed every stack effect and the selftest went
     # red on rules that depend on depth. The blanks preserve length, so the offsets are the same in both strings.
     blank = _blank_comments(src)
+    # GUARDRAIL: `\` comments must be blanked too, for the same reason the `( ... )` ones are - and the failure is
+    # sneakier. A comment reading `\ BUSY settle, no loop: run_line zeroes the stack each line,` was parsed as a
+    # DEFINITION of `run_line`, whose body then swallowed the real `: WB ... ;` two lines below it, and the linter
+    # reported "R2 order: RST: WB is not defined before this point" - a true statement about a false world. R1 still
+    # reports `\` in block sources because it scans the RAW text, so blanking here hides nothing.
+    blank = re.sub(r"\\[^\n]*", lambda m: " " * len(m.group(0)), blank)
     for m in re.finditer(r":\s+(\S+)(.*?);", blank, re.S):
         name = m.group(1)
         body = src[m.start(2):m.end(2)]
@@ -661,6 +766,21 @@ BUGS = {
  # GUARDRAIL: R16/R18 carry a THIRD field, `phase`, because they only apply to a phase source (--phase): the selftest
  # runs those two through lint_phase instead of the ordinary walk. Running them on everything would refuse
  # tests/sink/05_cells.fs (a legitimate CREATE) and examples/demo_bars.fs (a demo that quits to the prompt).
+ "over-long line (the ring refuses it):":
+   ("""\ lora1.fs - SX1262 transmit driver in Forth, registers through the HW gate.
+: A ( -- ) ;
+""", "R21 line length"),
+ "definition swallowed by a stray duplicate (our `S?`)":
+   (""": !P ( level pin -- ) 1 SWAP LSHIFT ;
+: !P ( level pin -- ) 1 SWAP LSHIFT SWAP
+: S ( b -- b*2 ) DUP 2 * ;
+""", "R22 definition"),
+ "narrow access to a register (F-151/F-153)":
+   (""": STA ( -- ) 1610646564 W@ DROP ;
+""", "R23 access width"),
+ "arbitrary write to OUT_REG (the `#h` reboot)":
+   (""": OUT ( v -- ) 1610646528 ! ;
+""", "R24 pad register"),
  "phase with its own storage":
    ("""CREATE X 0 ,
 : PH1 ( -- ) 96 CHAIN ;
@@ -670,12 +790,18 @@ BUGS = {
 """, "R18 no return", "phase"),
 }
 # The corrected versions of every bug above, in one source: it must lint SILENT, or the rules are just noise.
+# GUARDRAIL: the fixture's own lines stay under 63 B. The first version had an 85 B `PACE` line and R21 fired on it -
+# correctly: this text is what a REPL uploads, and the ring would have refused that line while the suite stayed green.
 GOOD = """: WAIT ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
-: JK ( c -- ) DUP 106 = IF DROP WAIT DROP EXIT THEN DUP 107 = IF DROP WAIT DROP EXIT THEN DROP ;
+: JK ( c -- ) DUP 106 = IF DROP WAIT DROP EXIT THEN
+  DUP 107 = IF DROP WAIT DROP EXIT THEN DROP ;
 : DIGIT ( n -- ) 15 AND 48 + EMIT ;
-: .N ( n -- ) 100 /MOD DROP DUP 10 < IF DIGIT ELSE 10 /MOD DIGIT DIGIT THEN ;
-: RUNS ( -- ) BEGIN WAIT DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
-: PACE ( -- ) BEGIN 0 . 250 MS KEY DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
+: .N ( n -- ) 100 /MOD DROP DUP 10 < IF DIGIT
+  ELSE 10 /MOD DIGIT DIGIT THEN ;
+: RUNS ( -- ) BEGIN WAIT DUP 113 = IF DROP EXIT THEN
+  DROP 0 UNTIL ;
+: PACE ( -- ) BEGIN 0 . 250 MS KEY DUP 113 = IF DROP EXIT
+  THEN DROP 0 UNTIL ;
 """
 
 # A split that puts a value on the far side of a boundary: the fixture is the BLOCK LIST, because the splitter now
@@ -707,6 +833,9 @@ GOOD_PHASE = """: PH1 ( -- ) ." CREATE X" 96 CHAIN ;
 : PH2 ( -- ) 96 NXT ! ;
 : PH3 ( -- ) SHELF CHAIN ;
 """
+# GUARDRAIL: R21-R24's two directions, one line each. The register fixture uses OUT_W1TS with a single bit and `!`, which
+# is the correct shape the LoRa driver ended up with - if the rules ever fire on this, they will fire on the driver.
+GOOD_REG = ": NSS_HI ( -- ) 262144 1610646532 ! ;\n: RD ( -- v ) 1610646564 @ ;"
 
 
 def selftest():
@@ -719,7 +848,9 @@ def selftest():
         elif mode == "phase":
             f = lint_phase(src)
         else:
-            f = lint_definitions(src) + check_blocks(src)
+            # GUARDRAIL: R21 only exists in `--repl` mode, so its fixture has to run with it - otherwise the selftest
+            # would report the rule as MISSED for the trivial reason that it was never enabled.
+            f = lint_definitions(src, repl=("R21" in rule)) + check_blocks(src)
         hit = any(r == rule for _, r, _ in f)
         ok = ok and hit
         print(f"  {'caught' if hit else 'MISSED'}  {name:44} {rule}"
@@ -733,6 +864,9 @@ def selftest():
     f = lint_definitions(GOOD_ALIGN)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  aligned cell offset (4-byte)   {f[:1] if f else ''}")
+    f = lint_definitions(GOOD_REG)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  32-bit register access         {f[:1] if f else ''}")
     f = lint_definitions(BAD_ALIGN)
     hit = any(r == "R19 alignment" for _, r, _ in f)
     ok = ok and hit
@@ -783,7 +917,10 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
     # GUARDRAIL: --phase is OFF by default. R16 refuses storage a plain program may own, and R18 refuses a program
     # that returns to the REPL - both are correct for a phase and false positives everywhere else (docs/26).
     phase = "--phase" in argv
-    argv = [a for a in argv if a != "--phase"]
+    # GUARDRAIL: `--repl` marks a source a harness TYPES line by line, which is the only path that meets the 63 B ring
+    # limit; block uploads (everything the App Store and the corpus use) never see it. Off by default for that reason.
+    repl = "--repl" in argv
+    argv = [a for a in argv if a not in ("--phase", "--repl")]
     if not argv:
         print(__doc__); return 2
     base, rest = {}, []
@@ -796,7 +933,12 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
     src = open(rest[0]).read()
     # GUARDRAIL: the block checks need the splitter, and a file that cannot be split must fail HERE rather than at the
     # first upload - the chip already has a compiled dictionary when it reports it.
-    findings = lint_definitions(src, base) + check_blocks(src, base) + (lint_phase(src) if phase else [])
+    # GUARDRAIL: `--repl` skips the block checks as well as R1. `check_blocks` cuts the source into 92 B blocks, and a
+    # typed load is never cut - it reported "REFUSING: no interpret-state boundary inside one 92 B block" on a driver that
+    # the board accepts line by line, which is a true statement about an upload path nobody uses.
+    findings = (lint_definitions(src, base, repl=repl)
+                + ([] if repl else check_blocks(src, base))
+                + (lint_phase(src) if phase else []))
     for ln, rule, msg in findings:
         print(f"  {argv[0]}:{ln}: {rule}: {msg}")
     print(f"  {len(findings)} finding(s)" if findings else "  clean")
