@@ -130,3 +130,21 @@ the interpreter or lives as a phase with a few C primitives (pin write/read, µs
 3. **Current draws are datasheet-typical.** A meter would turn §5 from a budget into a measurement.
 4. **`-O2` did not change the bit loop**; whether a better loop (unrolled, single-register writes per bit) buys a faster bus
    is untested — and, per §5, would not change the power answer.
+
+## Self-reception does not work here, and the measurement says why
+
+Tried on the current image, so that the record does not read like an untested wish: the Forth driver
+transmits, then `SetRx` 10 ms later (every line under the 63 B console ring, composed from the
+driver's own words so no dictionary space was needed), then reads `GetIrqStatus`.
+**IRQ = 2 (measured)** - `RxTimeout`, not `RxDone`. That is the datasheet-consistent answer for a
+board whose RF front end is half duplex: the receive path is switched out while the transmitter is
+up, and by the time it turns around the frame is gone. So the loopback is not evidence the frame
+went over the air, and it must not be dressed up as an outside receiver: what it does prove is that
+the radio is answering over the SPI the coprocessor owns, with a per-command status word that is the
+chip's own, and it is a *named* negative rather than a silent one.
+
+The clause the objective asks for - "established by the radio **and by an outside receiver**" - is
+therefore still open until something independent of this board listens on 868 MHz: a second node or
+an SDR. `lsusb` on this machine shows only the CP210x UART bridge (the Heltec's own console) and a
+mouse (measured this turn); `/dev/ttyACM*` does not exist, and `/dev/ttyUSB0` *is* the transmitting
+board, which cannot listen to itself.
