@@ -71,7 +71,38 @@ The energy answer from docs/29 makes the speed difference irrelevant: 95 % of th
 so a 4× slower bus moves the power budget by a few per cent at any sane transmit period. **Bytes were the constraint, and
 the Forth driver is a third of the C driver's size.**
 
-## 5. What is NOT done, precisely
+## 5. Why it does not run on the device yet: a 125-byte wall
+
+Not a logic problem — a budget one, and the numbers are exact.
+
+On the chip, `GPIO!` / `GPIO@` were **stubs**: `pl_hw` in `src/ulp_repl.c` implemented only op 3 (`MS`) and returned 0 for
+everything else, so the driver's pin writes went nowhere (F-148). Implementing the two ops — RTC registers, with the
+`W1TS` field shift that F-141 cost four flash cycles to find — measures:
+
+| implementation | ULP image | vs POOL 7 892 |
+|---|---|---|
+| today (no GPIO ops) | **7 891** | 1 B free |
+| raw `REG_WRITE` / `REG_READ`, shared bit expression | **8 017** | **125 B over** |
+| IDF `ulp_riscv_gpio_*` helpers | **8 039** | 147 B over |
+
+`flash_safe.sh` refuses that image, so the Forth driver still cannot touch a pin on the chip. The three ways forward, with
+their measured costs:
+
+1. **Reclaim ~125 B from the interpreter.** Two levers exist: the stack reserve is `8000-ish − 300`, and the measured
+   high-water is **240 B** (docs/23), so `POOL` can rise by ~60 B safely — leaving ~65 B to find. Sizes from
+   `riscv32-elf-nm`: `p54_binop` 98 B, `find` 116 B, `mkhdr` 210 B, `interpret` 302 B, `word` 318 B, `vm_enter` 2 162 B,
+   plus 142 B of `disp_tbl` rodata. Removing vocabulary (`ADC@` and `WAKE` are *themselves* non-functional on the ULP)
+   would close it, but that is a product decision, not a refactor.
+2. **Absolute-address GPIO in Forth** (`W!` / `W@` on `0x60008006` / `0x60008026`): **0 B of pool**, since the registers
+   are 16 bits from pin 6 upward and the LoRa pins are 8–14. Cost: those addresses do not exist on the host, so the host
+   test that verifies the wire bytes would need a memory shim before it could run — i.e. this trades the test for the bytes.
+3. **Keep the C driver for the radio** (`probe/lora`, 2 804 B, transmitting on hardware with `TxDone`) and treat the
+   Forth driver as host-verified pending a budget decision.
+
+Nothing was shaved to make it fit: the image is back at 7 891/7 892 and the GPIO work is kept as a stash plus the
+measurements above.
+
+## 6. What is NOT done, precisely
 
 * **It is not yet a device phase.** `probe/repl/tools/lint_forth.py` refuses it as phase source: a block has no line
   boundaries, so `\` comments compile as words (R1 — 40-odd of them here), and R11 refuses a definition that does not fit

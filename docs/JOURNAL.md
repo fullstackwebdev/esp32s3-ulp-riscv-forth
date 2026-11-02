@@ -2388,3 +2388,19 @@ Not done, and named in docs/30 §5: the file is not yet packaged as a device pha
 its `\` comments are refused by R1 and LORA_INIT does not fit one 92 B block - R11), it has never run on a radio, and the
 ~30-40 kHz bus estimate is still an estimate because measuring it needs our interpreter on this board.
 
+**J-123 · Why the Forth LoRa driver does not run on the board yet: a 125-byte wall, not a logic bug.**
+Asked the right question - "you didn't get it working on the device yet?" - the answer was worse than expected and worth
+writing plainly: on the chip, `GPIO!` and `GPIO@` were **stubs**. `pl_hw` on the ULP implemented only `MS` and returned 0
+for everything else, so the driver's pin writes went nowhere, MISO/BUSY/DIO1 all read 0, and the program would have run to
+completion doing nothing at all. The host implementation of the same seam simulates pins, so every host test passed
+(F-148: a capability that exists in one build and is a stub in the other, sharing one abstraction).
+
+Implementing the two ops with the RTC registers measures **8 017 B against POOL 7 892 - 125 B over**; the IDF helper
+version is worse (8 039). `flash_safe.sh` refuses that image, so nothing was shaved to force it: the tree is back at
+7 891/7 892 and the GPIO implementation is stashed with the numbers recorded in docs/30 §5.
+
+The three ways forward, all costed: reclaim ~125 B from the interpreter (the stack reserve has ~60 B of measured slack -
+high-water 240 B, docs/23 - and the rest must come from vocabulary, which is a product decision); or write the RTC
+registers from Forth with W!/W@ at absolute addresses (0 B of pool, but the host has no such memory so the wire-byte test
+needs a shim first); or keep the C driver, which is the one actually transmitting on hardware today.
+

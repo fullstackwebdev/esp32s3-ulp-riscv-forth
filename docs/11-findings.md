@@ -887,3 +887,19 @@ re-reading the Forth would have: `02 08 00 14 01` looks like a perfectly reasona
 `00 08 00 14 01 00`. Opcode-argument alignment is exactly what a golden byte stream tests and what a "it runs" test does
 not.
 
+### F-148 — A word that exists, passes its host test, and does nothing on the chip
+
+`GPIO!` and `GPIO@` are in the device dictionary (P_HAVE_GPIOS / P_HAVE_GPIOG) and they behave correctly on the host,
+where `pl_hw` keeps a simulated pin word. On the **ULP** side `pl_hw` implemented only op 3 (`MS`) and returned 0 for
+everything else — so on the chip `GPIO!` silently wrote nothing and `GPIO@` always read 0. The Forth LoRa driver, whose
+whole behaviour is pin writes, would have run to completion emitting nothing, and every wait would have "timed out"
+because MISO, BUSY and DIO1 all read 0.
+
+This is the F-141 class again, one level up: not a wrong bit in a register, but a **capability that exists in one build and
+is a stub in the other**, with the two builds sharing a single abstraction. The host 62-name vocabulary test passes either
+way; it asks whether a word exists, not whether it does anything.
+
+**Rule.** For every `pl_hw` op (or any host/device seam), the device side must either implement it or refuse it loudly.
+A `return 0` in the device implementation is a lie that the host cannot detect, and it is worse than a missing word,
+because a missing word stops the program in the first second.
+
