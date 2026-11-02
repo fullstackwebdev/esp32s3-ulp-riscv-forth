@@ -186,3 +186,12 @@ already lean enough that remaining savings would change what it draws, and share
   the grid/card words should get under 999 B even after duplicating the handful of primitives a phase needs
   on its own; (2) shorten the card label strings, which changes what the shelf draws and so is the user's call,
   not mine; (3) buy ~100 B of coprocessor text, which the flag sweep says is not available.
+
+## Continuation 8 - closed: the App Store is 16/16, and the phase split paid for it
+
+Numbers, all labelled: image `7 931 B` of `7 932 B` (measured, `riscv32-esp-elf-size`),
+`MEMSZ 2 566`, resident sealed `2 438 B` (measured, `uforth -d`), phase window `999 B`
+(measured, board answers `LATEST . - bh @`), drawing phase `730 B` and keys phase `~284 B`
+(measured, `#d` reports `code + hdr` for each), host suite `30 pass 0 fail`, App Store
+`16/16` through a pty. Nothing here used pool bytes that were not already available: the split
+moved Forth source between phases, which is free.
