@@ -149,10 +149,6 @@ void app_main(void)
      * build is the part where it is NOT up. */
     for (int i = 0; i < 2; i++) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        /* GUARDRAIL: the only trustworthy reader here is THIS core (the ULP's own register reads are garbage in every
-         * firmware, including the working one). Clear bit 18 at t+1 and read it back from t+2 on: if it comes back, the
-         * ULP's store lands; if it stays clear, the ULP cannot write RTCIO - which is the difference under test. */
-        if (s == 1) REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
         printf("wakes %3" PRIu32 "  tx_ok %3" PRIu32 "  tx_fail %3" PRIu32 "  err %" PRId32
                "  cfg %s  status 0x%02" PRIx32 "  spi %" PRIu32 " cyc/B (%" PRIu32 " kHz SCK)  pads %" PRIu32
                "  cold %" PRIu32 "  cal %" PRIu32 " cyc/10ms  ulp %u B  cause %d\n",
@@ -194,9 +190,10 @@ void app_main(void)
     fflush(stdout);
     for (int s = 0; s < 20; s++) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        /* GUARDRAIL: the only trustworthy reader here is THIS core (the ULP's own register reads are garbage in every
-         * firmware, including the working one). Clear bit 18 at t+1 and read it back from t+2 on: if it comes back, the
-         * ULP's store lands; if it stays clear, the ULP cannot write RTCIO - which is the difference under test. */
+        /* GUARDRAIL: the only trustworthy reader here is THIS core - the ULP's own register reads are garbage in every
+         * firmware, including this working one. Clear bit 18 at t+2 and watch it come back: it returning means the ULP's
+         * store lands. GUARDRAIL: this belongs in the STAY_AWAKE loop only; the first version patched it into the
+         * nightly report loop, where `s` does not exist and the build failed. */
         if (s == 1) REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
         /* GUARDRAIL: use the counters this firmware actually exports (ulp_run_count / ulp_tx_ok_count). The first version
          * named them from the console line instead of the symbol table and did not compile - the exported names are the

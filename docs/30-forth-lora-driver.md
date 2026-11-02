@@ -483,3 +483,11 @@ firmware's* slot (`REPL_ULP_SRC` accepts an alternative source tree; the bridge 
 block the stub uses), and confirm `wakes > 0` and a moving pad before touching anything else. If the known-good ULP
 source fails here, the difference is provably this app's HP-side environment, and the remaining candidates are the ones
 no theory has touched yet: linker placement of `.rtc.*`, and the flash-store's partition access.
+
+### Note on the reference build's size
+
+The cross-firmware probe (F-158) adds two words and three lines to `probe/lora`'s ULP, so its image measures **2 904 B**
+where `docs/29` records **2 804 B**. The 100 B difference is the probe only - the SPI loop, the driver and every timing in
+`docs/29` are unchanged, and the probe is one store plus two reads per wake. `probe/lora` also gained a documented
+`-DLORA_STAY_AWAKE=1` build switch that keeps the HP core running for 20 s and prints the counters every second; that is
+the tool that proved the ULP drives RTCIO with the CPU awake, and it is the one to reuse for the bisect in §8.
