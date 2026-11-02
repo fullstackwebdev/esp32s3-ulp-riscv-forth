@@ -639,3 +639,63 @@ So: **not Meshtastic-compatible yet.** The sync word, the frame layout and the f
 measured; the remaining work is MixColumns+AddRoundKey, the XOR layer, and the RX path — plus the honest
 caveat that no Meshtastic radio is on this bench, so the final claim can only be "spec-identical and
 crypto-verified against openssl", never "a Meshtastic node decoded it".
+
+## Appendix L — the answer: YES, compatible (measured 2026-xx-xx)
+
+`tests/mesh_air.py` — 7/7 on two Heltec V3 boards, no byte of the frame or the payload passing through the host:
+
+| check | measured |
+|---|---|
+| store builds both halves | shelf aesseed aessub aessr aesmc aesark aesout |
+| the chain runs | 43 hops, then the terminal phase stops it |
+| the terminal phase transmits | 27 B on air |
+| peer reports RxDone | IRQ 0x0016 |
+| header on air | `ffffffff0a0a0a0acafe010000080000` |
+| payload on air | `eab2b00d406d578e9fb621` = `openssl enc -aes-128-ctr` with Meshtastic's PSK and nonce |
+| peer's chip decrypts | `088002120668656c6c6f21` = `Data{portnum 256, "hello!"}` |
+
+`tests/aes_chain_steps.py` — 46 stages, 0 failures. Every stage of the block is compared with a host AES-128:
+AddRoundKey round 0 gives `d4f045f020290759fab6f5a1cf4e6901`, and round 10 gives **`e232b21f460532e2f3d9005b6df7fd59`**,
+the CTR keystream `openssl` computes for that nonce.
+
+### The four bugs that stood between the six phases and a working block
+
+1. **`ARB` indexed the round keys with an ADDRESS.** `DUP ST + DUP C@ OVER RB C@ 16 * + W + C@` puts `ST+i` into the
+   index, so every byte of the block was XORed with the same stray value (`0706f9cd07070707…`). The stage test named it
+   in one run; the block-only test had never looked at a round key's *position*.
+2. **MixColumns wrote one byte past its own scratch.** `CREATE RB 0 C, 0 C,` is two bytes and `MC1` stored its group
+   base at `4 RB +` — the next definition's code. The work path answered `ERR_STACK`; the *skip* path (round ≥ 10) ran
+   fine, which is why two earlier runs "proved" a broken MixColumns worked.
+3. **The radio's reset pulse wipes the buffer the state lives in.** `RADIO-INIT` pulses RST, so any payload written
+   before it is gone (measured: the air carried `c7fd1490…`, code-like bytes). The configuration now happens in the
+   **seed** phase, before anything is written into that buffer.
+4. **Descriptor 0 is the dispatcher's stop value**, so a phase at 0 can never be adopted: the chain ended one hop early
+   while each individual stage still measured correct.
+
+### Sizes and descriptors (999 B window, measured by the build)
+
+| phase | bytes | descriptor | blocks |
+|---|---|---|---|
+| aespr (reader) | 479 | 4 | 4..7 |
+| aesout (encrypt + frame + transmit) | 804 | 72 | 72..78 |
+| aesseed (radio config + nonce + round 0) | 663 | 80 | 80..85 |
+| aessub | 836 | 88 | 88..94 |
+| aessr | 722 | 96 | 96..101 |
+| aesmc | 985 | 104 | 104..111 |
+| aesark | 898 | 112 | 112..119 |
+
+`aes_dec` is aes_out's mirror (same chain, the terminal hop decrypts): it is not in the shipping table because 632 B is
+six blocks and every free six-block run contains a card block that the build poisons — `tests/mesh_air.py` supplies a
+table that puts it at the chain's terminal block.
+
+### What "compatible" rests on
+
+* The frame is the layout the fetched Meshtastic 2.8.0 source produces: 16-byte `PacketHeader`, channel byte
+  `xorHash("LongFast") ^ xorHash(psk)` = `0x08`, `Data` protobuf, AES-128-CTR with the 16-byte PSK, nonce
+  `packetId u64 LE ‖ from u32 LE ‖ 4 zeros`, sync word `0x2B`, SF9/BW125/CR4-5, preamble 16, CRC on.
+* The ciphertext is byte-identical to `openssl enc -aes-128-ctr` for that key and nonce, so a Meshtastic radio holding
+  the LongFast PSK decrypts it to the same `Data` message.
+* The receive direction is proven on the chip: the same chain, XORed with the bytes that arrived on the air, recovers
+  the protobuf exactly.
+* **Not** proven: that a *physical Meshtastic radio* decodes it. None was on this bench; the claim rests on byte
+  equality with the source's format and with `openssl`, both of which are the values that radio would compute.

@@ -100,8 +100,8 @@ def main():
         return dev.num("NXT @ .", 10.0)
 
     def show(tag, want):
-        rep = dev.cmd("9 PICKX EXECUTE", 60.0, allow_error=True)
-        nums = [int(x) for x in re.findall(r"\b\d{1,3}\b", rep.split("9 PICKX EXECUTE")[-1])]
+        rep = dev.cmd("4 PICKX EXECUTE", 60.0, allow_error=True)
+        nums = [int(x) for x in re.findall(r"\b\d{1,3}\b", rep.split("4 PICKX EXECUTE")[-1])]
         got = bytes(n & 0xFF for n in nums[1:17]) if len(nums) >= 17 else b""
         ok = got == want
         print(f"  {'PASS' if ok else 'FAIL'}  {tag:28s} got {got.hex()}")

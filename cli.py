@@ -220,10 +220,8 @@ APPSTORE = [
     ("aessr",  "examples/apps/lora/aes_sr.fs",  96, "AES-SR"),
     ("aesmc",  "examples/apps/lora/aes_mc.fs",  104, "AES-MC"),
     ("aesark", "examples/apps/lora/aes_ark.fs", 112, "AES-ARK"),
-    ("loratx", "examples/apps/lora/loratx.fs", 72, "RUNLORA"),
     ("aespr", "examples/apps/lora/aes_pr.fs", 4, "AES-PR"),
-    ("aesdec", "examples/apps/lora/aes_dec.fs", 9, "AES-DEC"),
-    ("aesout", "examples/apps/lora/aes_out.fs", 9, "AES-OUT"),
+    ("aesout", "examples/apps/lora/aes_out.fs", 72, "AES-OUT"),
 ]
 APPSTORE_RESIDENT = ["examples/apps/registry.fs", "examples/appstore.fs"]
 STAGING, STAGING_BLOCKS = 120, 8         # docs/26: the source of ANY phase is staged here, 8 blocks per pass
@@ -601,7 +599,7 @@ def phase_rules(root, rows, resident_files):
     return bad, note
 
 
-def appstore(dev, root, only=()):
+def appstore(dev, root, only=(), table=None):
     """Build the App Store: resident + SEAL, then every phase's descriptor, then hand the terminal to the shelf.
 
     GUARDRAIL: the phases are COMPILED AFTER `SEAL`, never before. The fresh dictionary is 1 366 B and the shelf's image
@@ -610,7 +608,12 @@ def appstore(dev, root, only=()):
     GUARDRAIL: descriptors are written with `#d` and then FLUSHED with `#f`. `#d` lands in the flash sector cache, so a
     build that skips the flush looks correct and is gone after a power cycle (lane R measured it).
     """
-    bad_rules, notes = phase_rules(root, APPSTORE, APPSTORE_RESIDENT)
+    # GUARDRAIL: the table is a PARAMETER because the chain's terminal hop is a fixed literal in the phase
+    # sources: the encrypt build wants the transmitting phase at that block and the decrypt build wants the
+    # decrypting one there. Two phases may not hold the same descriptor in one build (the span check refuses),
+    # so the caller names which table it is building.
+    table = APPSTORE if table is None else table
+    bad_rules, notes = phase_rules(root, table, APPSTORE_RESIDENT)
     for n in notes:
         say(f"  note: {n}", DM)
     if bad_rules:
@@ -627,7 +630,7 @@ def appstore(dev, root, only=()):
     win = dev.num("LATEST .") - dev.num("bh @ .")
     say(f"  resident sealed; phase window {win} B", CY)
     built = []
-    for name, rel, desc, entry in APPSTORE:
+    for name, rel, desc, entry in table:
         # GUARDRAIL: the shelf is ALWAYS built, even when the caller names one app. It is the entry point (`RUNSHELF`) and
         # every phase returns to it with `SHELF CHAIN` - so `--appstore mail` without it handed the terminal to a word that
         # did not exist, dropped into the REPL, and looked like the feature was broken. `only` filters the APPS.
@@ -688,7 +691,7 @@ def appstore(dev, root, only=()):
     # BK_RANGE if the stale header names a block outside the store - measured as "GOPHER crashes and won't let me exit",
     # because gopher has no phase yet and block 44 held leftovers. Seeding an EMPTY payload blanks the block (the seeder
     # fills with spaces first), so any later adopt fails the magic check and PICKX returns NOOP instead.
-    want = {desc for _n, _r, desc, _e in APPSTORE}
+    want = {desc for _n, _r, desc, _e in table}
     poisoned = []
     for desc in CARD_DESCS:
         if desc in want and any(d == desc for _n, d, _i in built):

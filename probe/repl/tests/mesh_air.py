@@ -48,7 +48,7 @@ def main():
     ap.add_argument("--a", default="/dev/ttyUSB0")
     ap.add_argument("--b", default="/dev/ttyUSB1")
     a = ap.parse_args()
-    for f in ("aes_seed", "aes_sub", "aes_sr", "aes_mc", "aes_ark", "aes_out", "aes_dec", "loratx"):
+    for f in ("aes_seed", "aes_sub", "aes_sr", "aes_mc", "aes_ark", "aes_out", "aes_dec"):
         # GUARDRAIL: a phase may use the store's CHAIN/NXT words, so the gate must be told what was loaded
         # BEFORE it (`use=`) - without that, R2 reports CHAIN undefined for every correct phase.
         require_clean([REPO / "examples/apps/lora" / f"{f}.fs"], "--store", where=f,
@@ -109,7 +109,11 @@ def main():
     # ---- board B again: its OWN chip decrypts what came off the air ----
     B = Dev(port=a.b)
     B.reset()
-    cli.appstore(B, REPO, only=("aespr", "aesdec", "aesseed", "aessub", "aessr", "aesmc", "aesark"))
+    # GUARDRAIL: the chain's last hop is the fixed literal 9, so THIS build puts the decrypting phase there instead of
+    # the transmitting one. Two phases at one descriptor in one build is refused (a span overlap), hence the table.
+    dec_table = [(n, r, d, e) for n, r, d, e in cli.APPSTORE if n != "aesout"]
+    dec_table.append(("aesdec", "examples/apps/lora/aes_dec.fs", 72, "AES-DEC"))
+    cli.appstore(B, REPO, only=("aespr", "aesdec", "aesseed", "aessub", "aessr", "aesmc", "aesark"), table=dec_table)
     desc, hops = 80, 0
     while desc and hops < 60:
         B.cmd("0 NXT !", 6.0, allow_error=True)

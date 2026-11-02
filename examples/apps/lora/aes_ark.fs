@@ -69,6 +69,6 @@ CREATE RB 0 C, 0 C,
   DROP ;
 
 : RINC ( -- ) 0 RB + C@ 1+ 0 RB + C! ;
-: NXT2 ( r -- ) 11 < IF 88 CHAIN ELSE 9 CHAIN THEN ;
+: NXT2 ( r -- ) 11 < IF 88 CHAIN ELSE 72 CHAIN THEN ;
 : AES-ARK ( -- ) LS ARK RINC SS 0 RB + C@ NXT2 ;
 
