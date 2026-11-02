@@ -447,3 +447,39 @@ pad. That splits "this image" from "this hardware" in one flash, and it is cheap
 because a probe was trusted in the firmware where everything fails, without ever running the same probe in the firmware
 where everything works - where it would have been caught in one flash. The reference build was sitting in the tree the
 whole time.
+
+### F-159 — a bench image that does not report wakes is not running, and `EARLY_ULP` was a trap
+
+Two bisect results from §8 had to be thrown away, and both were thrown away **after** being recorded as measurements:
+
+* The interpreter-free image (`P42_ONLY` + a three-line store, 3 606 B) also failed to move a pad. That result is void:
+  the same check that would have caught it — `#u` reporting `wakes` — reads **0**, so the coprocessor never executed the
+  store. `P42_ONLY` returns from `main()` before `repl_wake_count` is incremented in the path the app reads, so the
+  counter was not a valid liveness signal *for that build*, and nobody checked.
+
+  **Before any conclusion from a modified ULP image, prove the image runs.** The cheapest proof is a counter the image
+  itself increments and the HP core prints (`wakes`, `pl_hwcnt`), read *in the same session* as the measurement. A bench
+  build needs its own liveness line.
+
+* Starting the ULP early — right after `lora_pads_setup()`, to eliminate the watchdog/UART/flash/block-task init from
+  the suspect list — silently **kills the coprocessor**: `canary_paint()` runs later in `app_main` and writes 260 bytes of
+  stack paint at `CANARY_BASE`, which is the ULP's stack. The ULP then never runs again (`wakes 0`), which looks exactly
+  like "started early, still cannot write the register". The paint has to happen before `ulp_riscv_run()` for a reason
+  that is now written down twice.
+
+Reverted: `EARLY_ULP` is gone, the probe build is gone, and the firmware is back to the measured configuration
+(**7 931 / 7 932 B**, `wakes` climbing, `1 2 + .` → `3`). The `HWPROBE` store and the `ULP_EXTRA_DEFS` CMake hook stay
+in the tree as the tool for the next attempt, both off by default.
+
+**What is still true after all of this** (each with the HP core as the only reader, and `wakes` confirmed non-zero):
+
+1. The board's ULP can drive RTCIO — the reference firmware transmits 4 packets in 20 s with the HP core **awake**.
+2. Config, pad ownership, `gpio_reset_pin`, the SENS clock gate and store placement are all eliminated.
+3. In the Forth firmware, the ULP runs (`+6` wakes per 40 ms) and its store to `RTC_GPIO_OUT_W1TS` does not appear in the
+   HP core's `RTC_GPIO_OUT`.
+
+**The next experiment must be a bisect with a liveness check**: build the reference `probe/lora` ULP source *into this
+firmware's* slot (`REPL_ULP_SRC` accepts an alternative source tree; the bridge variables would need the same `keep`
+block the stub uses), and confirm `wakes > 0` and a moving pad before touching anything else. If the known-good ULP
+source fails here, the difference is provably this app's HP-side environment, and the remaining candidates are the ones
+no theory has touched yet: linker placement of `.rtc.*`, and the flash-store's partition access.

@@ -517,6 +517,34 @@ static void drain_cmd(void)
 
 int main(void)
 {
+#if defined(HWPROBE)
+    /* GUARDRAIL: F-158's bisect store, first instruction of main, in an image built with P42_ONLY so the interpreter is
+     * not even linked in (548 B instead of 7 831 B). Pad 11 (MISO, bit 21) is idle low at boot, so one HP-side read of
+     * RTC_GPIO_OUT answers it - and never probe with a pad the HP core idles HIGH, or the test cannot fail (docs/14 R18). */
+    *(volatile u32 *)0x60008404u = (1u << (11 + 10));
+    /* GUARDRAIL: keep every symbol the HP side links against. With P42_ONLY the interpreter is not linked, so
+     * --gc-sections drops the variables it used and the app fails with "'ulp_repl_mem_addr' undeclared" - which reads
+     * like a CMake error and is the linker doing its job. Same trick, same reason, as src/ulp_stub.c. */
+    {
+        volatile u32 keep;
+        keep = (u32)&repl_cmd[0];      keep = (u32)&repl_out[0];
+        keep = (u32)&mailbox[0];       keep = (u32)&mem[0];
+        /* GUARDRAIL: ASSIGN these, do not merely reference the arrays. The real path publishes the offsets after the
+         * P42_ONLY return, so with the bench build the variables were published by nothing and --gc-sections dropped
+         * them - the app then failed on 'ulp_repl_mem_addr undeclared'. Referencing &mem[0] keeps mem[], not the offset. */
+        repl_mem_addr = (u32)&mem[0];
+        repl_mb_addr  = (u32)&mailbox[0];
+        repl_blk_off  = (u32)BLKADR;
+        repl_blk_sz   = (u32)BLKSZ;
+        keep = (u32)BLKADR;            keep = (u32)BLKSZ;
+        keep = repl_blk_out;           keep = repl_blk_req;
+        keep = repl_blk_off;           keep = repl_blk_sz;
+        keep = repl_cmd_bytes;         keep = repl_out_bytes;
+        keep = repl_status;            keep = repl_out_drop;
+        keep = repl_keybox;
+        (void)keep;
+    }
+#endif
                                        /* wakes since load: proof the probe ran */
     /* GUARDRAIL: no rdcycle at wake entry. It fed `repl_cyc_start`, which was written on EVERY wake and
      * read by nothing in this tree (the only similar reader is p39_main.c, which reads a different variable

@@ -55,7 +55,7 @@ endif()
 # because its single number looks bad.
 # GUARDRAIL: the HOST build does not use these flags, so a green host suite alone would NOT validate them —
 # tests/run.sh's binaries are built without them. Run the twin check when changing this line.
-set(_ulp_cflags "${CMAKE_MATCH_1} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants -fno-ssa-phiopt -fno-tree-pre")
+set(_ulp_cflags "${CMAKE_MATCH_1} ${ULP_EXTRA_DEFS} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants -fno-ssa-phiopt -fno-tree-pre")
 message(STATUS "ULP C flags: ${_ulp_cflags}")
 idf_build_set_property(EXTRA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${_ulp_cflags}" APPEND)
 
