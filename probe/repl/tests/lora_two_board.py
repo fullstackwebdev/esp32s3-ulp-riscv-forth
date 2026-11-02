@@ -8,7 +8,7 @@ WHAT THIS PROVES, and what it deliberately does not:
     every SPI edge; the answer is the chip's own TxDone bit.
   * B runs the SAME firmware (`probe/repl`) and the SAME driver, plus `examples/apps/lora/lora_rx.fs`, and decodes
     what A sent. That is an OUTSIDE receiver: different board, different power supply, different USB link.
-  * Then the reverse: B transmits (`SEND`), A receives (`RX1 RXTAKE`), so the link is exercised both ways.
+  * Then the reverse: B transmits (`SEND`), A receives (`IQ RXTAKE`), so the link is exercised both ways.
   * It does NOT claim the HP core of A was asleep during the transmission - that was measured separately
     (probe/lora deep-sleep run, docs/29). Here both consoles are live because both machines have to PRINT.
   * RX words are Forth, not C: there is no bespoke receiver program anywhere in this path.
@@ -125,7 +125,7 @@ def watch(dev, seconds, results, key):
     """Listen continuously and collect decodes.
 
     GUARDRAIL: listen in CONTINUOUS mode and poll the chip's irq word; do not re-arm a 250 ms window per attempt.
-    Measured: four frames sent 400 ms apart were ALL missed by the windowed `RX1` (each attempt cost a host round
+    Measured: four frames sent 400 ms apart were ALL missed by the windowed `IQ RXTAKE` (each attempt cost a host round
     trip, so the receiver was deaf between windows), while `RC SR` once and polling `IQ` caught the very first frame
     (irq 0x0016 = RxDone|Preamble|Header) and printed the payload out of the radio's own buffer. A window is fine for
     a hand test; a listener has to stay listening.

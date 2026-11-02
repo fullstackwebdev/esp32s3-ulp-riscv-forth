@@ -334,3 +334,61 @@ per-channel data that outlive the phase; then the 16 `C,`-free buffers if the re
    later definition — both made `--use` quietly weaker. Fixed earlier this session with fixtures.
 
 Every one of these was caught by the linter or by the board, not by reading the source.
+
+## Appendix F — a Meshtastic-shaped frame leaves the chip, sent by ONE phase
+
+`examples/apps/lora/loratx.fs` is **939 B measured** (code 858 + headers 81), i.e. it fits the **999 B** store
+window with 60 B spare, and it does the whole job by itself: pad primitives, the 14-entry config table from one
+byte table, `WriteBuffer`, `SetTx`, and a polled TxDone. `tests/lora_frame_phase.py`, 10/10 twice:
+
+```
+PASS  receiver RADIO-INIT configures the chip
+PASS  receiver is in RX mode                       chipmode 5 (5 = RX)
+PASS  TX phase fits the store window               939 B of 999 B
+PASS  RUNLORA returns to STDBY_RC                  status 0x2c
+PASS  TxDone is set after the send                 IRQ 0x0001
+PASS  receiver reports RxDone                      IRQ 0x0016
+PASS  frame length on the air                      26 B at offset 0
+PASS  header bytes match the Meshtastic layout     ff ff ff ff 0a 0a 0a 0a ca fe 00 01 00 00 00 00
+PASS  protobuf Data{portnum,payload} matches       08 80 02 12 05 68 65 6c 6c 6f
+```
+
+`ff ff ff ff` broadcast · `0a 0a 0a 0a` from · `ca fe 00 01` packet id · flags 0 · channel 0 · next_hop 0 ·
+relay 0, then `08 80 02` (portnum 256 = PRIVATE_APP), `12 05`, "hello". Decoded from the **receiver's own RX
+buffer**, not from the sender's intent.
+
+**It is not yet Meshtastic-readable, and the reason is arithmetic, not effort.** Meshtastic's channel path is
+AES-CTR, and the cipher is **1 328 B** — it fills the whole prompt dictionary exactly (0 B free) and a phase
+window is 999 B, so the cipher cannot be a phase. Moving its data is blocked too: registry cells are
+**resident** (`cli.py:registry_cells`, "every cell costs 4 B of the window") and the image has **1 B** free.
+The frame above names exactly where the ciphertext goes: the Data payload region, bytes 18..21.
+
+What *is* proven about the cipher, on the chip: the AES-128 block matches `openssl enc -aes-128-ecb`
+(`69c4e0d86a7b0430d8cdb78070b4c55a`), and the CTR **keystream** matches `openssl enc -aes-128-ctr`
+(`c6a13b37878f5b826f4f8162a1c8d879`). So Meshtastic interoperability is now a *size* problem with a known
+solution shape, not an unknown.
+
+### Four failures this phase produced, and the gate each one now has
+
+1. **R29 (new).** A control structure must be COMPLETE on the typed line. `SND`'s loop was split across two
+   lines and answered `ERR_STACK` with **488 B free** — the failure read as "no space" and was not. R29 now
+   refuses any line whose `IF/THEN` or `BEGIN/WHILE/UNTIL/REPEAT` do not balance, with a fixture for the split
+   case and a negative fixture for the valid one-line loop.
+2. **`code_only` did the `( ... )` pass BEFORE stripping `\` comments.** A `(` inside a comment opened a
+   "declaration" that blanked real code up to the first `)` far away; the prose that survived counted as words,
+   and R29 refused `lora1.fs` for a `then` in the sentence "… a bare `1 MOSIPAD PIN!` then moves OUT to". Every
+   token-based rule (R16, R23, R26, R29) reads through this function, so the order is the whole point.
+3. **`scan_lines` dropped comment-only lines**, so indices were shorter than the source and a finding could be
+   attributed to a line that does not exist. R29 numbers against the source's own lines now.
+4. **Packet params are shared by TX and RX.** Setting the receiver's payload length to 26 for this frame also
+   set the *transmitter's*, and `SEND` — which sleeps a fixed 200 ms and then reads TxDone — returned 0 while
+   three 26-byte frames crossed the air. Measured three ways:
+
+   | receiver params | result |
+   |---|---|
+   | preamble 8 / length 4 (the driver's INIT) | deaf to a 26-byte frame: `IRQ 0x0000` |
+   | preamble 16 / length 255 | deaf too: `IRQ 0x0000` |
+   | preamble 16 / length 26 (the frame's own) | `IRQ 0x0016`, 26 bytes decoded |
+
+   So the receive length must name the frame, the params belong to the *scenario* rather than to `SR`, and a
+   length change must be paired with a transmitter that waits for TxDone instead of sleeping.

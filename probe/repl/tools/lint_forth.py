@@ -151,12 +151,23 @@ def is_num(t):
 
 
 def code_only(src):
-    """`src` with `( ... )` declarations and `."` strings blanked out, newlines kept so line numbers stay true.
+    """`src` with `\` comments, `( ... )` declarations and `."` strings removed, newlines kept.
 
-    GUARDRAIL: R16 must see WORDS, not text. A phase that draws the word CREATE (`.\" CREATE\"`) or documents a cell
-    in a `( ... )` declaration would otherwise be refused for saying a name it never compiles - the false positive
-    that teaches the operator to skip the rule.
+    GUARDRAIL: the `\` comments are cut FIRST, line by line, before the `( ... )` pass. Measured on lora1.fs: a `(`
+    inside a comment opened a "declaration" that blanked real code up to the first `)` far away, and the prose that
+    survived then counted as WORDS - the comment "... a bare `1 MOSIPAD PIN!` then moves OUT to" produced a THEN, and
+    R29 refused the driver for a control structure that line does not contain. Every token-based rule (R16, R23, R26,
+    R29) reads through this function, so the order is the whole point.
     """
+    lines = []
+    for ln in src.split("\n"):
+        cut = None
+        for k, ch in enumerate(ln):
+            if ch == chr(92) and (k == 0 or ln[k - 1] in " \t"):
+                cut = k
+                break
+        lines.append(ln if cut is None else ln[:cut])
+    src = "\n".join(lines)
     out = list(src)
     i, n = 0, len(src)
     while i < n:
@@ -173,20 +184,7 @@ def code_only(src):
             if out[k] != "\n":
                 out[k] = " "
         i = j
-    # GUARDRAIL: `\` comments are blanked here too, so NO rule can see prose as code. Prose that reads
-    # `BUDGET: this driver needs MEMSZ >= 2550` was parsed as a definition of a word named `this`, and the same
-    # loose parse then reported that `PIN!` had never been defined - one false positive on a comment is how a
-    # lint rule gets switched off, and this one is worse: it hides the real finding under it.
-    lines = []
-    for ln in "".join(out).split("\n"):
-        # A `\` comment starts only where `\` is its own token: line start, or after whitespace.
-        cut = None
-        for k, ch in enumerate(ln):
-            if ch == chr(92) and (k == 0 or ln[k - 1] in " \t"):
-                cut = k
-                break
-        lines.append(ln if cut is None else ln[:cut])
-    return "\n".join(lines)
+    return "".join(out)
 
 
 def lint_phase(src):
@@ -468,6 +466,21 @@ def check_source_shape(src, phase=False, repl=False):
         findings.append((1, "R28 alignment",
                          f"{carity} interpret-state `C,` bytes is ODD: HERE stays odd and every later definition is "
                          "refused with ERR_DICT however much room is left. Add one filler `0 C,`"))
+    # ---- R29 balance within one typed line
+    if repl:
+        for i, ln in enumerate(code_only(src).split("\n"), 1):
+            toks = [tk.upper() for tk in tokens(ln)]
+            n = lambda w: sum(1 for tk in toks if tk == w)
+            if n("IF") != n("THEN"):
+                findings.append((i, "R29 per-line control",
+                                 f"{n('IF')} IF against {n('THEN')} THEN on one line: the engine closes a structure "
+                                 "only inside the line it was opened on, so this answers ERR_STACK and the word does "
+                                 "not exist"))
+            if n("BEGIN") != n("UNTIL") + n("REPEAT") or n("WHILE") != n("REPEAT"):
+                findings.append((i, "R29 per-line control",
+                                 f"BEGIN {n('BEGIN')} / WHILE {n('WHILE')} / UNTIL {n('UNTIL')} / REPEAT "
+                                 f"{n('REPEAT')} do not balance on this line: a structure split across typed lines "
+                                 "answers ERR_STACK and the definition never exists"))
     # GUARDRAIL: R26. The coprocessor does NOT decode the SoC address map: A10/A11 are dropped, so an absolute
     # 0x6000_84xx access from pool code lands in RTC_CNTL and nothing answers it - the root cause that cost months,
     # and the reason every driver constant is written in the ALIAS WINDOW (`esp32s3.peripherals.ld`: RTCIO 0xA400,
@@ -858,6 +871,10 @@ BUGS = {
    # four 1-byte cells: total is EVEN, but HERE is odd at every intermediate CREATE - the case that cost 40 definitions
  "per-boundary parity: four 1-byte cells total EVEN but HERE odd at each CREATE":
    ("""CREATE A 0 C,\nCREATE B 0 C,\nCREATE C 0 C,\nCREATE D 0 C,\n: X 5 ;\n""", "R28 alignment"),
+ "loop split across two typed lines (SND in loratx.fs, 488 B free)":
+   (""": SND ( n -- )\n  BEGIN DUP WHILE 1-\n  REPEAT DROP ;\n""", "R29 per-line control"),
+ "valid loop on one line (must stay quiet)":
+   (""": SND ( n -- ) BEGIN DUP WHILE 1- REPEAT DROP ;\n""", None),
  "SoC absolute address from pool code (the alias-window root cause)":
    (""": PADSET 1610646532 ! ;\n""", "R26 alias window"),
  "nested counted loop in one definition (loader refuses it silently)":
@@ -984,7 +1001,7 @@ def selftest():
         else:
             # GUARDRAIL: R21 only exists in `--repl` mode, so its fixture has to run with it - otherwise the selftest
             # would report the rule as MISSED for the trivial reason that it was never enabled.
-            want_repl = rule is None or "R21" in rule
+            want_repl = rule is None or "R21" in rule or "R29" in rule
             f = lint_definitions(src, repl=want_repl) + check_blocks(src)
         hit = any(r == rule for _, r, _ in f)
         if rule is None:      # negative fixture: the code is VALID and any finding is a bug in the rule

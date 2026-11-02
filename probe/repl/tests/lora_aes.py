@@ -19,6 +19,7 @@ from lintgate import require_clean         # noqa: E402
 REPO = HERE.parent.parent.parent
 CIPHER = REPO / "examples/apps/lora/lora_aes.fs"
 VECTORS = HERE / "data" / "lora_aes_vectors.fs"
+CTR_VECTORS = HERE / "data" / "lora_ctr_vectors.fs"
 EXPECT = json.load(open(HERE / "data" / "lora_aes_vector.json"))
 
 
@@ -50,6 +51,7 @@ def main():
     # never costs a board round trip.
     require_clean([CIPHER], "--repl", where="aes-cipher")
     require_clean([VECTORS], "--repl", where="aes-vectors", use=[CIPHER])
+    require_clean([CTR_VECTORS], "--repl", where="ctr-vectors", use=[CIPHER])
 
     fails = 0
     def check(name, ok, detail=""):
@@ -81,6 +83,13 @@ def main():
     dev.cmd("AESB", 60.0, allow_error=True)
     got = hex_st(dev)
     check("AES-128 block matches openssl", got == EXPECT["cthex"], f"{got} want {EXPECT['cthex']}")
+
+    bad = load(dev, CTR_VECTORS)
+    check("CTR vector loads with no refused line", not bad, f"{bad[:1]}")
+    dev.cmd("AESB", 60.0, allow_error=True)
+    got = hex_st(dev)
+    check("CTR keystream matches openssl -aes-128-ctr", got == EXPECT["keystream_hex"],
+          f"{got} want {EXPECT['keystream_hex']}")
 
     print(f"  {fails} failure(s)")
     return 1 if fails else 0
