@@ -106,7 +106,11 @@ static u8 junk;
  * LORA_MUX! write went to `junk` and the pads were never muxed, which looked exactly like a dead SPI bus (pin readback 0,
  * GetStatus 0x00) while the gate itself worked. Size the window from the register file, not from the first address you
  * needed. */
-#define HW_GATE_SPAN 0x200u      /* 0x60008400..0x600085FF: the whole RTCIO register file (60 registers) */
+/* GUARDRAIL: 0x600, not 0x200. The RTCIO file ends at +0x1FC, but the pad configuration is INERT until the RTC IO MUX
+ * clock gate is enabled, and that gate lives in SENS (SENS_SAR_PERI_CLK_GATE_CONF_REG = 0x60008904, bit 31) - outside a
+ * 0x200 window, so the pads could be muxed to RTC mode and still never move. One compare against one constant covers
+ * both ranges and costs no extra bytes. */
+#define HW_GATE_SPAN 0x600u      /* 0x60008400..0x600089FF: RTCIO + the SENS pad-mux clock gate */
 /* GUARDRAIL: noinline is a BUDGET pin here, the same technique the wr8/wr16 comment above records (it was worth -90 B
  * there). Inlined, the gate's compare plus constant is duplicated into every caller; outlined it appears once and costs
  * one call on the MISS path only, because `a < MEMSZ` still returns before the call is ever reached in the common case. */

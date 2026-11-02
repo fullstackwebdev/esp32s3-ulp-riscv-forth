@@ -291,3 +291,23 @@ must be the C driver's own pad sequence translated to Forth, not another guess.
 The gate now costs +76 B in total over the ungated 7 891 B build (32-bit store + 32-bit load + the range tests). That is
 what the 12 B "cheap" shape in §5c was hiding: it bought bytes by paying in `rd32`/`wr32` correctness, and the hardware
 charge for that was two silent, total failures of the bus.
+
+### F-155 — the gate window must include SENS, or the pads are muxed but inert
+
+`ulp_riscv_gpio_init()` — what the C driver's ULP calls for every pad — does two things this project had not: it enables
+the **RTC IO MUX clock gate** (`SENS_SAR_PERI_CLK_GATE_CONF_REG` at `0x60008904`, bit 31) and it clears `FUN_SEL` with a
+read-modify-write. `0x60008904` is **outside** a `0x200` window from `0x60008400`, so from Forth the clock gate was
+unreachable: the pads could hold `MUX_SEL|FUN_IE` and still never move. The span is now `0x600` (RTCIO + SENS), which is
+still one compare against one constant and cost **0 B** — the image stayed at 7 931.
+
+### The remaining unknown, stated exactly
+
+With the clock gate reachable, `MUX_SEL|FUN_IE` written to `RTC_IO_TOUCH_PAD{11,13,14}`, outputs enabled and the HP core
+driving pin 13 high, `13 @P .` still answers `0`, and `RTC_GPIO_IN` (base+0x24, `RTC_GPIO_IN_NEXT_S` verified as 10)
+answers `0x02010201` — **two identical halves**, which is the signature of a 16-bit fallback read rather than a live
+register, even though `rd32`'s gate branch is demonstrably compiled (`P_slow` is in the ELF) and `MUX_SEL|FUN_IE`
+round-trips exactly (`532480` in, `532480` out) at `+0x84 + pin*4`.
+
+The next step is not another guess: run the **C driver** (`probe/lora`, which passes `hal_pad_selftest` with mask 0) and
+print the raw `RTC_GPIO_IN` it sees while it drives a pad, then compare that number with what the Forth interpreter reads
+at the same address in the same image. Same register, same core, two builds — the difference will name the fault.
