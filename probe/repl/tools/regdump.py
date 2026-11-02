@@ -14,7 +14,7 @@ time.sleep(1.2); s.reset_input_buffer()
 if mode == "cmd":
     s.write(b"#d\r\n")
 buf, t0 = "", time.time()
-while time.time() - t0 < 30:
+while time.time() - t0 < 45:
     c = s.read(8192)
     if c: buf += c.decode("latin-1", "replace")
 s.close()

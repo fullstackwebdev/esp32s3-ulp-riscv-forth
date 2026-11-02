@@ -24,6 +24,16 @@
 #include "soc/rtc_io_reg.h"
 /* GUARDRAIL: F-163: the 544-word register diff found it in RTC_CNTL_ULP_CP_CTRL_REG, so that block is included. */
 #include "soc/rtc_cntl_reg.h"
+#if defined(FOREIGN_ULP)
+/* GUARDRAIL: F-165 - the last cell of the matrix: boot the ULP program that is KNOWN to work on this board (probe/lora's,
+ * which reports tx_ok rising) from THIS app. Nothing about the pads, flags, config or image content can be the cause any
+ * more, so the question is asked directly: which app, which program. The Forth bridge commands cannot work here (the
+ * foreign image defines none of repl_cmd/repl_out/...), which is why the ring-size handshake is skipped - and why the
+ * only witness is the pad bit the HP core clears and that image's own store sets.
+ * Regenerate src/foreign_ulp.h with tools/embed_ulp.py after every rebuild of probe/lora.
+ */
+#include "../src/foreign_ulp.h"
+#endif
 /* GUARDRAIL: SENS holds the RTC IO MUX clock gate (SENS_SAR_PERI_CLK_GATE_CONF_REG bit 31). The C driver's ULP enables
  * it from the ULP via ulp_riscv_gpio_init; our ULP cannot write any peripheral (F-157), so it has to be done HERE. */
 #include "soc/sens_reg.h"
@@ -614,8 +624,10 @@ static void seed_poll(void)
              * GUARDRAIL: read-only. Writing RTC_GPIO_OUT with arbitrary bits reboots the S3 (F-152); these are reads of
              * read-mostly config registers, plus RTC_GPIO_IN, which is an input. */
             if (n >= 2 && ln[0] == '#' && ln[1] == 'd' && (ln[2] == 0 || ln[2] == ' ')) {
+                /* GUARDRAIL: F-164's follow-up: the S3's RTC peripheral clock gate lives in the SYSTEM block, which the
+                 * first pass of this diff sampled only as far as +0x80. 0x200 words there and 0x600 in RTC_CNTL. */
                 static const uint32_t blocks[4] = { 0x60008400u, 0x60008800u, 0x60010000u, 0x600C0000u };  /* RTCIO SENS RTC_CNTL SYSTEM */
-                static const uint32_t lens[4]   = { 0x400u, 0x100u, 0x300u, 0x80u };
+                static const uint32_t lens[4]   = { 0x400u, 0x100u, 0x600u, 0x200u };
                 for (int b = 0; b < 4; b++)
                     for (uint32_t o = 0; o < lens[b]; o += 4) {
                         printf("REG 0x%08X = 0x%08X\n", (unsigned)(blocks[b] + o),
@@ -1387,7 +1399,12 @@ void app_main(void)
      * lives in that domain, so a ULP access to it is not guaranteed to be served while the domain is left to its
      * default. This is the last HP-side call the two firmwares differ on. */
     ESP_ERROR_CHECK(esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON));
+#if defined(FOREIGN_ULP)
+    ESP_ERROR_CHECK(ulp_riscv_load_binary(foreign_ulp_bin, foreign_ulp_bin_len));
+    printf("FOREIGN_ULP: booted probe/lora's image, %u B\n", (unsigned)foreign_ulp_bin_len);
+#else
     ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
+#endif
     ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
     /* GUARDRAIL: F-163 was tested and REJECTED here, and the rejection is the finding: setting
      * RTC_CNTL_COCPU_START_2_RESET_DIS (the one bit that differed in the 544-word register dump) both before and after
@@ -1448,7 +1465,15 @@ void app_main(void)
     /* Loud before anything else: if these disagree, every byte the user types is written to the wrong
      * place in the coprocessor's memory and the symptom looks like Forth corruption, not like a bug in
      * a size constant. Refuse to run the bridge at all rather than serve a broken console. */
+#if defined(FOREIGN_ULP)
+    /* GUARDRAIL: the first version wrote `if (0) {} else if (mismatch)` and the mismatch STILL fired - an else-if keeps
+     * the test, it only re-homes where it runs. Disabling a check means replacing its condition, not wrapping it.
+     * The handshake tests nothing here anyway: the foreign image defines none of these variables, so the values read are
+     * whatever its own data occupies, and FATALing on them would boot nothing at all. */
+    if (0) {
+#else
     if (ulp_repl_cmd_bytes != CMD_SIZE || ulp_repl_out_bytes != OUT_SIZE) {
+#endif
         printf("FATAL: ring size mismatch — ULP cmd=%u out=%u, host cmd=%u out=%u\n",
                (unsigned)ulp_repl_cmd_bytes, (unsigned)ulp_repl_out_bytes,
                (unsigned)CMD_SIZE, (unsigned)OUT_SIZE);

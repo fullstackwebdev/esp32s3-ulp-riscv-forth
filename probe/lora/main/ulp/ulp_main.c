@@ -82,7 +82,49 @@ int main(void)
     probe_out = *(volatile uint32_t *)0x60008400u;         /* read OUT back            */
     probe_sens = *(volatile uint32_t *)0x60008904u;        /* read SENS clk gate       */
 
-    hal_init();
+#if !defined(LORA_NOINIT)
+    hal_init();          /* F-171: this is the call being bisected - the cut below deletes it and nothing else */
+#endif
+#if defined(LORA_NOINIT)
+    /* GUARDRAIL: F-171's second cut. Cut #1 (radio work deleted, hal_init kept) LANDED, so the 195 ms of SPI was never
+     * the reason and the reason is inside hal_init(). This cut removes hal_init() and nothing else: if the store still
+     * lands, hal_init is not the gate and the remaining difference is in how the two images are built/loaded; if it goes
+     * LOST, hal_init's pad configuration opens the path - and the next bisect is which of its lines does it, which is
+     * the answer the Forth driver needs. */
+    {
+        volatile uint32_t keep2;
+        keep2 = run_count;
+        (void)keep2;
+    }
+#endif
+
+#if defined(LORA_MIN)
+    /* GUARDRAIL: F-170, the INVERSE bisect. Every previous probe walked from this firmware's broken side toward the
+     * reference and nothing flipped, so start from the artifact that LANDS and delete toward ours: this cut keeps the
+     * wake entry and the pad enables and returns before ANY radio work - no SPI, no 195 ms bit-bang, no cold init, no
+     * self-tests. Two answers and both are decisive:
+     *   LOST  -> a lone store followed by halt never reaches the APB; this image lands only because its wake goes on to
+     *            do milliseconds of further peripheral traffic. The Forth driver writes in bursts anyway, so that
+     *            reopens the board test of LORA_INIT/LORA_SEND immediately.
+     *   LANDS -> landing is a property of the image, not of the work, so the next cut changes this build's LINK flags
+     *            (the gc-sections/-msave-restore/-fno-tree-* set) until it flips.
+     * The witness is the HP core clearing pad 8 and reading it back (tests/staytest.py), keyed to the wake - never this
+     * core's own register reads, which are garbage in both firmwares (F-158). */
+    /* GUARDRAIL: keep every exported variable referenced. --gc-sections drops the now-unreachable radio and counter
+     * variables, the IDF map generator stops exporting them, and the HP side fails with
+     * "'ulp_tx_ok_count' undeclared" - which reads like a CMake/linker mystery and is just the linker doing its job
+     * (same lesson as probe/repl/src/ulp_stub.c and the P42 bench main). The cuts must LOOK like they use what they
+     * define, so that the two builds being compared differ only in the work being cut. */
+    {
+        volatile uint32_t keep;
+        keep = radio_ready; keep = cfg_used; keep = tx_ok_count; keep = tx_fail_count;
+        keep = last_error; keep = status_byte; keep = tx_cycles; keep = buf_verify;
+        keep = spi_cycles_per_byte; keep = pad_selftest; keep = ccount_cal;
+        keep = cold_count; keep = awake; keep = probe_out; keep = probe_sens;
+        (void)keep;
+    }
+    return 0;
+#endif
 
     if (ccount_cal == 0) {
         /* GUARDRAIL: calibrate before believing any cycle-based duration. ULPs' cycle counter is a 32-bit free-running

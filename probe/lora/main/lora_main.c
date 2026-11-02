@@ -194,7 +194,18 @@ void app_main(void)
          * firmware, including this working one. Clear bit 18 at t+2 and watch it come back: it returning means the ULP's
          * store lands. GUARDRAIL: this belongs in the STAY_AWAKE loop only; the first version patched it into the
          * nightly report loop, where `s` does not exist and the build failed. */
-        if (s == 1) REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+        if (s == 1) {
+            REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+            /* GUARDRAIL: the identical 1152-word list as probe/repl's `#d`, so the two machines' output diffs literally. */
+            static const uint32_t blocks[4] = { 0x60008400u, 0x60008800u, 0x60010000u, 0x600C0000u };
+            static const uint32_t lens[4]   = { 0x400u, 0x100u, 0x600u, 0x200u };
+            for (int b = 0; b < 4; b++)
+                for (uint32_t o = 0; o < lens[b]; o += 4) {
+                    printf("REG 0x%08X = 0x%08X\n", (unsigned)(blocks[b] + o),
+                           (unsigned)REG_READ(blocks[b] + o));
+                    vTaskDelay(1);
+                }
+        }
         /* GUARDRAIL: use the counters this firmware actually exports (ulp_run_count / ulp_tx_ok_count). The first version
          * named them from the console line instead of the symbol table and did not compile - the exported names are the
          * contract, so read them off ulp_lora.h. */

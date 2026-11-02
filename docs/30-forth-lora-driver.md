@@ -628,3 +628,56 @@ bit) the eliminated list is now: everything the register-level view can see.
 **What that leaves**, and it is the §9 matrix's blank cell, unchanged: the reference ULP source, built and booted by this
 app. It needs a bridge shim (the exported variables), and it is the only remaining experiment that can separate "this
 app's HP side" from "this app's ULP build". Every other shape of that question has now been asked and answered.
+
+### F-164 — the reference's exact ULP preamble, inside our app: still LOST
+
+`ulp_riscv_gpio_init()` on all 7 pads, `ulp_riscv_gpio_output_enable()` on the 4 outputs,
+`ulp_riscv_gpio_input_enable()` on the 3 inputs, then the store — the reference's `hal_init()` instruction for
+instruction, executed by our ULP on every wake (text 600 → 826 B, so it linked and ran; `#z` showed 60 wakes per window):
+
+```
+storetest: LOST (clear, 60 ULP wakes, OUT 0x00400000)     x3
+```
+
+Combined with §9/§10 that closes the question "does the ULP program have to *do* something first?" — no. Our ULP can
+now execute anything the reference's does, byte-for-byte, and its APB write is still discarded while the identical
+write in the reference app lands.
+
+The one hypothesis that survives every measurement so far is a **HP-side gate outside the range the 544-word diff
+covered**: the RTC peripheral clock gate on the S3 lives in the SYSTEM block, and `#d` sampled
+`0x600C0000..0x600C0080` only. Next probe is the same command widened to `0x600C0100` (and RTC_CNTL past `0x300`) —
+a one-line change to both lists and one flash, and it is the only place the difference can still be hiding.
+
+## 11. The inverse bisect found the gate (F-171 - F-175)
+
+Walking from the artifact that LANDS toward ours, one deletion per flash, `#z`/staytest as witness, every result attributed
+to a distinct artifact size (the stale-binary trap caught twice on the way):
+
+| cut | image | ULP wakes | bit 18 (`RTC_GPIO_OUT`) | verdict |
+|---|---|---|---|---|
+| radio work deleted, `hal_init()` kept | 550 B | 1 → 7 | returns to **SET** | **LANDED** |
+| `hal_init()` deleted | 300 B | 1 → 6, 15 samples | stays cleared | **LOST** |
+| full `hal_init()` minus the two pull operations | 458 B | 3 → 6 | SET | **LANDED** |
+| full `hal_init()` minus the three level writes | **466 B** (distinct artifact) | 3 → 6 | cleared | **LOST** |
+
+So: the 195 ms of SPI traffic was never the reason; **`hal_init()` is the gate, and inside it the pad level writes
+(`pin_high(NSS)`, `pin_high(RESET)`, `pin_low(SCK)`) are the necessary part** - the pull operations are not. That is also
+the first finding in this whole investigation that says something *positive* about what the Forth driver must do: it has to
+own the pad levels from the ULP, not inherit them from `lora_pads_setup()` on the HP core.
+
+**F-175 (the fix attempt) did not work**: reproducing the config ULP-side - `ulp_riscv_gpio_init()` on all 7 pads, the 4
+output enables, the 3 input enables, then NSS/NRST high and SCK low through `W1TS`/`W1C` - costs ~430 B of text (dictionary
+funded it 1:1, image 7 915 B) and still measures `storetest: LOST` at 104 wakes. The reproduction is therefore *not*
+equivalent to `hal_init()`, and the disassembly shows why the search must go there next: in the reference image
+`ulp_riscv_gpio_init` issues its clock-gate store through a link-time **alias** (`# c904 <SENS+0x104>`, i.e. `SENS` is
+`0xC800` in the ULP link, not `0x6000_8800`), so the helper's real writes are not all the absolute addresses I have been
+assuming. Next measurement is zero-flash: diff our image's inlined helper against the reference's, instruction for
+instruction, and match the *alias* window rather than the SoC addresses.
+
+Two build traps hit and recorded while doing this, both worth repeating:
+
+* CMake caches the ULP sub-build's `CMAKE_C_FLAGS`, so an experiment flag removed from the command line can remain live in
+  the sub-build - the image that "proved" a cut was sometimes the previous cut. Always check the artifact size differs
+  (R21).
+* The ULP linker region comes from `CONFIG_ULP_COPROC_RESERVE_MEM`; a stale generated `ulp_riscv.ld` reports
+  "`.bss` not within region ram" for a perfectly good image. `idf.py fullclean` before trusting a size change.

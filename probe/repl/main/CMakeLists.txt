@@ -5,6 +5,11 @@
 # GUARDRAIL: the HP side needs its OWN definition of ULP_EARLY. Passing it only through ULP_EXTRA_DEFS (which feeds the
 # ULP sub-build's CFLAGS) left repl_main.c on the normal boot path while I believed I had bisected "started early" - the
 # classic one-flag-two-builds mistake. -DULP_EARLY=1 now means both sides.
+# GUARDRAIL: F-165's switch, HP side too (see the lesson in ULP_EARLY's comment above).
+if(FOREIGN_ULP)
+    add_definitions(-DFOREIGN_ULP=1)
+endif()
+
 if(ULP_EARLY)
     add_definitions(-DULP_EARLY=1)
 endif()

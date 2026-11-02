@@ -69,12 +69,23 @@ void hal_init(void)
     ulp_riscv_gpio_input_enable(LORA_PIN_BUSY);
     ulp_riscv_gpio_input_enable(LORA_PIN_DIO1);
 
+#if !defined(HAL_NOPULL)
+    /* GUARDRAIL: F-173 - the one-question version of the previous cut. Everything in hal_init is kept EXCEPT these two
+     * pull operations, so a LOST answer can only mean the pull writes are what opens the pad path (the earlier cut could
+     * not say that, because it also deleted output_enable and so proved nothing). */
     ulp_riscv_gpio_pullup_disable(LORA_PIN_MISO);
     ulp_riscv_gpio_pulldown_disable(LORA_PIN_MISO);
+#endif
 
+#if !defined(HAL_NOLEVEL)
+    /* GUARDRAIL: F-174 - the complement of F-173. Pulls proved unnecessary, so the remaining candidates inside hal_init
+     * are these three level writes. Deleting only them keeps every pad configuration call intact: if the store LOSTS, the
+     * gate is "the ULP must drive the pad levels itself, after configuring the pads" - which the Forth driver does not do
+     * today (its levels come from the HP core at boot), and that is an actionable fix rather than a mystery. */
     pin_high(LORA_PIN_NSS);
     pin_high(LORA_PIN_RESET);
     pin_low(LORA_PIN_SCK);
+#endif   /* HAL_NOLEVEL */
 }
 
 static uint8_t spi_xfer(uint8_t out)

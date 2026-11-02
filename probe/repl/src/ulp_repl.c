@@ -60,9 +60,12 @@
  * (LATEST 2152 - HERE 786) was 1 366 B, so the trade costs 3 % of a surplus to buy 44 % of the pool's free space. That is
  * the right direction: the pool is the scarce budget, the dictionary is not. Any future edit that needs pool bytes should
  * look here first, and re-measure both numbers rather than assuming the surplus is still there. */
-#define MEMSZ    2550          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
- * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
- * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
+/* GUARDRAIL: 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
+ * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST.
+ * GUARDRAIL: this block was once orphaned - a probe edit replaced the `#define` line and left these two comment
+ * fragments outside any comment, which the compiler reported as "expected identifier before numeric constant" plus a
+ * cascade of nonsense from _stdint.h. When a probe changes MEMSZ, change the value, not the line the comment sits on. */
+#define MEMSZ    1950   /* F-175 probe: ULP-side pad ownership funded 1:1 by dictionary space */
 /* GUARDRAIL: SD stays 16. Raising it to 24 was rejected by the engine's own static assertions - dispatch.S hard-codes
  * the VM layout and assumes SD=16 for the stack wrap check - so deeper stacks would mean rewriting the asm dispatch.
  * An app that overflows therefore has to nest less, not ask for a bigger stack. */
@@ -133,7 +136,14 @@
  * and must stay OFF (they lose the REPL) and that they cost ~280 B of .bss + ~200 B of text, so having this line defined
  * at all contradicted the file's own rules. Commented out; re-enable only together with the root cause. */
 /* #define P43_TASKS 1 */
+#if !defined(NODATA)
 #define IMAGE
+#endif
+/* GUARDRAIL: F-167's probe switch. Dropping IMAGE leaves mem[] as .bss instead of 2 550 B of initialized .data - and
+ * ".data == 0" is the ONLY structural fact that separates every working image from every failing one all session (the
+ * reference ULP builds with data 0, ours with data MEMSZ+16). For the store probe the dictionary is not needed at all:
+ * the witness is a pad bit, and main stores before anything else, so running without the baked dictionary is a valid
+ * experiment rather than a broken machine. */
 /* HW@ / HW! : absolute RTC-domain register access for Forth (F-149, docs/30 5b).
  * GUARDRAIL: measured at 62 B (image 7 891 -> 7 953) against a POOL of 7 892, so it is OFF. Funding it from the
  * stack reserve's measured slack (300 B reserved, 240 B high-water = 60 B) still leaves it 1 B short - the number is
@@ -522,6 +532,30 @@ static void drain_cmd(void)
 
 int main(void)
 {
+#if !defined(HOST)
+    /* GUARDRAIL: F-175 - the fix the inverse bisect found. probe/lora's hal_init() is the gate (deleting it LOSTs, and
+     * deleting only its three level writes LOSTs while deleting only the pull operations LANDED), so the requirement is:
+     * THE COPROCESSOR MUST CONFIGURE ITS OWN PADS AND DRIVE THEIR LEVELS. Handing the pads over from the HP core is not
+     * enough - which is exactly why every store from this firmware was discarded for the whole investigation while the
+     * reference image, booted by the very same app, drove the same pad fine. Run it once, on the first wake: a loop over
+     * the 7 SPI pads plus the three idle levels, sized to the bytes the pool can spare.
+     * GUARDRAIL: this must be unconditional on the ULP side. Doing it from `lora_pads_setup()` on the HP core was tried
+     * first and measures as LOST (F-162, F-175) - the clock/mux ownership is per-master. */
+    {
+    /* GUARDRAIL: automatic, not static const. The ULP linker folds the image into RTC slow memory and a file-scope const
+     * array got placed outside the range its 16-bit-encoded absolute relocs can reach, which the linker reported as
+     * "external relocation ... but no symbol". A local array sits on the ULP stack, in range, and the list is written
+     * once per wake, which costs nothing the driver cares about. */
+    u8 lora_pads[7] = { 9, 10, 8, 12, 11, 13, 14 };   /* SCK MOSI NSS RST MISO BUSY DIO1, as the C driver */
+        for (u32 i = 0; i < 7u; i++) ulp_riscv_gpio_init(lora_pads[i]);
+        ulp_riscv_gpio_output_enable(9);   ulp_riscv_gpio_output_enable(10);
+        ulp_riscv_gpio_output_enable(8);   ulp_riscv_gpio_output_enable(12);
+        ulp_riscv_gpio_input_enable(11);   ulp_riscv_gpio_input_enable(13);
+        ulp_riscv_gpio_input_enable(14);
+        *(volatile u32 *)0x60008404u = (1u << (8 + 10)) | (1u << (12 + 10));   /* NSS, NRST high */
+        *(volatile u32 *)0x60008408u = (1u << (9 + 10));                        /* SCK low        */
+    }
+#endif
 #if defined(HWPROBE)
     /* GUARDRAIL: PAD 8 (bit 18), the output pad this firmware enables - not pad 11, which is INPUT_ONLY here so its OUT
      * data bit is not a meaningful target (that mistake made one whole bisect round inconclusive). The baseline trap (R18)
@@ -532,9 +566,18 @@ int main(void)
      * clock-enable may be per-master, so an HP-side set of the same bit would not open the ULP's own path - which would
      * explain every symptom (HP sees its own writes, the ULP's reads and writes vanish, and the difference between the
      * two firmwares is invisible in every dump because the register reads the same). */
-    ulp_riscv_gpio_init(8);
-    ulp_riscv_gpio_output_enable(8);
     *(volatile u32 *)0x60008404u = (1u << (8 + 10));
+    /* GUARDRAIL: F-166 - hold the coprocessor awake for ~1 ms AFTER the store. The hypothesis: a ULP peripheral write
+     * is posted, and `ulp_riscv_halt()` right after it gates the ULP's bus before the write reaches the APB - which is
+     * exactly why the reference image (whose wake lasts 195 ms of SPI after the same store) lands and our probe (which
+     * stores and returns within microseconds) does not, and why every content bisect - size, .data, preamble, flags,
+     * config, placement - failed to flip the answer. */
+    {   /* GUARDRAIL: spin on rdcycle, the way MS() already does on this core (1 ms at the measured 17.5 MHz). */
+        u32 t0, t;
+        asm volatile("rdcycle %0" : "=r"(t0));
+        do { asm volatile("rdcycle %0" : "=r"(t)); } while ((t - t0) < 17500u);
+    }
+    *(volatile u32 *)0x60008404u = (1u << (8 + 10));   /* and once more, after the delay, for good measure */
     /* GUARDRAIL: count this wake, or the HP side cannot tell "the probe ran and the store was lost" from "this image never
      * ran at all" - which is exactly how two earlier bisect results became void (F-159). The liveness counter must be in
      * the same image as the experiment. */
@@ -663,6 +706,13 @@ int main(void)
      * look: if the bit comes back and pl_hwres is 1, the C store lands; if the bit stays clear and pl_hwres went to 1, the
      * store was accepted and discarded (the echo signature). Either way the answer is a fact about the write. */
     repl_wake_count = repl_wake_count + 1u;
+#if defined(HWPROBE_MIN)
+    /* GUARDRAIL: the discriminator. Same 7 931-byte image, same linker, same everything - but main returns immediately
+     * after the store, so no interpreter, no block layer and no drain ever runs. If the store LANDS, the fault is in what
+     * our main goes on to DO; if it stays LOST, the fault is in the image itself (its size or layout), which is a very
+     * different bug and points at the linker script rather than the code. */
+    return 0;
+#endif
 #endif
     return 0;                            /* -> ulp_riscv_halt(): DONE, timer re-arms */
 }

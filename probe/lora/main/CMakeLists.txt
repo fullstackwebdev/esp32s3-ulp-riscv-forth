@@ -4,6 +4,12 @@ if(LORA_STAY_AWAKE)
     add_definitions(-DCONFIG_LORA_STAY_AWAKE=1)
 endif()
 
+# GUARDRAIL: F-170's cut needs the define on the ULP side, which is fed by LORA_FLAGS (see LORA_REPL_FLAGS below),
+# not by add_definitions - the ULP is a separate sub-build and a flag that reaches one build is a footgun (F-160).
+if(LORA_MIN)
+    set(LORA_FLAGS "${LORA_FLAGS} -DLORA_MIN=1")
+endif()
+
 set(COMPONENT_SRCS "lora_main.c")
 set(COMPONENT_ADD_INCLUDEDIRS "")
 set(COMPONENT_REQUIRES soc ulp driver esp_timer)
