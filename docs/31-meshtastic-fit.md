@@ -111,3 +111,91 @@ comments illegal in block sources. Build: `-Os`, `-DULP_EARLY=0`, `-DFOREIGN_ULP
 `-DENGINE_TEST=0`. Driver: frequency/SF/BW/CR/preamble/header/CRC all pinned at compile time, payload fixed at
 **4 bytes**, DIO1 unused (200 ms air-time wait instead of the IRQ line), no CAD/LBT, no hopping, no sync-word change,
 no queue, no power control, SPI bit-banged at ~144 kHz (≈970 cycles/byte, measured on the C ULP driver).
+
+## Appendix A — app space needed, built from MEASURED word sizes
+
+Per-word cost on the board (each definition typed separately, `HERE`/`LATEST` deltas, `MEMSZ` 2 566, boot free 1 328):
+
+| word | code | hdr | total | role |
+|---|---:|---:|---:|---|
+| `PIN!` | 38 | 3 | 41 | primitive |
+| `PIN@` | 30 | 3 | 33 | primitive |
+| `BITOUT` | 58 | 3 | 61 | primitive |
+| `>BYTE` | 22 | 3 | 25 | primitive |
+| `BUSY-LOW` | 34 | 3 | 37 | primitive |
+| `NSSLO` | 14 | 3 | 17 | primitive |
+| `NSSHI` | 12 | 3 | 15 | primitive |
+| `BITREAD` | 42 | 3 | 45 | primitive |
+| `CLOCKLOW` | 28 | 3 | 31 | primitive |
+| `RD-BYTE` | 24 | 3 | 27 | primitive |
+| `RD2` | 16 | 3 | 19 | primitive |
+| `INEN` | 28 | 3 | 31 | primitive |
+| **primitives total** | | | **382** | needed by everything |
+| `INIT` | 488 | 3 | **491** | radio config: 45 command bytes written as code |
+| `SEND` | 124 | 3 | **127** | transmit |
+| RX words (`SR RC IQ RL RDUMP RB RXTAKE RX1`) | 198 | 24 | **222** | receive |
+
+So the radio end of the stack is **1 222 B** of app space today, and it works (measured, both directions).
+
+To carry a **Meshtastic-decodable** frame, add (derived from the source read above, priced against the table):
+
+| piece | bytes | basis |
+|---|---:|---|
+| AES-128 CTR: S-box table 256 + round keys 176 + code ~250 | **~680** | derived; encryption is needed per packet, so it is resident for the whole session |
+| protobuf `Data{portnum, payload}` encode (varint + length-delimited) | **~160** | derived |
+| 16-byte `PacketHeader` build + packet-id counter + node num + channel hash | **~80** | derived |
+| **TX-only, interoperable** | **~2 140** (1 222 + 918) | sum |
+| table-driven `INIT` instead of 491 B of code: ~100 B code + ~50 B table | **−390** | measured 491, derived replacement |
+| **TX-only, interoperable, compacted** | **≈ 1 750** | sum |
+| + RX decrypt + protobuf parse (reuses the AES phase) | **+~300** | measured RX 222 + derived |
+| + ACK/retry, dedupe ring, duty-cycle accounting | **+400…800** | derived |
+
+**Answer to "how much app space":** **≈ 1 750 B for a transmit-only device that a Meshtastic node can read,
+≈ 2 050 B for both directions, ≈ 2 450–2 850 B for something usable as a device.** Today the machine gives
+**1 328 B** at the prompt and 61 B spare once the current driver is loaded, so the gap is **+450 to +1 500 B**.
+
+Every byte of that gap has to come out of the 8 KB region, because the image is at 7 931 / 7 932 B:
+
+| lever | size | how it was measured |
+|---|---|---|
+| interpreter text (`rsicv32-esp-elf-nm --size-sort`) | `vm_enter` **2 104 B**, `main` 534, `word` 314, `interpret` 302, `mkhdr` 210, `blk_xfer` 142 — text **4 834 B** total | measured on the built ELF |
+| pool `mem` | **2 566 B** in `.data` — so freeing 1 text byte buys exactly 1 pool byte | measured (symbol `mem` = 2566) |
+| baked prelude inside the pool | **2 438 B** (from `uforth -d`); the per-word split is the next thing to measure | measured total |
+| ULP stack reserve | **260 B, at 0 B free** (high-water 244/244) — cannot be a source | measured by the board's own stack report |
+
+So the levers, in order of value: **(1)** `vm_enter` is 27 % of the whole image — a simpler inner interpreter is the
+only large single win; **(2)** trim the 2 438 B baked prelude; **(3)** ship a radio-target image without the block
+store and its server path when the radio app is what runs; **(4)** the table-driven `INIT` above, which is the one
+lever that is *app-side* and does not touch the engine.
+
+## Appendix B — the chained-phase strategy, and what it costs
+
+Chaining works, and with more app space it becomes *simpler*, because the tax that makes it expensive today is
+removable: **every phase pays for the words it uses, since a phase cannot see another phase's definitions**
+(measured: a phase calling another phase's `DRAW` is refused by name). Today that tax is the **382 B** primitive set,
+re-declared in each phase.
+
+The structure that removes it:
+
+1. **Resident layer (baked into the image, callable from every phase):** the pad/SPI primitives — 382 B measured,
+   plus `>BYTE`/`RD-BYTE`/`NSSLO`/`NSSHI`/`BUSY-LOW`/`INEN`. Cost paid once; each phase then costs only its own job.
+2. **Phases, each one job, each ≤ 999 B window:**
+
+| phase | job | budget |
+|---|---|---:|
+| `RADIO-INIT` | table-driven config (~50 B table + loop) | ~100 B |
+| `FRAME` | 16-byte header + protobuf `Data` encode | ~200 B |
+| `AES` | AES-128 CTR, encrypt and decrypt (same routine) | ~600 B |
+| `TX` | `WriteBuffer` + `SetTx` + `TxDone` from `GetIrqStatus` | 127 B measured |
+| `RX` | continuous `SetRx`, `RxDone`, `ReadBuffer` | 222 B measured |
+| `ACK` | counter/retry/hop state machine | ~200 B |
+
+3. **State lives in `examples/apps/registry.fs`, below the seal** — packet id, node number, channel hash, retry
+   counter, dedupe ring, and the 32-byte channel key. It survives the hop; it also *costs pool bytes* like everything
+   else, so a 256 B S-box and 176 B of round keys live in the same budget.
+4. Rules that do **not** go away with more app space: one definition per 92 B interpret-state boundary, typed lines
+   under 63 B, no cross-line `IF`/`ELSE`, no `DO`/`LOOP`, descriptors on an 8-block stride, and a phase hop costs
+   **4.5 ms** (measured: 4.5 of the 5.1 ms a hop costs, `repl_main.c`).
+5. **Performance is not the constraint — memory is.** AES-128 CTR over a ~66 B packet is ~5 blocks × 10 rounds;
+   at the ULP's 17.5 MHz (measured cycle counter) with this token-threaded engine that is a few tens of ms, against
+   an air time of ~180 ms at SF9/BW125 for that size. The radio dominates; the cipher fits in the gaps.
