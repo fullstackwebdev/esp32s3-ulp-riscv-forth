@@ -601,7 +601,9 @@ static void seed_poll(void)
              * the harness happened to open the port. */
             /* GUARDRAIL: `#z` measures the ULP's peripheral write in a build that has the HWPROBE store compiled in; in
              * the shipping image there is no such store, so "LOST" here only means "this build is not the probe build".
-             * `strings build/*.elf | grep -c HWPROBE`-style checks, or `storetest`'s absence, decide that. */
+             * Confirm with strings on the elf (search for the HWPROBE probe string) before trusting either answer.
+             * GUARDRAIL: never write a glob-plus-star inside a block comment - the compiler takes it as a nested comment
+             * open and -Werror=comment fails the build, which is how this line changed. */
             if (n >= 2 && ln[0] == '#' && ln[1] == 'z' && (ln[2] == 0 || ln[2] == ' ')) {
                 REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
                 uint32_t w0 = ulp_repl_wake_count;

@@ -275,3 +275,18 @@ Two concrete habits follow:
 
 Corollary: when a counter or readback is your only witness, check it can produce a *positive* result somewhere. A probe
 that has never returned "good" in any firmware is not a measurement.
+
+## R21 — A failed build leaves the previous binary behind; check the artifact, not the command
+
+Twice in one session a build **failed** and the next command printed a size line that looked like a result — from the
+binary left on disk by the *previous* build. `riscv32-esp-elf-size build/.../ulp_main.elf | tail -1` has no way to say
+"this is stale", and a plausible number is the most convincing kind of wrong.
+
+`idf.py build` exits nonzero and prints `ninja: build stopped`, so:
+
+* test the **exit status**, not the presence of an output file;
+* when a number is the measurement, print the artifact's timestamp next to it (`ls --time-style=+%H:%M:%S`);
+* and treat a size that matches the previous run as evidence of *no change*, not of success.
+
+The related trap in the same class: `-Werror=comment` killed a build because a guardrail comment quoted a shell glob — the
+compiler takes `/*` inside a block comment as a nested open. Comments quoting commands must avoid that sequence.
