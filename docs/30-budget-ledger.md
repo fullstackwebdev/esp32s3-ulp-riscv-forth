@@ -58,3 +58,38 @@ assert card drawing and key behaviour. It is where this work continues.
 | LoRa frame by the radio's own account | **met** — `SEND` = 1 (TxDone), `GetStatus` 0x2222, FIFO round-trip |
 | outside receiver | **not met, and unreachable here** — only `/dev/ttyUSB0` exists; `lsusb` shows no SDR, no second radio, no `/dev/ttyACM*`. docs/29 records the same limitation for the C driver |
 | App Store 16/16 | **not met** — shelf phase exceeds the 995 B window that the budget leaves; the phase split above is the fix |
+
+## Continuation 5: the shelf was brought to 996 B, and the last byte has a name
+
+Measured with the store's own refusal message (`996 B image is 1 B over the
+995 B window`), single-caller folds inside the shelf phase are worth 4-12 B:
+
+| fold | bytes | verdict |
+|---|---|---|
+| `OPND` into `OPEN` | 3 | valid (fits one 92 B block, no behaviour change) |
+| `KENT` into `KEYDO` | 3 | valid |
+| `WAIT` into `RUNSHELF` | 3 | **invalid** - nesting a counted loop is refused and the block upload reports NOTHING, so `RUNSHELF` silently did not exist |
+| `COLR`/`COLL` into `KJ`/`KK` | 6 | **invalid** - `COLR`/`COLL` are not shelf-local: `examples/apps/sheet/sheet1.fs` uses them, so they are app vocabulary, not plumbing |
+| `SLOTNO`+`FOOT` into `DRAW` | 6 | **invalid** - `DRAW` measured 95 B, over the one-block ceiling; `FOOT` alone fits (DRAW 80 B) and is valid |
+| grouping five card words into `CARDS` | 12 | **invalid** - three cards per definition measured 122 B; two cards fit one block only if the definition stays on one line |
+
+So the honest arithmetic is: 1 000 -> 996 B with two safe folds, then **1 B short**,
+and the byte that would finish the job cannot come from the shelf without either
+removing shared vocabulary or pushing a definition past one 92 B block. The
+independent evidence that the *upload* is what refuses, not the radio: with the
+folds applied the store reported `shelf: 996 B image is 1 B over the 995 B
+window` - the first time the shelf was ever built, and it is a 1-byte problem
+against a 995-byte window, not a 1 000-byte phase.
+
+Two rules earned their keep again while doing this:
+* `R1` (a `\` comment in a block source compiles as words) - my own GUARDRAIL
+  prose poisoned the shelf phase exactly that way, and the screen drew 168 B of
+  header and nothing else. Phase notes must use `( ... )`.
+* `R21`-family ceilings are enforced by the *loader*, by name, and my checker
+  reproduces the same 92 B measure before the board is asked.
+
+The legitimate remaining fix is `docs/26`'s own model: the shelf becomes two
+chained phases, which costs no pool bytes and changes no output. Because `RW`
+rewinds before every phase, phases do **not** have to share the window with each
+other - each one owns it alone - so a split is admissible and it is not a
+workaround.
