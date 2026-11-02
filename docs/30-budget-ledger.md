@@ -93,3 +93,22 @@ chained phases, which costs no pool bytes and changes no output. Because `RW`
 rewinds before every phase, phases do **not** have to share the window with each
 other - each one owns it alone - so a split is admissible and it is not a
 workaround.
+
+## Continuation 5b - the shelf does fit; the entry read hangs
+
+With the valid folds plus `I1` (BAND's six repeated `NL INROW` collapsed into one word) the store
+stopped refusing the shelf entirely: no `ERR_DICT`, no `996 B is 1 B over`, no `REFUSING`. The phase
+compiled inside the 995 B window, and the build then failed at the *next* step -
+`dev.num("' RUNSHELF .")` timed out, i.e. the coprocessor stopped answering while the entry xt was
+being read. That is a new, narrower symptom (the same "board stopped answering after the program
+exited" family the loader documents), not the window.
+
+Two hazards were also caught this way, both mine:
+* prose in a phase file poisons it twice over - a `\` comment compiles as words (R1), and a `(` …
+  `)` note ends at the *first* inner `)`, so the rest of the note became code and the build reported
+  `THAT?`, `FIT?`, `EXAMPLES/APPS/SHEET/SHEET1.FS?`. Notes about phases belong in docs, not in block
+  storage. The file is back to the committed, verified text.
+* removing `COLR`/`COLL` looked like dead plumbing and is not: `sheet1.fs` uses them.
+
+State left verified: image 7 931 B / 7 932 B, suite 30 PASS / 0 FAIL, oracle green, radio still
+reporting TxDone.
