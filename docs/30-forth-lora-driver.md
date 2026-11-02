@@ -138,6 +138,27 @@ So it is parked off, with the number recorded next to the flag. One byte is the 
 than "we do not know how big it is" — but it still has to come from somewhere honest (a real reclaim, then a re-measurement
 of the stack high-water), not from shaving a word the interpreter needs.
 
+### The gated `P()` — built, optimised, measured, and it still does not fit
+
+Instead of a primitive pair, the guard itself can open **one 64-byte window** (0x60008400..0x6000843F, the RTC GPIO
+register file) and leave everything else landing in `junk`. That is strictly better design than the primitives — the hot
+path is unchanged (`a < MEMSZ` still returns first) and an accident cannot reach the window, because `-1 !` or an
+underflowed address lands nowhere near it. It was implemented three ways and measured:
+
+| shape | `.text` cost | image | stack high-water |
+|---|---|---|---|
+| range test inline in `P()` | +42 B | 7 933 | 240 B |
+| all of `P()` `noinline` | **+12 B** | 7 903 | **269 B (+29)** |
+| fast path inline, `P_slow()` `noinline` | +38 B | 7 929 | 240 B |
+
+The cheap shape buys its bytes by making **every** byte access pay a call frame, and the paint caught it: 240 → 269 B of
+stack, which is exactly the margin the reserve was borrowing. The shapes that leave the stack alone cost ~40 B, and
+`POOL` is 7 892 with an image of 7 891.
+
+So: **the gate is correct, implemented, and off** (`-DHW_GATE`), with these four numbers written next to the flag. It is a
+one-flag change the day ~40 B of real reclaim exists. That is the honest end of this line of enquiry: not "we could not
+build it", but "we built all three versions and none of them fits the machine we have".
+
 ### Why not relax `P()` instead?
 
 Because `P()` is the single reason a wild pointer in **any** Forth word is harmless: `@`, `!`, `C@`, `C!`, `W@`, `W!`, the

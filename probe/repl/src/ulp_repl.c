@@ -136,6 +136,15 @@
  * that pay for it, and re-measure the high-water when the reserve drops. */
 /* #define HWPRIMS 1 */
 
+/* HW_GATE: the 64-byte RTC GPIO window opened in P() itself (F-149). Measured 12 B of .text, +29 B of stack high-water
+ * (240 -> 269, painted, 0 B free), so ~41 B end to end against 12 B of room. Kept implemented and off. */
+/* #define HW_GATE 1   -- measured shapes, none affordable (baseline image 7 891, POOL 7 892):
+ *      gate inline inside P()            +42 B  (7 933)
+ *      all of P() noinline               +12 B  (7 903)  but painted stack 240 -> 269 B (+29)
+ *      fast path inline + P_slow noinline +38 B  (7 929)
+ *   So the true price is ~40 B in every shape that leaves the stack alone, and the one cheap shape pays for it in stack.
+ *   The machine has 1 B. The gate is implemented, correct and OFF; the day 40 B of real reclaim exists it is one flag. */
+
 #include "uforth.c"
 
 /* ---------------------------------------------------------------- rings */

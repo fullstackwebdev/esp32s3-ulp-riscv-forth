@@ -84,7 +84,56 @@ static u8 mem[MEMSZ];
 #endif
 static u8 junk;
 
+/* ---------------------------------------------------------------- the hardware gate
+ *
+ * P() is what makes a wild pointer harmless: anything outside mem[] lands in one byte of `junk`. Forth therefore cannot
+ * reach a peripheral at all (F-149), which is correct for every program that does not want to, and fatal for the one that
+ * does - the LoRa driver needs the RTC GPIO registers.
+ *
+ * The repair is a GATE, not an exemption: exactly one 64-byte window, the RTC GPIO register file, is real hardware.
+ *   * the hot path is unchanged - `a < MEMSZ` still returns first, so token fetch pays the same single compare;
+ *   * an accident cannot reach the gate: `-1 !`, an underflowed address or a miscalculated offset all land far outside
+ *     0x60008400..0x6000843F, so the "wild pointers are harmless" property that F-149 depends on still holds;
+ *   * what CAN reach it is a constant someone wrote on purpose, which is what a register address is.
+ *
+ * GUARDRAIL: the gate is `#ifndef HOST` on purpose. On the host those addresses are not mapped - returning a real
+ * pointer would segfault the test binary - so the host keeps its own simulated RTCIO window in rd16/wr16, which is what
+ * tests/lora_spi.py decodes. Two different mechanisms, one address range, and the host one must never be more
+ * permissive than this gate (F-149: a simulator that accepts what the chip refuses turns a hardware limit into a tick). */
+#define HW_GATE_LO 0x60008400u   /* RTC_GPIO_OUT_REG     */
+#define HW_GATE_SPAN 0x40u       /* 64 B: the whole RTCIO register file */
+/* GUARDRAIL: noinline is a BUDGET pin here, the same technique the wr8/wr16 comment above records (it was worth -90 B
+ * there). Inlined, the gate's compare plus constant is duplicated into every caller; outlined it appears once and costs
+ * one call on the MISS path only, because `a < MEMSZ` still returns before the call is ever reached in the common case. */
+#if defined(HW_GATE)
+/* Fast path / slow path, and the split is the whole point.
+ *
+ * The fast path is what every token fetch runs: ONE compare and a lea, fully inlined, exactly what it was before the gate
+ * existed. The gate's range test lives in P_slow(), noinline, which is only ever called when the address is outside
+ * mem[] - i.e. never for a normal program and only for the deliberate constant addresses that name a register.
+ *
+ * GUARDRAIL: this shape exists because the first attempt put the range test inline (42 B) and then made all of P()
+ * noinline to save bytes (12 B) - and the second version cost 29 B of STACK: the painted high-water went 240 -> 269 B,
+ * because every single byte access paid a call frame. A call on the cold path costs nothing at run time (the path is not
+ * taken) and nothing on the stack (no frame is entered). */
+static u8 * __attribute__((noinline)) P_slow(u32 a)
+{
+#ifndef HOST
+    if ((u32)(a - HW_GATE_LO) < HW_GATE_SPAN) return (u8 *)(uintptr_t)a;   /* one range test */
+#endif
+    return &junk;
+}
+
+static inline u8 *P(u32 a)
+{
+    return a < MEMSZ ? mem + a : P_slow(a);
+}
+#else
+/* GUARDRAIL: measured - the gate needs bytes the machine does not have while it is off, so it stays off until they
+ * exist. See docs/30 §5c and the fast/slow note above for the two shapes that were measured. */
 static u8 *P(u32 a) { return a < MEMSZ ? mem + a : &junk; }  /* wild pointers are harmless */
+#endif
+
 static u8  rd8(u32 a)            { return *P(a); }
 /* GUARDRAIL: noinline is a BUDGET pin, not a performance choice. With 3-byte headers `find()` and `mkhdr`
  * touch wr8/wr16 far more often, and GCC's decision to outline them is worth -90 B of .text — which is the

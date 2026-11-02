@@ -2432,3 +2432,22 @@ pointer in any Forth word is harmless (every accessor goes through it), and lett
 Forth typo into a write to a timer, the RTC, the brownout detector or the flash controller. One narrow door, named for
 what it does, beats a memory model with a hole in it.
 
+**J-126 · The gated P(): built three ways, measured, and none of them fits.**
+Instead of HW@/HW!, open one 64-byte window inside the guard itself - the RTC GPIO register file - so `-1 !` and every
+underflowed address still land in `junk` while a deliberate register constant gets through. All three shapes were built and
+measured against a baseline image of 7 891 B and a POOL of 7 892:
+
+  range test inline in P()               +42 B (7 933)
+  all of P() noinline                    +12 B (7 903)   but painted stack 240 -> 269 B (+29)
+  fast path inline + P_slow noinline     +38 B (7 929)
+
+The cheap shape pays in stack - a call frame on every byte access - which is exactly the margin the reserve was borrowing,
+and the paint said so out loud. The shapes that leave the stack alone cost ~40 B and there is 1 B. So the gate is correct,
+implemented and OFF, with the four numbers beside the flag; it becomes a one-flag change the day 40 B of real reclaim
+exists.
+
+Also noticed while reading the paint on the gated builds: `#k` reports "high-water 284 B of 284 B region (0 B free)" on the
+*ungated* image too, where docs/23 records 240 B. Either the stack has grown since that measurement or the report is
+counting something else - that discrepancy is written down here rather than smoothed over, because a reserve policy built on
+a stale high-water is a decision made on a number nobody re-checked.
+

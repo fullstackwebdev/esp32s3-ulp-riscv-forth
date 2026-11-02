@@ -242,6 +242,11 @@ static void store_boot(void)
  * transfer window under a real LOAD - which surfaced as `ERR_CRC` on the first block read and a cascade of NAME?.
  * The budget below is the SAME number flash_safe.sh refuses to exceed (POOL=7892), so the paint can never overlap the
  * image unless the gate is bypassed: image end <= 0x1EC7 < base 0x1ED0. If POOL changes there, change it here. */
+/* GUARDRAIL: this constant MUST equal POOL in flash_safe.sh. It is the point where the stack paint begins, so a value
+ * below the real image size paints live .bss and the boot assertion fires - which is exactly what happened when the
+ * hardware gate in P() moved the image to 7 903 B: "the stack paint is covering live .bss". The assertion is the feature;
+ * the fix is to keep the two numbers tied (F-131's lesson: an instrument that writes must derive its base from an
+ * enforced budget). */
 #define ULP_POOL_BUDGET 7892u
 #define STACK_TOP   0x1FF0u
 /* the paint starts exactly AT the budget: flash_safe.sh refuses any image whose size passes ULP_POOL_BUDGET, so the
