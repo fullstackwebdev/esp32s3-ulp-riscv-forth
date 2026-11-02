@@ -648,3 +648,154 @@ Verified to fail without the fix (`a chain into an UNDESCRIBED block returns` �
 
 **Lesson:** the same symbol can be two different words in this machine — `'` and `[']` differ by *when* they parse. If a
 guarantee's code path never runs in a test, the guarantee is a comment.
+
+## F-135 · A phase's own drawing vocabulary costs ~175 B of the window, and the first real app did not fit
+Measured on the host engine at device geometry, with the thin-resident launcher (`examples/appstore.fs` = the dispatcher
+verbatim, `examples/apps/registry.fs` = the cells):
+
+```
+resident (dispatcher 158 B + registry/cells ~177 B)      335 B   -> window 1 366 - 335 = 1 031 B
+calculator phase, before its last five words            1 004 B   (920 code + 84 headers)
+those five words (KN KX INI STEP RUN1)                   ~180 B   -> 1 184 B, i.e. 153 B over the window
+```
+
+The phase was refused part-way with `KX?`/`CLR?` and **no error on the line that failed**: when the header area meets the
+code area, `mkhdr` cannot record the name, so the definition is simply absent and the *next* use reports `NAME?`. `HERE`
+1984 vs `LATEST` 2011 (27 B apart) was the only visible sign. That silence is worth a rule of its own: a compile that
+cannot record a header must fail by name.
+
+**What the 1 031 B consists of:** ~175 B of display vocabulary that every phase must carry (`ESC CSI AT .N` and friends —
+the price of the thin-resident decision, charged per phase), ~90 B of strings, and the calculator's own ~800 B of logic.
+Cutting features to fit is what the contract forbids; the answer it prescribes is a second phase.
+
+**Status: open, named, with a number.** `examples/apps/calc/calc1.wip.fs` is deliberately *not* a `.fs` phase, is not in
+`cli.py`'s `LIBRARY`, and is not tested — nothing claims it works. Wave 2 splits the calculator into two phases (input +
+result, then the tape/history view) and proves the multi-phase app, which is the case the whole store budget was sized for.
+
+**Lesson:** measure the *phase* budget before writing the phase, not after. `cli.py --library` now refuses an over-window
+image, but only once the program compiles far enough to be measured — so the budget has to be arithmetic done first.
+
+## F-136 · `BASE n + @` is an UNALIGNED 32-bit load: it traps on rv32 and works on the host
+This machine has no `CELLS` word, so every cell index is hand arithmetic — and `MAIL_ST 1 + @` means "address plus ONE
+BYTE", not "the second cell". On x86 that is a legal unaligned load; on rv32 it is a trap (the same class as F-78's
+misaligned `lh`/`lw`).
+
+Measured: the mail phase **drew its rows on the host and hung on the chip**, right after the title bar, with no error
+anywhere - `MAIL_ST 1 + @` was the first cell it touched. Reading the same cells at the REPL with `1 +` hung the console
+(`got '0'` then silence); with `4 +`/`8 +` it answered `0 0 0` immediately. After the fix the device frame matches the
+host frame for every text row.
+
+**Fixed:** the offsets are multiples of four (`MAIL_ST 4 +`, `MAIL_ST 8 +`), and the linter gained **R19 alignment**: a
+literal `n + @`/`n + !` with `n % 4 != 0` is a finding, with the trap in the message. `C@`/`C!` are bytes and stay fine.
+
+**Lesson:** the host engine is not a model of the chip's *alignment*. Any test that passes on the host and hangs on the
+board should suspect an unaligned access before anything else.
+
+## F-137 · CORRECTED: the frame is complete; the shelf's `NL` was LF without CR
+
+The first version of this finding said the chip lost the head of a ~1 KB frame through the 128 B output ring. **That was
+wrong, and the raw capture says so:** one shelf frame arrives as **1 231 bytes**, beginning `ESC[2J ESC[1;1H ESC[7m APP
+STORE` and ending with the footer `ESC[20;1H j/k h/l Enter`. Nothing is lost.
+
+What actually broke the picture was in the shelf: `: NL 10 EMIT ;` — **LF without CR**. Every card row therefore began at
+the column the previous row ended on (70), so the terminal wrapped and the next row was drawn over the one above it. The
+operator's screen showed exactly that: borders split across lines, `rw/cl` merged into `0/0`. On a real terminal LF moves
+down and keeps the column; only CR returns to column 1, and mail's `NL` had always been `13 EMIT 10 EMIT`.
+
+**Fixed:** the shelf's `NL` is `13 EMIT 10 EMIT`, and the host frame now renders with **zero** harness warnings where it
+previously warned `write past the screen at row 11 col 81`.
+
+**Lesson:** a "the ring loses bytes" theory should have been checked against the raw stream before it became a finding. The
+stream was one `open(...).read()` away, and it disproved the theory. The harness's own warning (`write past the screen at
+row 11 col 81`) was the clue that the defect was in the drawing, not the transport.
+
+**Still open on the device:** with `NL` fixed the chip's stream contains an `ESC 0` sequence the grid reader does not know,
+and the phase does not return on `q`. Both are named; the next step is to find which word emits a bare `ESC 0` (the `OFF`
+path is `ESC [ 0 m`, not `ESC 0`) and whether the `q` is being consumed before the key loop reads it.
+
+## F-138 · The store was entered with `RUNSHELF` instead of `56 GO`, so `q` had nowhere to go
+`./cli.py --appstore` started the shelf by calling the phase's word directly. A phase **sets `NXT` and returns**; the loop
+that adopts the next descriptor is `SWITCH`, i.e. `GO`. Called directly there was no dispatcher, so:
+
+* `Enter` worked by accident - `OPEN` set `NXT` and the shelf's loop (`... NXT @ UNTIL`) exited, which *looked* like opening;
+* `q` in an app (`SHELF CHAIN`) set `NXT = 56` and **nothing adopted it**, so the operator saw exactly "q does not go back".
+
+Entering with `56 GO` (the shelf's own descriptor) makes both real: `Enter` sets `NXT` to the app, `SWITCH` adopts it, the
+app's `q` sets `NXT = 56`, and `SWITCH` adopts the shelf again.
+
+**Verified through a pty** (`probe/repl/tests/appstore.py`, now in `tests/device.sh`): 12/12 checks - the shelf draws five
+cards, exactly one card title is inverse (plus the bar), `j` keeps it at one, `Enter` opens MAIL, `q` returns to
+`APP STORE`, and leaving lands back at the prompt with no `ERR_` anywhere.
+
+**Also: the shelf's image (1 032 B) needs a NINE-block descriptor** (`ceil((20+1032)/128)`), which ran past block 63 into
+reader content at 64. Content now starts at 72 so every descriptor in the table has its full nine blocks; gopher keeps one
+page because 112..119 is what is left.
+
+**Lesson:** "the app opens but does not come back" is a dispatcher question before it is a key question. A phase that sets
+`NXT` and returns is half a jump.
+
+## F-139 · A card whose app was never built adopted whatever an older build left in that block
+Two of the six cards had no phase: **sheet** (over the window, parked) and **gopher** (lane timed out). Their descriptor
+blocks still held bytes from earlier experiments, so pressing Enter on those cards adopted *that*: the operator saw
+"GOPHER crashes and won't let me exit". Measured directly: `40 3 BLKXFER` answered **-5 = BK_RANGE**, because the stale
+header named a block outside the store.
+
+**Fixed in the build:** `cli.py --appstore` blanks the descriptor of every card target it did not build (`CARD_DESCS =
+8, 24, 32, 40, 48`). Seeding an empty payload clears the block to spaces, so a later adopt fails the magic check and
+`PICKX` returns `NOOP` - the card refuses and the store stays usable. Measured after: desc 40 and 24 answer **-5** (refused),
+desc 48 and 56 answer **0** (built and adopting).
+
+**Lesson:** "the app is missing" and "the app is stale" look identical from a card. A build that skips an app must
+invalidate its slot, not leave the previous occupant there.
+
+## F-140 · READ executes an unknown token on the chip (`ERR_ULPCODE` / `ERR_UNNAMED`) - open
+The reader adopts cleanly (status 0), draws its bar, and then stops with `ERR_UNNAMED` after ~590 bytes. The host renders
+the same phase without complaint, so it is another host/device difference; the reader is the only phase that reads eight
+blocks under `TYPE` from a page whose lines were authored at 59 characters, so the first suspect is a row that runs past
+the seeded content and prints padding/status bytes.
+
+**The capture says what it is** (build reader, `#d 48`, `48 GO`, read the stream):
+
+```
+byte 223  ERR_UNNAMED            an error code with no name in src/msg_codes.h
+byte 242  ERR_ULPCODE 0xfa       then the interpreter executing non-ASCII bytes
+byte 281  ERR_ULPCODE 0xc4       ... 0x97, 0xa4, 0xc4, interleaved with fragments like 'hDBN', '/B\x04'
+```
+
+`0xfa`/`0xc4` are not text and not tokens; that pattern is `TYPE` reading from an address that is not a buffer. **`BLOCK`
+pushes its STATUS where an address is expected when the transfer fails** (`p_blk_block`: `blk_errmsg(st); PUSH((u32)st)`,
+so a failure hands back `0xFFFFFFFA` for -6), and the reader uses the result without checking. The reader is the only phase
+that reads eight blocks per screen and the only one that does not test the status.
+
+**Two defects, named:** (1) the reader must check the status of every `BLOCK` before `TYPE` - a failed read has to be a
+refusal on screen, not a print from address -6; (2) its page base is still `64` (`RBLK = RT + 64 + page*8`) while content
+moved to **72** when the shelf's 9-block descriptor was given its room, so the arithmetic reads the wrong blocks even when
+the transfer succeeds. (3) Arguably the engine should push 0 on a failed `BLOCK`, so a bad read faults loudly instead of
+aliasing a status as a pointer - that is an engine decision, not a fix to paper over.
+**FIXED (both halves).** Engine: `p_blk_block` pushes **0** on all three failure paths (negative block, refused dirty
+switch, transfer failure) instead of `-5/-7/-6` as an address, with the status still reported by name - a null address
+faults loudly at the next access instead of aliasing a code. Reader: page base `64 -> 72` (content moved when the shelf's
+9-block descriptor needed room) and `RMAX` `NPG*8-8 -> NPG*8-1`, i.e. the clamp now reaches the last line of the document
+instead of stopping half way through page 2.
+
+Verified: the chip's stream is **708 bytes with no `ERR_` at all** (was `ERR_UNNAMED` + five `ERR_ULPCODE`s), and the
+reader draws its page. `tests/blocks.expected`, `tests/blocks_noserver.expected` and `tests/reader_logic.expected` were
+updated by hand for the deliberate contract change (`-7/-5/-4 -> 0`, base 72, clamp 15, `last blk=87`); host suite green.
+
+**Partly understood, and the honest state matters more than a tidy story.** The drop counter is back and the main core
+reads it (`#u` prints `dropped N`, zeroed at ULP boot; it cost 12 B of pool, 7 891 of 7 892 now). Every scenario I could
+construct reports **0 drops**: rest, a 2 560-byte single-wake flood through `TYPE`, and paced frames. Yet an UNPACED reader
+frame still loses its tail - two of eight rows, with a `5;1H` fragment inside a text row - and a PACED one (8 MS per row)
+arrives whole.
+
+So the loss is **not** `pl_emit` dropping: it happens downstream, between the ULP's ring and the bytes the host receives
+(`devio`/the console task's drain), and the counter cannot see it because the bytes never needed dropping. That is the next
+defect, named and measurable: instrument the console task's drain (what it read, what it wrote, whether the tail advanced
+by the same amount) and compare with `#u`'s `out h/t`.
+
+**Interim fix in the phase: 8 MS per 70-column row plus 8 MS before the footer.** It works (all eight lines and the footer
+arrive), but it is a workaround for an unexplained loss, and it is labelled as one here rather than dressed up as a rule.
+
+**Recommended engine change, needs permission (`.c`):** either reinstate a drop counter so `#u` can report it, or make
+`pl_emit` block while the ring is full. A silent drop is exactly the class of failure this project bans elsewhere.
+

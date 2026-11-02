@@ -26,9 +26,16 @@ flock -n 9 || { echo "board busy (another device run holds $LOCK)" >&2; exit 3; 
 # CORPUS (small programs + their expected lint verdicts), so it doubles as the linter's regression suite.
 # GUARDRAIL: dispatcher.py is the chain/window test - it builds 24 generated phases and requires the chain
 # to reach the last one and return. It runs before programs.py because it resets to a bare dispatcher.
-tests=(lint_vocab.py ms_clock.py dispatcher.py tui_menu.py adopt_sum.py programs.py tui_cli.py)
+# GUARDRAIL: appstore.py drives `./cli.py --appstore` through a pty - the operator's own path. It is the only test
+# that exercises term()'s raw mode with the dispatcher running, and it is what caught `q` never returning.
+tests=(lint_vocab.py ms_clock.py dispatcher.py appstore.py tui_menu.py adopt_sum.py programs.py tui_cli.py)
 fail=0
-for t in "${tests[@]}"; do
+# GUARDRAIL: the App Store lanes (docs/26) each land a tests/apps/<name>.py and nothing may have to be edited to run it -
+# a hand-wired runner is how a new app gets thought about and never written down (the same lesson as run.sh). The glob is
+# empty until wave 1 lands its first app, so an empty match must not be an error.
+apptests=()
+for f in tests/apps/*.py; do [ -e "$f" ] && apptests+=("$(basename "$f")"); done
+for t in "${tests[@]}" ${apptests[@]+"${apptests[@]}"}; do
     echo
     echo "=== $t ==="
     if ! nice -n 10 python3 "tests/$t"; then

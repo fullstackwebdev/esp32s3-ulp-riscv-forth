@@ -1,0 +1,19 @@
+cells=1 5 3
+rt(0,0)=0 rt(0,7)=7
+rt(1,0)=8 rt(1,5)=13
+rset 13 page=1 col=5
+trip=0 1 2 3 4
+trip=5 6 7 8
+clamp=0 0 8 9 15
+next 0=1 next 7=8
+prev 8=7 prev 5=4
+next end=9 prev start=0
+blk p1=72 79
+blk p2=80 83
+last blk=87
+mark 3=3 moved 8=8
+g back=3 page=0 col=3
+mark kept=3
+label=1 2
+line=6 mark shown=4
+

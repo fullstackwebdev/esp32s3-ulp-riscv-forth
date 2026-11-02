@@ -53,7 +53,11 @@ def main():
         dev.cmd("SEAL")
         seal, latest = dev.num("bh @ ."), dev.num("bl @ .")
         window = latest - seal
-        check("the dispatcher fits in the high store and seals", n == 5, f"{n} blocks, seal {seal}")
+        # GUARDRAIL: assert that the dispatcher is SMALL, not that it is exactly five blocks. The count is a property of the
+        # splitter: when `fsplit` learned to strip `( ... )` comments before cutting, boot.fs went from 5 blocks to 4 with
+        # the same 8 words - and a test pinned to "5" failed on a change that made the launcher smaller.
+        check("the dispatcher fits in the high store and seals", 1 <= n <= 8 and seal > 0,
+              f"{n} blocks, seal {seal}")
 
         # GUARDRAIL: the block server must be QUIET at rest. When the stack-paint canary drifted onto `blk_out`, the flag
         # read 0xA5A5A5A5 and the server answered 12 028 phantom requests in 2 s, trampling the transfer window under a

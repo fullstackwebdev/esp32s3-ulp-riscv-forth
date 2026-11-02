@@ -1201,22 +1201,28 @@ static void blk_errmsg(i32 st)
     msg(c);
 }
 
-static void p_blk_block(void)               /* ( n -- addr | code ) */
+/* GUARDRAIL: `( n -- addr )` - ALL THREE failure paths push **0**, never a status. They used to push BK_RANGE, BK_DIRTY
+ * and the transfer status, i.e. -5/-7/-6 where an ADDRESS was expected, and a caller that did not test the value printed
+ * 70 bytes from 0xFFFFFFFA. Measured on the reader phase: `ERR_UNNAMED` at byte 223, then a cascade of
+ * `ERR_ULPCODE 0xfa / 0xc4 / 0x97` - the interpreter executing the garbage that had been printed from a code. The status
+ * is still reported by name (blk_errmsg / msg), so nothing is silenced; 0 is the honest answer to "where is the block I
+ * could not read", and it faults loudly at the next access instead of aliasing a negative code as a pointer. */
+static void p_blk_block(void)               /* ( n -- addr ) */
 {
     i32 n = (i32)POP(), st;
-    if (n < 0) { msg(MSG_ERR_RANGE); PUSH((u32)BK_RANGE); return; }
+    if (n < 0) { msg(MSG_ERR_RANGE); PUSH(0u); return; }
     /* GUARDRAIL: one buffer, many blocks. Fetching a DIFFERENT block while the current one is dirty used to
      * discard the edits with no error at all (measured: write block 0, fetch block 1, SAVE, read block 0 ->
      * 0). Silent data loss is the worst outcome because the program believes it wrote. Refuse by name. */
     if (blkvars[BLK_VBLKDRT] && (u32)n != blkvars[BLK_VBLKN]) {
-        msg(MSG_ERR_DIRTY); PUSH((u32)BK_DIRTY); return;
+        msg(MSG_ERR_DIRTY); PUSH(0u); return;
     }
     blkvars[BLK_VBLKN] = (u32)n;
     repl_blk_req = 1u;                      /* tell the main core something is waiting */
     st = blk_xfer((u32)n, BLK_READ);
     repl_blk_req = 0u;
     if (st == BK_OK) { blkvars[BLK_VBLKDRT] = 0u; PUSH(BLKADR); return; }
-    blk_errmsg(st); PUSH((u32)st);
+    blk_errmsg(st); PUSH(0u);
 }
 static void p_blk_update(void) { blkvars[BLK_VBLKDRT] = 0xffffffffu; }
 /* GUARDRAIL: LOAD arms the SOURCE SWITCH instead of interpreting the block itself. It fetches the block once
@@ -1836,7 +1842,11 @@ static u32 pins;
  * single-image size, and the answering range had to grow with it. The two deliberate failures the other tests
  * depend on are kept by number: block 5 never answers (tests/blocks_noserver.fs), block 7 answers with a bad
  * checksum (tests/blocks.fs). 64 x 128 B of .bss in the host binary, 0 B on the chip. */
-#define SRVBLK 64
+/* GUARDRAIL: the answering range must cover the WHOLE store the ship layout uses, not just the first half. It was 64, and
+ * the App Store puts content at 64..119, so every content read on the host took the no-answer path: a phase that draws a
+ * page could not be run under the grid harness at all (`screen.py` exited 3 on a byte from the ignored request, lane MAIL
+ * measured it). 128 x 128 B of .bss in the host binary, 0 B on the chip - the chip's store is the flash-backed 128. */
+#define SRVBLK 128
 static u8 srv[SRVBLK][BLKSZ];
 
 static void srv_answer(void)

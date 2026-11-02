@@ -1,4 +1,4 @@
-: CR 10 EMIT ;
+: CR 13 EMIT 10 EMIT ;
 : SP 32 EMIT ;
 : ESC ( -- ) 27 EMIT ;
 : CSI ( -- ) 91 EMIT ;

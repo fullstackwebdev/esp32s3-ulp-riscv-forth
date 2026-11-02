@@ -29,6 +29,13 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
   R11 fit       a definition that cannot fit one 92 B block. The splitter refuses it at UPLOAD time - a board round
                 trip to learn something a parser can see. Measured: two demo phases were written at 94 and 96 B and
                 only failed when the chip was already flashing.
+  R16 phase state (PHASE sources only, `--phase`) a phase may not CREATE/VARIABLE/CONSTANT its own storage. A phase
+                is REPLACED on every adopt (docs/26): its cells and its dictionary are gone the moment another phase
+                is loaded, so state kept there resets silently on the way in - which reads as "the cursor jumps home"
+                and not as a storage bug. State belongs in examples/apps/registry.fs, below the seal.
+  R18 no return (PHASE sources only, `--phase`) a phase that never names its return path (no CHAIN, no `NXT !`, no
+                SHELF) cannot be left except by resetting the machine. docs/26 anti-slop item 4: every phase returns
+                to the shelf with q/Esc, and `q` returning to a dispatcher that then has nowhere to go is a reset.
   R9 (RETIRED)  `MS does not sleep` was earned when the primitive returned the wake count (measured: twenty
                 `200 MS` in 0.05 s). MS now busy-waits on rdcycle (tests/ms_clock.py: 100 MS = +100 ms,
                 300 MS = +301 ms), so the rule's premise is gone and it was removed instead of left as
@@ -40,8 +47,9 @@ program's words. A definition without a declaration is assumed ( -- ), which is 
 word that genuinely passes values must say so, and that declaration is documentation too.
 
     tools/lint_forth.py examples/tui_min.fs        lint a file (exit 1 on findings)
+    tools/lint_forth.py --phase examples/apps/x.fs  lint a PHASE source: R1-R12 plus R16 and R18
     tools/lint_forth.py --selftest                 prove every rule fires on the bug it came from
-    tools/sink.py                                  the CORPUS: 12 programs with their expected verdicts
+    tools/sink.py                                  the CORPUS: 14 programs with their expected verdicts
 
     Run tools/sink.py after EVERY change to a rule. --selftest proves a rule fires on its own fixture; the corpus
     proves it does not fire on good code and still fires on bad code that was written before the rule existed. A rule
@@ -54,7 +62,12 @@ import sys
 PRIMS = {
     # GUARDRAIL: the words the launcher needs that the first table missed - EXECUTE (1,0), BLKXFER (2,2), KEY?/LOAD.
     # A missing entry reads as "undefined word" in perfectly good code, which is the fastest way to make a linter hated.
-    "EXECUTE": (1, 0), "OVL": (1, 0), "BLKXFER": (2, 2), "KEY?": (0, 1), "LOAD": (1, 0), "SAVE": (0, 0), "UPDATE": (0, 0),
+    "EXECUTE": (1, 0), "OVL": (1, 0), "BLKXFER": (2, 2), "KEY?": (0, 1), "LOAD": (1, 0), "UPDATE": (0, 0),
+    # GUARDRAIL: `SAVE` PUSHES a status - p_blk_save ends with PUSH(st) (src/uforth.c:1257). This table said (0, 0), so the
+    # only lint-clean way to call it was a bare `SAVE`, which leaks one stack cell per press and kills the phase with
+    # ERR_STACK after 16; consuming the status (`SAVE 0= IF ...`) was reported as R3 underflow / R4 leak. Lane SHEET hit
+    # this: the linter was forcing the buggy form. Check a pushed status against the C before trusting the table.
+    "SAVE": (0, 1),
     # GUARDRAIL: machine variables are WORDS that push an address: `W @` is 1 push, not 0. Listing them as unknown
     # made a real launcher look like it used an undefined word.
     "HERE": (0, 1), "LATEST": (0, 1), "bh": (0, 1), "bl": (0, 1), "VH": (0, 1), "VL": (0, 1), "SEAL": (0, 0), 
@@ -85,7 +98,13 @@ PRIMS = {
     "[']": (0, 1),
     "UNLOOP": (0, 0), '."': (0, 0),
 }
-CONTROL = {"IF", "ELSE", "THEN", "BEGIN", "UNTIL", "WHILE", "REPEAT", "AGAIN", "DO", "LOOP", "+LOOP", "EXIT"}
+# GUARDRAIL: `DO`/`LOOP`/`+LOOP` are NOT in this machine - src/p31_prims.inc defines BEGIN/WHILE/REPEAT, BEGIN/UNTIL,
+# BEGIN/AGAIN and `I`, and nothing else (checked against the prim list, not against memory). They sat in this set anyway,
+# so the linter certified a calculator loop that the engine refused to compile at line 11 - a linter that accepts a word
+# the machine lacks is the failure this whole tool exists to prevent (its own docstring says so about MOD). Anything
+# removed here has to come back only with a prim in that file. The loop-counter word `I` is real but has no DO to pair
+# with, so a counted loop is BEGIN/WHILE/REPEAT with a cell or an unrolled body.
+CONTROL = {"IF", "ELSE", "THEN", "BEGIN", "UNTIL", "WHILE", "REPEAT", "AGAIN", "EXIT"}
 
 
 def tokens(text):
@@ -113,6 +132,56 @@ def tokens(text):
 
 def is_num(t):
     return bool(re.fullmatch(r"-?\d+", t))
+
+
+def code_only(src):
+    """`src` with `( ... )` declarations and `."` strings blanked out, newlines kept so line numbers stay true.
+
+    GUARDRAIL: R16 must see WORDS, not text. A phase that draws the word CREATE (`.\" CREATE\"`) or documents a cell
+    in a `( ... )` declaration would otherwise be refused for saying a name it never compiles - the false positive
+    that teaches the operator to skip the rule.
+    """
+    out = list(src)
+    i, n = 0, len(src)
+    while i < n:
+        if src[i] == "(":
+            j = src.find(")", i)
+            j = n if j < 0 else j + 1
+        elif src.startswith('."', i):
+            j = src.find('"', i + 2)
+            j = n if j < 0 else j + 1
+        else:
+            i += 1
+            continue
+        for k in range(i, j):
+            if out[k] != "\n":
+                out[k] = " "
+        i = j
+    return "".join(out)
+
+
+def lint_phase(src):
+    """R16 + R18: the two rules that only mean something for a PHASE source (docs/26), so only `--phase` runs them.
+
+    GUARDRAIL: these must NOT run on an ordinary program. 05_cells.fs legitimately CREATEs its cell, and every REPL
+    demo legitimately ends by returning to the line prompt (examples/demo_bars.fs has no CHAIN), so a default-on
+    R16/R18 is a false positive on the two files the corpus already trusts - and the operator would turn the linter
+    off. The mode is the contract: a phase is adopted into the window and replaced on the next adopt.
+    """
+    findings = []
+    code = code_only(src)
+    for m in re.finditer(r"\b(CREATE|VARIABLE|CONSTANT)\s+(\S+)", code):
+        ln = code[:m.start()].count("\n") + 1
+        findings.append((ln, "R16 phase state",
+                         f"{m.group(1)} {m.group(2)}: a phase is REPLACED on every adopt, so this storage vanishes"
+                         " with it - keep state in examples/apps/registry.fs, below the seal"))
+    # GUARDRAIL: the return path is NAMED, not inferred. `NXT !` and `CHAIN` and `SHELF` are the three ways a phase
+    # hands the next phase to the dispatcher; an EXIT only returns to the adopt loop, which then has nowhere to go.
+    if not (re.search(r"\bCHAIN\b", code) or re.search(r"\bNXT\s*!", code) or re.search(r"\bSHELF\b", code)):
+        findings.append((1, "R18 no return",
+                         "the phase names no return path (no CHAIN, no `NXT !`, no SHELF) - once adopted it can only"
+                         " be left by resetting the machine"))
+    return findings
 
 
 # ---- R7: a tiny interval analysis, only for the byte an EMIT receives -------------------------------------
@@ -214,10 +283,31 @@ def collect_vocab(src):
     reports every resident word as undefined. That is a false positive on the one layout the machine actually ships.
     """
     v = {}
+    raw = src          # GUARDRAIL: the ORIGINAL, captured BEFORE the blanking below. Taking it after (as the first
+                       # version did) gave every `--use` word the effect (0, 0) because its `( a -- b )` declaration had
+                       # already been turned into spaces, so `CHAIN ( desc -- )` stopped consuming its descriptor and four
+                       # lanes reported "R4 leak" on their return path. A comment is not code, but a declaration IS data.
+    # GUARDRAIL: `collect_vocab` reads a BASE file, so a GUARDRAIL comment in it that quotes `CREATE X` invented a cell in
+    # the vocabulary every lane is linted against - the same comment-is-not-code bug the definition scan had. Blank first.
+    if "(" in src:
+        out, i, n = [], 0, len(src)
+        while i < n:
+            if src[i] == "(":
+                j = src.find(")", i)
+                if j < 0:
+                    out.append(src[i:]); break
+                out.append(" " * (j + 1 - i)); i = j + 1; continue
+            out.append(src[i]); i += 1
+        src = "".join(out)
     for m in re.finditer(r"(?:CREATE|CONSTANT)\s+(\S+)", src):
         v[m.group(1)] = (0, 1)
+    # GUARDRAIL: the body must be sliced from the ORIGINAL text, because a stack declaration `( a -- b )` IS a
+    # parenthesised comment and the blanking above turns it into spaces. Reading the blanked copy gave every
+    # `--use` word the effect (0, 0): `CHAIN ( desc -- )` stopped consuming its descriptor, so every phase that ends
+    # `X CHAIN` reported "R4 leak: ... leaves 1 item" (four lanes at once - mail, calc1, calc2, shelf - which is what
+    # said "the tool is wrong, not the code"). Offsets are identical in both strings.
     for m in re.finditer(r":\s+(\S+)(.*?);", src, re.S):
-        v[m.group(1)] = declared(m.group(2)) or (0, 0)
+        v[m.group(1)] = declared(raw[m.start(2):m.end(2)]) or (0, 0)
     return v
 
 
@@ -253,9 +343,30 @@ def lint_definitions(src, base=None):
     # nothing" made every later `SEL @` look like an underflow, which is a false positive on perfectly good code.
     for m in re.finditer(r"(?:CREATE|CONSTANT)\s+(\S+)", src):
         vocab[m.group(1)] = (0, 1)
-    for m in re.finditer(r":\s+(\S+)(.*?);", src, re.S):
-        name, body = m.group(1), m.group(2)
-        lineno = src[:m.start()].count("\n") + 1
+    # GUARDRAIL: blank `( ... )` comments BEFORE scanning for definitions. A GUARDRAIL comment that quotes code - e.g.
+    # `( GUARDRAIL: `: W ... ;` must be clean )` - was parsed as a definition of its own, so R2/R10 fired on comment text
+    # and the only way to keep a phase lint-clean was to write comments that avoid colons and semicolons (lane MAIL did
+    # exactly that, and said so). Comments are not code; make them spaces, keep the line structure so line numbers hold.
+    def _blank_comments(text):
+        out, i, n = [], 0, len(text)
+        while i < n:
+            if text[i] == "(":
+                j = text.find(")", i)
+                if j < 0:
+                    out.append(text[i:]); break
+                chunk = text[i:j + 1]
+                out.append("".join(c if c == "\n" else " " for c in chunk)); i = j + 1; continue
+            out.append(text[i]); i += 1
+        return "".join(out)
+
+    # GUARDRAIL: scan the BLANKED text for definition boundaries but slice the ORIGINAL for the body, because the body's
+    # `( a b -- c )` declaration IS a parenthesised comment - blanking it removed every stack effect and the selftest went
+    # red on rules that depend on depth. The blanks preserve length, so the offsets are the same in both strings.
+    blank = _blank_comments(src)
+    for m in re.finditer(r":\s+(\S+)(.*?);", blank, re.S):
+        name = m.group(1)
+        body = src[m.start(2):m.end(2)]
+        lineno = blank[:m.start()].count("\n") + 1
         eff = declared(body)
         pops_in, pushes_out = eff if eff else (0, 0)
         depth = pops_in
@@ -281,6 +392,30 @@ def lint_definitions(src, base=None):
             findings.append((lineno, "R8 key -1",
                              f"{name}: reads KEY, never tests -1, and has no pacing - `nothing` counts as a keystroke,"
                              " so this loop runs flat out"))
+        # GUARDRAIL: R19. `BASE n + @` is only safe when n is a multiple of 4. A cell is 4 bytes and this machine has no
+        # `CELLS` word, so every cell index is hand arithmetic - and `BASE 1 + @` is an UNALIGNED 32-bit load, which traps
+        # on rv32 (F-78) while x86 reads it happily. Measured: the mail phase drew its rows on the host and hung on the
+        # chip at its first `MAIL_ST 1 + @`, after the title bar, with no error anywhere. Flag a literal offset that is
+        # not a multiple of 4; C@/C! are bytes and stay fine.
+        for i in range(2, len(toks)):
+            if toks[i] in ("@", "!") and toks[i - 1] == "+" and toks[i - 2].isdigit():
+                off = int(toks[i - 2])
+                if off % 4:
+                    findings.append((lineno, "R19 alignment",
+                                     f"{name}: `{off} + {toks[i]}` is an unaligned 32-bit access - a cell is 4 bytes and "
+                                     f"there is no CELLS word; write `{off * 4 if off < 8 else off} +` (or the byte "
+                                     f"offset as a multiple of 4). It traps on rv32 and works on the host"))
+        # GUARDRAIL: R20. `10 EMIT` is a bare LF: on a real terminal that moves DOWN and keeps the column, so a definition
+        # that builds rows with LF alone draws every row starting where the last one ended, and the terminal wraps - the
+        # operator's screen showed split borders and `rw/cl` merged into `0/0`. The shelf had `: NL 10 EMIT ;` while mail
+        # had `13 EMIT 10 EMIT`. Flag a body that emits 10 without also emitting 13 (a CR before the LF, in any order).
+        if "10" in toks and "EMIT" in toks and "13" not in toks:
+            for i in range(len(toks) - 1):
+                if toks[i] == "10" and toks[i + 1] == "EMIT":
+                    findings.append((lineno, "R20 newline",
+                                     f"{name}: `10 EMIT` is a bare LF - a terminal keeps the COLUMN on LF, so rows start "
+                                     f"where the last one ended and wrap. Emit CR first: `13 EMIT 10 EMIT`"))
+                    break
         infinite = any(toks[i - 1] == "0" and toks[i] == "UNTIL" for i in range(1, len(toks)))
         skip = 0
         tick = False
@@ -523,6 +658,16 @@ BUGS = {
  "KEY without the -1 test (our flat-out spinner)":
    (""": RUNS ( -- ) BEGIN KEY DUP 113 = IF DROP EXIT THEN DROP 0 UNTIL ;
 """, "R8 key -1"),
+ # GUARDRAIL: R16/R18 carry a THIRD field, `phase`, because they only apply to a phase source (--phase): the selftest
+ # runs those two through lint_phase instead of the ordinary walk. Running them on everything would refuse
+ # tests/sink/05_cells.fs (a legitimate CREATE) and examples/demo_bars.fs (a demo that quits to the prompt).
+ "phase with its own storage":
+   ("""CREATE X 0 ,
+: PH1 ( -- ) 96 CHAIN ;
+""", "R16 phase state", "phase"),
+ "phase with no return path":
+   (""": PH1 ( -- ) 1 DROP ;
+""", "R18 no return", "phase"),
 }
 # The corrected versions of every bug above, in one source: it must lint SILENT, or the rules are just noise.
 GOOD = """: WAIT ( -- c ) BEGIN KEY DUP -1 = WHILE DROP REPEAT ;
@@ -543,16 +688,36 @@ GOOD_BLOCKS = ": A 1 ; 40 CONSTANT X : B 2 + . ;"
 # a ticked resident word is silent, a ticked unknown word is R2.
 # GUARDRAIL: the fixture uses `[']`, because `'` inside a definition is the BUG (R12) - the first version of this test
 # asserted the broken form was clean, which is how a linter certifies the mistake it is supposed to catch.
+# GUARDRAIL: the fixture that would have caught the SAVE table entry: a body that CONSUMES the status is correct code
+# (p_blk_save pushes it), so it must lint clean. With SAVE modelled as (0, 0) this fixture reports R3 underflow.
+GOOD_SAVE = ": W ( -- ) UPDATE SAVE DROP ;"
+# GUARDRAIL: R20's two directions - the shelf's bug (`10 EMIT` alone) and the correct pair mail had all along.
+BAD_NL = ": NL ( -- ) 10 EMIT ;"
+GOOD_NL = ": NL ( -- ) 13 EMIT 10 EMIT ;"
+# GUARDRAIL: R19's two directions. `2 + @` is a trap on rv32 (the mail phase's bug); `8 + @` is a legal cell offset.
+BAD_ALIGN = ": C ( -- ) STATE 2 + @ . ;"
+GOOD_ALIGN = ": C ( -- ) STATE 8 + @ . ;"
 GOOD_TICK = ": NOOP ; : A ( -- ) ['] NOOP EXECUTE ;"
 BAD_TICK = ": NOOP ; : A ( -- ) ['] NOXX EXECUTE ;"
 BAD_R12 = ": NOOP ; : A ( -- ) ' NOOP EXECUTE ;"
+# The corrected phase: a return path, no storage, and the two words that LOOK like storage inside text.
+# GUARDRAIL: the `." CREATE X"` string is the point of this fixture - R16 blanks strings before it looks, and the
+# version that scanned raw text refused a phase for drawing a word it never compiles.
+GOOD_PHASE = """: PH1 ( -- ) ." CREATE X" 96 CHAIN ;
+: PH2 ( -- ) 96 NXT ! ;
+: PH3 ( -- ) SHELF CHAIN ;
+"""
 
 
 def selftest():
     ok = True
-    for name, (src, rule) in BUGS.items():
+    for name, fx in BUGS.items():
+        src, rule = fx[0], fx[1]
+        mode = fx[2] if len(fx) > 2 else "lint"
         if src == "KIND_BLOCKS":
             f = check_blocks("", blocks=KIND_BLOCKS)
+        elif mode == "phase":
+            f = lint_phase(src)
         else:
             f = lint_definitions(src) + check_blocks(src)
         hit = any(r == rule for _, r, _ in f)
@@ -565,6 +730,25 @@ def selftest():
     f = check_blocks(GOOD_BLOCKS)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  good blocks (must be silent)      {f[:1] if f else ''}")
+    f = lint_definitions(GOOD_ALIGN)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  aligned cell offset (4-byte)   {f[:1] if f else ''}")
+    f = lint_definitions(BAD_ALIGN)
+    hit = any(r == "R19 alignment" for _, r, _ in f)
+    ok = ok and hit
+    print(f"  {'caught' if hit else 'MISSED'}  UNALIGNED cell offset           R19 alignment"
+          + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
+    f = lint_definitions(GOOD_NL)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  CR LF newline (mail's form)   {f[:1] if f else ''}")
+    f = lint_definitions(BAD_NL)
+    hit = any(r == "R20 newline" for _, r, _ in f)
+    ok = ok and hit
+    print(f"  {'caught' if hit else 'MISSED'}  LF without CR (the shelf's)       R20 newline"
+          + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
+    f = lint_definitions(GOOD_SAVE)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  SAVE's status is consumed        {f[:1] if f else ''}")
     f = lint_definitions(GOOD_TICK)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  ticked resident word (must be silent) {f[:1] if f else ''}")
@@ -578,6 +762,11 @@ def selftest():
     ok = ok and hit
     print(f"  {'caught' if hit else 'MISSED'}  bare ' inside a definition         R12 tick"
           + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
+    # R16/R18 are --phase rules: the good phase must be silent. That they stay OFF by default is proven by the
+    # corpus, which keeps 05_cells.fs (a CREATE'd cell) and examples/demo_bars.fs (no CHAIN) clean without a flag.
+    f = lint_phase(GOOD_PHASE)
+    ok = ok and not f
+    print(f"  {'clean ' if not f else 'FALSE+'}  good phase: return path, no storage  {f[:1] if f else ''}")
     # R11: a definition too long for one block is a lint finding, not a flash-time surprise
     f = check_blocks(": LONG " + " ".join(["1"] * 60) + " ;")
     ok = ok and any(r == "R11 fit" for _, r, _ in f)
@@ -591,6 +780,12 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
         return selftest()
     if not argv:
         print(__doc__); return 2
+    # GUARDRAIL: --phase is OFF by default. R16 refuses storage a plain program may own, and R18 refuses a program
+    # that returns to the REPL - both are correct for a phase and false positives everywhere else (docs/26).
+    phase = "--phase" in argv
+    argv = [a for a in argv if a != "--phase"]
+    if not argv:
+        print(__doc__); return 2
     base, rest = {}, []
     i = 0
     while i < len(argv):
@@ -601,7 +796,7 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
     src = open(rest[0]).read()
     # GUARDRAIL: the block checks need the splitter, and a file that cannot be split must fail HERE rather than at the
     # first upload - the chip already has a compiled dictionary when it reports it.
-    findings = lint_definitions(src, base) + check_blocks(src, base)
+    findings = lint_definitions(src, base) + check_blocks(src, base) + (lint_phase(src) if phase else [])
     for ln, rule, msg in findings:
         print(f"  {argv[0]}:{ln}: {rule}: {msg}")
     print(f"  {len(findings)} finding(s)" if findings else "  clean")

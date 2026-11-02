@@ -17,12 +17,20 @@ Two jobs in one corpus, in the order the claims matter:
    10  bad_r07.fs      an EMIT that is not provably 0..127 (R7)        R7 byte range  (must FAIL device)
    11  bad_r08.fs      KEY never tested against -1                    R8 key -1
    12  bad_r11.fs      a definition that cannot fit one block          R11 fit      (lint only)
+   13  bad_r16.fs      a PHASE that CREATEs its own storage           R16 phase state
+   14  bad_r18.fs      a PHASE that names no return path              R18 no return
+
+GUARDRAIL: R16/R18 are PHASE rules and are applied ONLY to the entries marked `phase` below - a phase is replaced
+on every adopt (docs/26), so owning storage or naming no return path is a bug there and correct elsewhere. 05_cells.fs
+CREATEs a cell and every REPL demo returns to the prompt; a default-on rule would flag both and be turned off.
+`--phase` runs just those entries, which is the fast check while editing the phase rules.
 
 **Run this after every change to the linter** — that is what makes it a test of the linter and not just a test of the
 machine. A rule that starts firing on a GOOD program is a false positive; a rule that stops firing on a BAD one is a
 false negative; both show up here as PASS/FAIL, with the rule named.
 
     python3 tools/sink.py                lint only (no board, ~50 ms) - the default gate
+    python3 tools/sink.py --phase        only the PHASE entries (R16/R18), ~10 ms, while editing those rules
     python3 tools/sink.py --device       also upload and run the five good programs on the chip
     python3 tools/sink.py --device --only 03_digits.fs
 
@@ -41,7 +49,10 @@ SINK = HERE.parent.parent / "tests" / "sink"   # tools/ -> probe/repl/tests/sink
 sys.path.insert(0, str(HERE.parent))    # tools/
 sys.path.insert(0, str(ROOT.parent.parent))   # repo root, for cli.py in --device mode
 
-# (file, claim, expected lint rule or None for clean, expected device output or None to skip the board)
+# (file, claim, expected lint rule or None for clean, expected device output or None to skip the board, mode)
+# GUARDRAIL: the 5th field is `phase` for the two entries that are linted as PHASE sources (R16/R18). It is explicit
+# per entry, not a global switch: the corpus is one list, and "which rules apply" must be readable from the entry that
+# wants them, or a good program starts failing the day the switch flips.
 CORPUS = [
     ("01_arith.fs",  "arithmetic and the stack",                 None,            "6620"),
     ("02_loops.fs",  "BEGIN/WHILE/REPEAT over a CREATE'd cell",  None,            "1543"),
@@ -65,24 +76,39 @@ CORPUS = [
     # compiles a RUN-time parse, so the safety path parsed input instead of running NOOP, and nothing caught it. The
     # corpus now holds both directions: `[']` is the good form (06_tick above) and a bare `'` in a body is R12.
     ("bad_r12.fs",   "a bare tick inside a definition",          "R12 tick",      None),
+    # GUARDRAIL: DO/LOOP sat in the linter's CONTROL set while the machine has no such prim, so the calculator's row
+    # fill compiled on the linter and was refused by the engine at line 11. The corpus now states the words are absent.
+    ("bad_loop.fs",  "DO/LOOP, which this machine does not have", "R2 order",     None),
+    # The App Store contract (docs/26): a phase is REPLACED on every adopt and must name its way back to the shelf.
+    # Both files here FAIL device use by construction - the first would lose its cell on the next adopt, the second
+    # can only be left by a reset - so they are lint-only, like the rest of the bad_* entries.
+    ("bad_r16.fs",   "a PHASE that CREATEs its own storage",      "R16 phase state", None, "phase"),
+    ("bad_r18.fs",   "a PHASE that names no return path",         "R18 no return",   None, "phase"),
 ]
 
 # 04_escape.fs emits escape bytes, so its device check is a byte pattern rather than text.
 PY_CHECKS = {"PY:04": lambda out: b"\x1b[2J" in out and b"\x1b[31m" in out and b"ok" in out and b"\x00" in out}
 
 
-def lint(src):
+def lint(src, phase=False):
     import lint_forth
-    return [r for _, r, _ in (lint_forth.lint_definitions(src) + lint_forth.check_blocks(src))]
+    rules = lint_forth.lint_definitions(src) + lint_forth.check_blocks(src)
+    if phase:
+        rules += lint_forth.lint_phase(src)
+    return [r for _, r, _ in rules]
 
 
-def run_lint(only=None):
-    print("  sink: linting the corpus (this is also the linter's regression suite)")
+def run_lint(only=None, phase_only=False):
+    print("  sink: linting the corpus (this is also the linter's regression suite)"
+          + (" - PHASE entries only" if phase_only else ""))
     bad = 0
-    for f, claim, want, _dev in CORPUS:
+    for entry in CORPUS:
+        f, claim, want, _dev = entry[:4]
         if only and f != only:
             continue
-        got = lint((SINK / f).read_text())
+        if phase_only and (len(entry) < 5 or entry[4] != "phase"):
+            continue
+        got = lint((SINK / f).read_text(), phase=len(entry) > 4 and entry[4] == "phase")
         ok = (not got) if want is None else (want in got)
         bad += 0 if ok else 1
         shown = ", ".join(sorted(set(got))) if got else "clean"
@@ -104,7 +130,12 @@ def run_device(only=None):
         return 1
     bad = 0
     try:
-        for f, claim, _want, expect in CORPUS:
+        for entry in CORPUS:
+            f, claim, _want, expect = entry[:4]
+            # GUARDRAIL: a PHASE entry has no RUNSINK on purpose (a phase is entered by the dispatcher, not called
+            # from the REPL), so the board half must skip it for the same reason it skips a lint-only entry.
+            if len(entry) > 4 and entry[4] == "phase":
+                continue
             if only and f != only:
                 continue
             if expect is None:
@@ -148,7 +179,8 @@ def main(argv):
         i = argv.index("--only")
         only = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
-    bad = run_lint(only)
+    phase_only = "--phase" in argv
+    bad = run_lint(only, phase_only)
     if "--device" in argv:
         bad += run_device(only)
     print(f"\n  sink: {'all entries pass' if not bad else f'{bad} FAILING entry/entries'}")

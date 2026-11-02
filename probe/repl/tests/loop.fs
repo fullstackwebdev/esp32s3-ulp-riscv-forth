@@ -54,7 +54,11 @@ HERE bh @ = .            \ -1
 LATEST bl @ = .          \ -1
 
 \ row 13: a load of a block nobody answers fails by name; RESET recovers and the next load works
-99 OVL                   \ must fail by name: ERR_NO_SERVER
+5 OVL                    \ must fail by name: ERR_NO_SERVER
+                         \ GUARDRAIL: this was `99 OVL`, which worked only while the host fake server answered
+                         \ blocks 0..63. The App Store puts content at 64..119, so the server now answers the
+                         \ whole 128-block store and 99 answers too. The no-answer case must be a block that is
+                         \ DELIBERATELY silent - block 5 (srv_answer) - not one that happened to be past a limit.
 0 2 BLKXFER DROP         \ GUARDRAIL: a timed-out request deliberately leaves blk_out latched, so every later block
                          \ call answers ERR_BUSY. BLKXFER with op 2 (BLK_ABORT) is the documented escape hatch;
                          \ without it the machine is wedged and row 13's recovery cannot even be tested.

@@ -1,0 +1,8 @@
+Fetching a block is a mailbox request to the main core.
+The ULP writes a block number, sets a latch and waits; the
+answer arrives through a 128-byte window at the very top
+of the image, above the headers. On this board a fetch
+measures about fifty milliseconds, which is far more than
+a phase hop, so a screen is drawn from as few blocks as it
+can manage. The window is one buffer, so a program reads a
+line, draws it, and only then asks for the next one.

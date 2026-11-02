@@ -51,6 +51,13 @@ gcc -O2 -fno-strict-aliasing -DHOST -DP33_NOPAGE -DP30_HANDCOPY -DP43_TASKS -DTI
     || { echo "BUILD FAILED: host_blk will not compile" >&2; exit 1; }
 
 fail=0
+# GUARDRAIL: reader_logic.fs runs against artifacts/host_app, and that is the only binary in this suite carrying the
+# CHIP's own dictionary (src/image.h at the device's MEMSZ 2604 / TIBSZ 96, built by build_host_app.sh). Every other
+# binary here is compiled from src/p39_prelude.fs at MEMSZ 1936, where the resident plus a real phase does not fit
+# (366 B free, measured: ERR_DICT) - a reader test on one of those would fail for the geometry, not for the logic.
+# The script prints its constants table and refuses by name if a device source stops defining one, so a failure here
+# is a named mismatch, not a flake.
+bash tests/build_host_app.sh >/dev/null || { echo "FAIL  build_host_app (device-geometry host_app)" >&2; fail=1; }
 # GUARDRAIL: the block-splitting lesson (never cut a block inside a definition, never exceed one tib pass) lives in
 # tools/fsplit.py, which is Python and therefore invisible to the .fs loop below. Its selftest is the test that would
 # have failed on the bug that cost six probes: an oversized definition was silently split, the machine stayed in
@@ -71,7 +78,7 @@ for f in ../../examples/tui_min.fs ../../examples/boot.fs ../../examples/menu.fs
     fi
 done
 rm -f /tmp/lint.$$
-echo "PASS  linter (10 rules) on the shippable examples"
+echo "PASS  linter (11 rules) on the shippable examples"
 # terminal_demo.fs is a WORK IN PROGRESS, and the reason is not laziness: it needs ~2 100 B of dictionary and the machine
 # has 1 366, so it cannot be loaded, cannot be tested on the board, and its 41 lint findings cannot be separated from
 # "this file is not finished". Its status is PRINTED so it cannot be forgotten.
@@ -102,19 +109,29 @@ for f in tests/*.fs; do
         # transcript read `LOAD?` instead of the eight assertions. A test built for one flag set must
         # be routed to the binary built with that flag set.
         overlay*|loop*) BIN=artifacts/host_blk ;;
+        # GUARDRAIL: a test that loads a real PHASE needs the app-store resident before it and the chip's dictionary.
+        # host_app is that dictionary, and it must NOT also be handed the loop's usual src/p39_prelude.fs: it already
+        # carries the baked prelude, and compiling it a second time on top spills the dictionary (measured ERR_DICT).
+        # The prelude is therefore switched off per test in the second `case` below, not removed from the loop.
+        reader*) BIN=artifacts/host_app ;;
         *)       BIN=artifacts/host_suite ;;
     esac
     # GUARDRAIL: `SRV ` is the host driver's own end-of-run summary of the fake block server, and a
     # driver diagnostic must not be part of a golden transcript — it made the expected file depend on the
     # fake server's final state rather than on the program's behaviour.
-    extra=""; flags=""
+    extra=""; flags=""; pre=src/p39_prelude.fs
     case "$f" in
+        # GUARDRAIL: the reader's logic test is compiled at device geometry against the real phase, so the resident
+        # cells and the dispatcher have to be in the dictionary before it: registry.fs defines READ_ST, appstore.fs
+        # defines NXT/CHAIN/SHELF, and read1.fs defines every word under test. Forget one and the transcript is a
+        # column of NAME? lines that still compares equal to a golden regenerated from the same mistake.
+        *reader_logic*)    pre=""; extra="../../examples/apps/registry.fs ../../examples/appstore.fs ../../examples/apps/reader/read1.fs" ;;
         # GUARDRAIL: overlay_collide asserts that a bad definition is REFUSED and then shows what survived, so
         # it needs -k (host-only, keep going after an error). The transcript still contains the ERR_DICT line.
         *overlay_collide*|*loop*) extra=src/p39b_overlay.fs; flags=-k ;;
         *overlay*)         extra=src/p39b_overlay.fs ;;
     esac
-    got=$(timeout 120 ./"$BIN" $flags src/p39_prelude.fs $extra "$f" 2>&1 \
+    got=$(timeout 120 ./"$BIN" $flags $pre $extra "$f" 2>&1 \
           | grep -a -v ': error$' | grep -a -v '^SRV ' | ./artifacts/expand || true)
     if [ "$got" = "$(cat "$want")" ]; then
         echo "PASS  $name.fs (${#got} bytes)"
