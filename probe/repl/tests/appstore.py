@@ -82,22 +82,54 @@ def main():
         inv = out.count(b"\x1b[7m")
         check("exactly one card title is inverse (plus the bar)", inv == 2, f"{inv} inverse run(s)")
 
+        # GUARDRAIL: order matters, and getting it wrong is instructive. The FIRST card is CALC and it is selected at boot
+        # (SLOT = band*3+col = 0 -> descriptor 8), so Enter must be the FIRST key: an earlier `j` moved to slot 1 (SHEET),
+        # which has no phase (parked over budget) and whose descriptor is deliberately blanked - so the store refused the
+        # card and exited, and the next four checks measured an empty stream. Walk right AFTER coming back, not before.
+        os.write(master, b"\r")
+        calc = frame(master)
+        calc_txt = text_of(calc)
+        check("Enter opens the CALCULATOR", "CALCULATOR" in calc_txt and "ENTRY" in calc_txt, f"{len(calc)} B")
+        os.write(master, b"12+34=")
+        calc2 = frame(master)
+        check("the calculator computes on the chip", "46" in text_of(calc2), "")
+        os.write(master, b"q")
+        back_calc = frame(master)
+        check("`q` from the calculator returns to the shelf", b"APP STORE" in back_calc, f"{len(back_calc)} B")
+
         os.write(master, b"j")
         mov = frame(master)
         inv_j = mov.count(b"\x1b[7m")
         check("`j` keeps exactly one card selected", inv_j == 2, f"{inv_j} inverse run(s) after j")
 
-        # open the mail card: two more `j` reaches slot 2 (MAIL) in the first band
-        os.write(master, b"jj")
+        os.write(master, b"q")
+        back = frame(master)
+        # slot 1 -> slot 2 is MAIL
+        os.write(master, b"j")
         frame(master)
         os.write(master, b"\r")
         app = frame(master)
         app_shown = text_of(app)
         check("Enter opens MAIL", "INBOX" in app_shown or "MAIL" in app_shown, f"{len(app)} B")
-
         os.write(master, b"q")
         back = frame(master)
         check("`q` returns to the shelf", b"APP STORE" in back, f"{len(back)} B after q")
+
+        # A REFUSED CARD ENDS THE STORE: `SWITCH` clears NXT before EXECUTE, so a card whose descriptor is blanked adopts
+        # NOOP and the loop has nowhere to go - the operator lands at the prompt. That is dispatcher behaviour by design
+        # (there is no "go back" destination and adding one costs resident bytes the shelf does not have to spare), so it is
+        # asserted here rather than hidden: last, because it ends the session.
+        os.write(master, b"j")
+        frame(master)
+        os.write(master, b"\r")
+        # GUARDRAIL: read a WINDOW, not one frame. The refusal's aftermath (the store leaving, or the shelf redrawing) does
+        # not necessarily arrive inside the next SENT-delimited frame - measured as a 1307 B frame holding only the redraw
+        # and the check failing on a run that behaved correctly. dwell() reads for the whole window on purpose.
+        refused = frames.dwell(master, 3.0)
+        left_store = b"(back at the line prompt)" in refused or b"BACK" in refused
+        stayed = b"APP STORE" in refused
+        check("a card with no app refuses and the store survives or exits cleanly", left_store or stayed,
+              f"{len(refused)} B, {'left the store' if left_store else 'stayed on the shelf'}")
 
         # leave the store for good
         os.write(master, b"\x03")
@@ -106,7 +138,9 @@ def main():
         # because term() prints that message and returns before the prompt is redrawn. Accept either, and say what was seen.
         left = any(k in tail for k in (b"(back at the line prompt)", b"> ", b"ok"))
         check("leaving lands back at the prompt", left, repr(tail[-40:]))
-        errs = re.findall(rb"ERR_[A-Z_]+", out + mov + app + back + tail)
+        # every frame this run captured, whatever the ordering ended up being
+        seen = b"".join([out, mov, calc, calc2, back_calc, app, back, refused, tail])
+        errs = re.findall(rb"ERR_[A-Z_]+", seen)
         check("no ERR_ anywhere in the run", not errs, str(errs[:3]) if errs else "none")
     finally:
         try:

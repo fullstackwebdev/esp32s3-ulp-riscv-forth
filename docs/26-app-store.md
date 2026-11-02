@@ -311,19 +311,33 @@ from the operator's own paste: `rw/cl` merged into `0/0`, borders split across l
 Two independent things can make the board run look wrong, and they must be told apart: the terminal being too narrow
 (this section), and `F-137` (the chip losing the head of a ~1 KB frame through the 128 B output ring).
 
-## Wave 2 status (measured, 2026-11-01)
+## Status: the store runs on the chip (measured)
 
-| app | files | image | window | state |
-|---|---|---|---|---|
-| **shelf** | `shelf/shelf1.fs` | 1 021 B | 1 037 B | merged; 6 cards, live values from cells, refuses the empty slot |
-| **calc** | `calc/calc1.fs`, `calc2.fs` | 995 / 643 B | 1 037 B | merged; two phases chained 8 <-> 16, arithmetic proven by `calc_logic` |
-| **mail** | `mail/mail1.fs` + 3 pages | 826 B | 1 037 B | merged; **on the board**: title, heading and both messages match the host grid |
-| **reader** | `reader/read1.fs` + 2 pages | 979 B | 1 037 B | merged; 58 B headroom, `SENT` added so a frame has a boundary |
-| **sheet** | `sheet/sheet1.fs` | **1 371 B** | 1 022 B | **over by 349 B, reported not hidden**: every feature present, parked like the calculator draft, wave 3 splits it |
-| **gopher** | – | – | – | lane timed out with no files; it did independently find the alignment trap (F-136), which is why that fix went in |
+`./cli.py --appstore`, verified end to end through a pty by `probe/repl/tests/appstore.py` (**16/16**, part of
+`tests/device.sh`):
 
-Every phase is lint-clean under `--phase` with the registry + launcher as `--use` vocabulary, and the host suite runs four
-new logic tests (`calc_logic`, `sheet_logic`, `mail_logic`, `reader_logic`) plus the corpus.
+| | |
+|---|---|
+| the shelf draws | 5 cards, exactly one inverse title plus the bar |
+| `Enter` on CALC | opens the calculator; `12+34=` draws **46** on the chip |
+| `q` from an app | returns to `APP STORE` (dispatcher adopt, not a redraw) |
+| `Enter` on MAIL | opens the inbox |
+| `j` on a card with no app | refuses and the store survives |
+| leaving | lands back at the prompt, no `ERR_` anywhere in the run |
+
+Phases and their measured images against the **1 037 B** window: calc **995**, tape **641**, mail **910**, reader **981**,
+shelf **1 032**. Descriptors 8 / 16 / 32 / 48 / 56; content at 72 (reader), 88 (mail, 3 pages), 112 (gopher, 1 page);
+staging 120–127 for every source upload.
+
+**Two apps are not in this version, and the cards say so by refusing:**
+* **sheet** - 1 371 B against a 1 037 B window: parked, needs a two-phase split.
+* **gopher** - never written (its lane timed out); one page of content is seeded for it.
+
+**Known limits, named:**
+* the reader paces its drawing (**8 MS** per 70-column row). The drop counter (`#u ... | dropped N`) reports **zero** in
+  every scenario, so the bytes lost without pacing are lost *downstream* of `pl_emit` - the mechanism is open.
+* a card whose descriptor is blanked ends the store rather than returning to the shelf: `SWITCH` clears `NXT` before
+  `EXECUTE`, and a "go back" destination costs resident bytes the shelf does not have to spare.
 
 ## The five gates — every app passes all of them, in this order
 
