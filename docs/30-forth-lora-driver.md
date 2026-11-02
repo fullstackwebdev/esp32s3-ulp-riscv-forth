@@ -377,3 +377,25 @@ is the driver's own dictionary (`MEMSZ`), not another squeeze of the engine.
 
 `docs/30` §6e's table still stands, with one line changed: `INIT .` → `1` is not merely vacuous, it is **known** to be
 vacuous, because the pad read that would make it real returns 0 for every input state.
+
+### The linter learned this session (R21-R24)
+
+Every failure above that was *static* is now a rule, because each one cost a flash cycle and none of them had to:
+
+| rule | what it refuses | earned by |
+|---|---|---|
+| **R21** (`--repl`) | a source line over 63 B | four comment lines of 64–80 B that the ring refused silently, leaving `NAME?` on innocent lines |
+| **R22** | a `:` opened before the previous `;`, or a name defined twice | the stray duplicate `: !P` that swallowed `: S` and answered `S?` two definitions away |
+| **R23** | `W!`/`W@`/`C!`/`C@` on a register address | F-151 (stores) and F-153 (loads): both read 0 with no error |
+| **R24** | writing `1610646528` (`RTC_GPIO_OUT_REG`) | F-152: `12345 → OUT` reboots the S3 |
+
+Two false positives were found and fixed before shipping the rules, which is the whole reason `tools/sink.py` exists: R21
+first fired on `02_loops.fs` (72 B) and `03_digits.fs` (77 B), both of which the board compiles today — because the
+corpus travels as **92 B blocks**, not typed lines. That made R21 opt-in via `--repl`. R22's first version tracked state
+per line and called every ordinary one-line definition "unterminated"; it now scans tokens.
+
+Also fixed while wiring it up: `\` comments were parsed as definitions (`\ … no loop: run_line zeroes …` defined a word
+called `run_line` whose body ate the real `: WB … ;`), the same class of bug the file already fixed for `( … )`.
+
+`tools/lora_device.py` now **requires a clean `--repl` lint** before typing a single line, and `tests/run.sh` lints the
+driver on the host. The driver lints clean, and the suite is 30 PASS.

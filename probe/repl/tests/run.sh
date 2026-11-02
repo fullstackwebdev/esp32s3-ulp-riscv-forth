@@ -73,11 +73,20 @@ python3 tools/lint_forth.py --selftest >/dev/null || { echo "FAIL  linter selfte
 # never executed the refusal, and the bug was found by hand (F-134). A shippable file that no host check reads is a file
 # whose next regression waits for a chip session.
 for f in ../../examples/tui_min.fs ../../examples/boot.fs ../../examples/menu.fs; do
-    if python3 tools/lint_forth.py "$f" >/tmp/lint.$$ 2>&1; then :; else
-        echo "FAIL  lint $(basename "$f")" >&2; sed 's/^/      /' /tmp/lint.$$ >&2; fail=1
+    if python3 tools/lint_forth.py "$f" >lint.$$ 2>&1; then :; else
+        echo "FAIL  lint $(basename "$f")" >&2; sed 's/^/      /' lint.$$ >&2; fail=1
     fi
 done
-rm -f /tmp/lint.$$
+# GUARDRAIL: the LoRa driver is TYPED into the machine line by line (tools/lora_device.py), so it is not in the list above
+# and no host check used to read it - which is exactly how a stray duplicate `: !P` reached the board and answered `S?` two
+# definitions later, costing a flash cycle per attempt. `--repl` selects the rules that hold for a typed load (R21 line
+# length, R22 definition structure, R23 register width, R24 pad register) and drops the block-only ones (R1, R11).
+if python3 tools/lint_forth.py --repl ../../examples/apps/lora/lora1.fs >lint.$$ 2>&1; then :; else
+    echo "FAIL  lint (--repl) lora1.fs" >&2; sed 's/^/      /' lint.$$ >&2; fail=1
+fi
+# GUARDRAIL: never /tmp. The project's own rule is that every artefact lives under the working directory, so a stale
+# linter file from another checkout cannot be read here and this tree stays self-contained.
+rm -f lint.$$
 echo "PASS  linter (11 rules) on the shippable examples"
 # terminal_demo.fs is a WORK IN PROGRESS, and the reason is not laziness: it needs ~2 100 B of dictionary and the machine
 # has 1 366, so it cannot be loaded, cannot be tested on the board, and its 41 lint findings cannot be separated from
