@@ -529,3 +529,36 @@ linker placement of `.rtc.*`, and what `flash_store`/`store_boot()` do to the me
 
 Shipping configuration rebuilt and flashed: **7 931 / 7 932 B**, `boot: ulp forth bridge, 7424 B image`, store formatted,
 `1 2 + .` → `3`, and a deliberately bad op failing loudly (`stack?`). Host suite below.
+
+### F-161 — footprint eliminated too; the matrix has exactly one cell left
+
+Continuing the §9 bisect with `#z` (the store probe as a console command, so the answer no longer depends on when the
+harness opens the port — printing from `app_main` before `uart_driver_install` simply produced **no output at all**, which
+read as "the test never ran"):
+
+| build | image | result |
+|---|---|---|
+| `P42_ONLY -DHWPROBE` at `MEMSZ 2550` | 3 616 B (data 2 568) | `storetest: LOST (clear, 60 ULP wakes, OUT 0x00400000)` |
+| same at `MEMSZ 900` | **1 924 B** (data 916 — smaller than the reference's 2 816 B) | `storetest: LOST (clear, 61 ULP wakes, OUT 0x00400000)` |
+
+Both with the ULP verified alive (60+ wakes observed inside the 400 ms window), on an **output** pad, after an HP-side
+clear, in the shipping pad configuration. So the ULP image's footprint in RTC slow memory is not the cause either.
+
+Everything measured so far, with the HP core as the only trustworthy reader:
+
+| cell | lora app | repl app |
+|---|---|---|
+| lora ULP (with repl's flag set) | **LANDS** | — |
+| repl ULP (any of: shipping 7 931 B, `P42_ONLY` 3 616 B, `MEMSZ 900` 1 924 B) | **LANDS** | **LOST** |
+
+The one blank cell is **the reference ULP source built and booted by this app**, and it is the only experiment left that
+can separate "this app's HP side" from "this app's ULP build", because every ULP-content variable (size, footprint,
+flags, placement) has now been varied without changing the answer. Building it needs a small bridge shim: `probe/lora`'s
+`ulp_main.c` defines none of `repl_cmd/repl_out/mailbox/mem/repl_status/...` that this app links against, so it has to be
+included from a file that also carries `src/ulp_stub.c`'s "touch every exported symbol" block. That is the next action,
+and it is one build + one flash.
+
+### Shipping state, restored and verified
+
+`MEMSZ 2550`, no probe paths compiled in (`strings build/*.elf | grep -c EARLYTEST` → `0`),
+**7 931 / 7 932 B**, boot banner + store formatted, `1 2 + .` → `3 ok`.

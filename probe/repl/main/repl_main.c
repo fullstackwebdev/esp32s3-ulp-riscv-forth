@@ -595,6 +595,25 @@ static void seed_poll(void)
             /* GUARDRAIL: name the three letters, never a range. `ln[1] >= 'h' && ln[1] <= 'r'` silently swallowed
              * `#n` (the light-sleep probe) and drove the pad low instead - an untyped range over a CLI alphabet is a
              * trap that grows every time a command is added inside it. */
+            /* GUARDRAIL: `#z` is the store probe as a command, because printing from app_main before the console exists
+             * races the port and reports nothing at all (measured: EARLYTEST simply absent). Clear the bit, wait a
+             * window that contains many ULP wakes, and read it back - all on demand, so the answer never depends on when
+             * the harness happened to open the port. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'z' && (ln[2] == 0 || ln[2] == ' ')) {
+                REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+                uint32_t w0 = ulp_repl_wake_count;
+                int landed = 0;
+                for (int i = 0; i < 40 && !landed; i++) {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                    if (REG_READ(RTC_GPIO_OUT_REG) & (1u << (8 + 10))) landed = 1;
+                }
+                printf("storetest: %s (clear, %u ULP wakes, OUT 0x%08X)\n",
+                       landed ? "LANDED" : "LOST", (unsigned)(ulp_repl_wake_count - w0),
+                       (unsigned)REG_READ(RTC_GPIO_OUT_REG));
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             if (n >= 2 && ln[0] == '#' && (ln[1] == 'h' || ln[1] == 'l' || ln[1] == 'r') &&
                 (ln[2] == 0 || ln[2] == ' ')) {
                 if (ln[1] == 'r') {
@@ -1344,6 +1363,24 @@ void app_main(void)
     ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
     ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
     ESP_ERROR_CHECK(ulp_riscv_run());
+#if defined(ULP_EARLY)
+    /* GUARDRAIL: clear pad 8's data bit AFTER arming the coprocessor, then sample on the ULP's own cadence (it wakes
+     * every 6.46 ms, so a 200 ms window contains ~30 wakes). The bit returning SET can only mean the ULP's store landed -
+     * nothing else drives pad 8, and lora_pads_setup's own set already happened. Sampling the EVENT, not a guess. */
+    {
+        REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+        for (int i = 0; i < 20; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            uint32_t o = REG_READ(RTC_GPIO_OUT_REG);
+            if (o & (1u << (8 + 10))) {
+                printf("EARLYTEST: ULP store LANDED after %d ms (OUT 0x%08X)\n", i * 10 + 10, (unsigned)o);
+                break;
+            }
+            if (i == 19) printf("EARLYTEST: ULP store LOST (OUT 0x%08X)\n", (unsigned)o);
+        }
+        fflush(stdout);
+    }
+#endif
 #endif
     /* Watchdog first (P06): a hung bridge takes the console *and* the flashing port with it. */
     esp_task_wdt_config_t wdt = { .timeout_ms = 5000, .idle_core_mask = 0, .trigger_panic = true };
@@ -1393,24 +1430,6 @@ void app_main(void)
 #endif
 #if !defined(ULP_EARLY)
     ESP_ERROR_CHECK(ulp_riscv_run());
-#endif
-#if defined(ULP_EARLY)
-    /* GUARDRAIL: clear pad 8's data bit AFTER arming the coprocessor, then sample on the ULP's own cadence (it wakes
-     * every 6.46 ms, so a 200 ms window contains ~30 wakes). The bit returning SET can only mean the ULP's store landed -
-     * nothing else drives pad 8, and lora_pads_setup's own set already happened. Sampling the EVENT, not a guess. */
-    {
-        REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
-        for (int i = 0; i < 20; i++) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            uint32_t o = REG_READ(RTC_GPIO_OUT_REG);
-            if (o & (1u << (8 + 10))) {
-                printf("EARLYTEST: ULP store LANDED after %d ms (OUT 0x%08X)\n", i * 10 + 10, (unsigned)o);
-                break;
-            }
-            if (i == 19) printf("EARLYTEST: ULP store LOST (OUT 0x%08X)\n", (unsigned)o);
-        }
-        fflush(stdout);
-    }
 #endif
     ESP_LOGI(TAG, "ulp armed");
 
