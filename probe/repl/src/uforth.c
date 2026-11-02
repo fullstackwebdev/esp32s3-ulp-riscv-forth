@@ -100,7 +100,15 @@ static u8 junk;
  * pointer would segfault the test binary - so the host keeps its own simulated RTCIO window in rd16/wr16, which is what
  * tests/lora_spi.py decodes. Two different mechanisms, one address range, and the host one must never be more
  * permissive than this gate (F-149: a simulator that accepts what the chip refuses turns a hardware limit into a tick). */
-#define HW_GATE_LO 0x60008400u   /* RTC_GPIO_OUT_REG     */
+/* GUARDRAIL: THE COPROCESSOR DOES NOT SEE THE SoC ADDRESS MAP. Measured with both readers on the same
+ * word: the main core reads 0x60008400 = 0x00440000, the coprocessor reads 0x60008400 and gets the
+ * contents of 0x60008000 - address bits A10 and A11 are not decoded for it, so every absolute RTCIO
+ * access this firmware ever issued was landing in RTC_CNTL, writing nothing and reading noise. That is
+ * the whole "the ULP cannot write RTCIO" investigation, and it also explains why the working C driver
+ * could: esp32s3.peripherals.ld hands the coprocessor a LOW alias window (RTCIO = 0xA400, SENS =
+ * 0xC800), and its helpers put those aliases on the bus (its clock-gate store is at 0xC904). So the
+ * gate below is expressed in the coprocessor's own units, and every driver constant is too. */
+#define HW_GATE_LO 0xA400u       /* RTC_GPIO_OUT_REG, as the coprocessor addresses it */
 /* GUARDRAIL: 0x200, not 0x40. The RTCIO register file is 60 registers from +0x000 to +0x1FC, and the pad-mux
  * registers (RTC_IO_TOUCH_PAD0 at +0x84, i.e. 0x60008484) sit past a 64-byte window - so with a 64 B gate every
  * LORA_MUX! write went to `junk` and the pads were never muxed, which looked exactly like a dead SPI bus (pin readback 0,
@@ -110,7 +118,10 @@ static u8 junk;
  * clock gate is enabled, and that gate lives in SENS (SENS_SAR_PERI_CLK_GATE_CONF_REG = 0x60008904, bit 31) - outside a
  * 0x200 window, so the pads could be muxed to RTC mode and still never move. One compare against one constant covers
  * both ranges and costs no extra bytes. */
-#define HW_GATE_SPAN 0x600u      /* 0x60008400..0x600089FF: RTCIO + the SENS pad-mux clock gate */
+#define HW_GATE_SPAN 0x3000u     /* 0xA400..0xD3FF: RTCIO (0xA4xx) and the SENS pad-mux clock gate (0xC9xx).
+                                  * One span covers both aliases, and the window starts above MEMSZ (0x9F6), so it
+                                  * can never overlap the interpreter's own memory. The old 0x600 span was the SoC
+                                  * window, which this core cannot decode. */
 /* GUARDRAIL: noinline is a BUDGET pin here, the same technique the wr8/wr16 comment above records (it was worth -90 B
  * there). Inlined, the gate's compare plus constant is duplicated into every caller; outlined it appears once and costs
  * one call on the MISS path only, because `a < MEMSZ` still returns before the call is ever reached in the common case. */
@@ -174,7 +185,13 @@ static void __attribute__((noinline)) wr8(u32 a, u8 v)     { *P(a) = v; }
  *
  * ESP32-S3 RTCIO (DR_REG_RTCIO_BASE = 0x60008400): +0x04 W1TS, +0x08 W1TC, +0x24 IN. Every data field starts at bit 10
  * (F-141), so a HALFWORD at +2 covers pins 6..21 - the reason W!/W@ can drive these pins at all. */
-#define SIM_RTCIO_BASE   0x60008400u
+/* GUARDRAIL: this model must cover the window the GATE covers (HW_GATE_LO above, 0xA400 - the coprocessor's
+ * alias of RTCIO), not the SoC address. It read 0x60008400 after the gate moved, and the byte-stream oracle
+ * kept passing while the board did nothing: the host answered a range the chip no longer decodes, which is
+ * precisely the "simulator more permissive than the gate" failure F-149 warns about. Offsets inside the block
+ * are the same in both windows. */
+#include <stdio.h>   /* the host model traces pin edges with printf; implicit decl is a warning we keep */
+#define SIM_RTCIO_BASE   0xA400u
 #define SIM_RTCIO_SIZE   0x40u
 #define SIM_RTCIO_SHIFT  6u
 static u16 sim_rtcio[SIM_RTCIO_SIZE / 2];

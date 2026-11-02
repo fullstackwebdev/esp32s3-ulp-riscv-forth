@@ -645,7 +645,10 @@ static void seed_poll(void)
              * "the write updated the register". The input path must be enabled for the pad first
              * (RTC_GPIO_MODE_INPUT_OUTPUT keeps the output driver on and turns the input on too), which is why this
              * sets the direction rather than trusting whatever the caller left. */
-            if (n >= 2 && ln[0] == '#' && ln[1] == 'p' && ln[2] == ' ') {
+            /* GUARDRAIL: the console letters are a shared namespace - `#p` was ALREADY taken by the poke-three-values
+             * command, and quietly adding a second handler for the same key makes the older one unreachable. Free
+             * letters were checked against the table above first (`grep -oE "ln\[1\] == '.'"`). */
+            if (n >= 3 && ln[0] == '#' && ln[1] == 'y' && ln[2] == ' ') {
                 int pad = (int)strtol(ln + 3, NULL, 10);
                 rtc_gpio_set_direction((gpio_num_t)pad, RTC_GPIO_MODE_INPUT_OUTPUT);
                 uint32_t in = REG_READ(RTC_GPIO_IN_REG);
@@ -653,6 +656,18 @@ static void seed_poll(void)
                 printf("pad %d: IN bit %u = %u (OUT bit %u = %u, IN 0x%08X)\n", pad, (unsigned)(pad + 10),
                        (unsigned)((in >> (pad + 10)) & 1u), (unsigned)(pad + 10),
                        (unsigned)((out >> (pad + 10)) & 1u), (unsigned)in);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#q <hex>` prints one 32-bit word, read by the main core. `#d` cannot answer this
+             * question: it walks four whole blocks with a tick per line, so one register costs minutes of
+             * transcript and gets truncated by any harness that will not wait. The main core is the trusted reader
+             * (F-158: the coprocessor's own register reads return noise), which also makes this the only way to ask
+             * whether a coprocessor write landed in a block other than RTCIO. */
+            if (n >= 3 && ln[0] == '#' && ln[1] == 'q' && ln[2] == ' ') {
+                uint32_t a = (uint32_t)strtoul(ln + 3, NULL, 16);
+                printf("REG 0x%08X = 0x%08X\n", (unsigned)a, (unsigned)REG_READ(a));
                 fflush(stdout);
                 n = 0;
                 continue;

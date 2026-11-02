@@ -173,7 +173,20 @@ def code_only(src):
             if out[k] != "\n":
                 out[k] = " "
         i = j
-    return "".join(out)
+    # GUARDRAIL: `\` comments are blanked here too, so NO rule can see prose as code. Prose that reads
+    # `BUDGET: this driver needs MEMSZ >= 2550` was parsed as a definition of a word named `this`, and the same
+    # loose parse then reported that `PIN!` had never been defined - one false positive on a comment is how a
+    # lint rule gets switched off, and this one is worse: it hides the real finding under it.
+    lines = []
+    for ln in "".join(out).split("\n"):
+        # A `\` comment starts only where `\` is its own token: line start, or after whitespace.
+        cut = None
+        for k, ch in enumerate(ln):
+            if ch == chr(92) and (k == 0 or ln[k - 1] in " \t"):
+                cut = k
+                break
+        lines.append(ln if cut is None else ln[:cut])
+    return "\n".join(lines)
 
 
 def lint_phase(src):
@@ -360,24 +373,38 @@ def check_source_shape(src, phase=False, repl=False):
     # GUARDRAIL: scan TOKENS, not lines. The first version tracked state per line and reported every ordinary
     # `: NAME ... ;` as "unterminated", because a definition that opens and closes on one line set `open` and the
     # closing `;` was never examined - 6 false positives on the corpus, which is how a rule gets switched off.
-    scan = re.sub(r"\\[^\n]*", "", code_only(src))          # `\\` comments are not code either
+    # GUARDRAIL: walk TOKENS, not regexes. The prose in this very file contains
+    # `BUDGET: this driver needs MEMSZ >= 2550`, and a regex `:\\s+(\\S+)` read
+    # the colon at the end of `BUDGET:` as a definition opener and reported a
+    # word named `this` - a false positive on a comment, which is how a rule
+    # gets switched off. `\\`-comments are dropped line by line first (a `\\`
+    # runs to the end of the line, and a line whose first token is `\\` is a
+    # comment), and a definition opens only on a STANDALONE `:` token.
+    kept = []
+    for line in code_only(src).split("\n"):
+        if line.split() and line.split()[0] == "\\":
+            continue                      # `\` runs to the end of the line
+        kept.append(line)
+    scan = "\n".join(kept)
+    scan_lines = scan.split("\n")
     pend, seen = None, {}
-    for m in re.finditer(r":\s+(\S+)|;", scan):
-        if m.group(0) == ";":
-            pend = None
-            continue
-        name = m.group(1)
-        lineno = scan[:m.start()].count("\n") + 1
-        if pend is not None:
-            findings.append((lineno, "R22 definition",
-                             f"`:` {name} opens while the definition of {pend[1]} (line {pend[0]}) has not ended with "
-                             "`;` - the earlier body swallows this one and neither word exists"))
-        if name in seen:
-            findings.append((lineno, "R22 definition",
-                             f"{name} is defined twice (first on line {seen[name]}): the 12-bit hash makes the "
-                             "second definition silent, so load order decides which body runs"))
-        seen.setdefault(name, lineno)
-        pend = (lineno, name)
+    for lineno, line in enumerate(scan_lines, 1):
+        toks = line.split()
+        for i, tk in enumerate(toks):
+            if tk == ";":
+                pend = None
+            elif tk == ":" and i + 1 < len(toks):
+                name = toks[i + 1]
+                if pend is not None:
+                    findings.append((lineno, "R22 definition",
+                                     f"`:` {name} opens while the definition of {pend[1]} (line {pend[0]}) has not ended with "
+                                     "`;` - the earlier body swallows this one and neither word exists"))
+                if name in seen:
+                    findings.append((lineno, "R22 definition",
+                                     f"{name} is defined twice (first on line {seen[name]}): the 12-bit hash makes the "
+                                     "second definition silent, so load order decides which body runs"))
+                seen.setdefault(name, lineno)
+                pend = (lineno, name)
     # GUARDRAIL: R23. A peripheral address needs a 32-bit access. `wr32`/`rd32` decompose into byte accesses for MEMORY
     # (correct) and RTCIO does not answer byte accesses, so `W!`/`W@`/`C!`/`C@` on a register read 0 and write nothing -
     # measured twice on the board (F-151 stores, F-153 loads): every register probe returned 0x00 while the same address
@@ -429,10 +456,20 @@ def lint_definitions(src, base=None, repl=False):
         # GUARDRAIL: R1 is a BLOCK rule, so `--repl` suppresses it: in typed source a `\` comment is legal and measured to
         # work on the chip (the LoRa driver is written with them). Leaving it on made every typed file report a finding
         # whose message - "a block has no line boundaries" - was false about the file in hand.
-        if c == "\\" and not repl:
-            findings.append((line_no, "R1 comment",
-                             "`\\` comment in a block source: a block has no line boundaries, so this compiles as words"))
-            j = src.find("\n", i); i = len(src) if j < 0 else j
+        if c == "\\":
+            if not repl:
+                findings.append((line_no, "R1 comment",
+                                 "`\\` comment in a block source: a block has no line boundaries, so this compiles as words"))
+            # GUARDRAIL: skip the comment text in BOTH modes. Only the R1 finding is mode-specific, and the first
+            # version stopped walking at `\` in --repl mode instead of skipping past the text, so prose like
+            # `BUDGET: this driver needs MEMSZ >= 2550` was scanned as code: its colon opened a definition named
+            # `this`, that body swallowed `: PIN! ... ;`, and every later use of PIN! reported "not defined" - a
+            # false report that sent me hunting through a correct driver.
+            j = src.find("\n", i)
+            if j < 0:
+                break
+            line_no += 1
+            i = j + 1
             continue
         i += 1
     vocab = dict(PRIMS)
@@ -461,7 +498,13 @@ def lint_definitions(src, base=None, repl=False):
     # GUARDRAIL: scan the BLANKED text for definition boundaries but slice the ORIGINAL for the body, because the body's
     # `( a b -- c )` declaration IS a parenthesised comment - blanking it removed every stack effect and the selftest went
     # red on rules that depend on depth. The blanks preserve length, so the offsets are the same in both strings.
-    blank = _blank_comments(src)
+    # GUARDRAIL: `\`-comments are blanked FIRST, before the `( ... )` pass. Order is everything: the prose line
+    # `\ never reaches the board. Lines stay under 63 bytes (the` ends with an opening paren, and the paren pass ran
+    # first it opened a comment that swallowed to the next `)` two lines down and left `BUDGET: this driver needs`
+    # exposed as code - which then parsed as `: this ... ;` and hid `: PIN! ... ;`. One false "not defined" and the
+    # operator learns to distrust the linter.
+    blank = re.sub(r"\\[^\n]*", lambda m: " " * len(m.group(0)), src)
+    blank = _blank_comments(blank)
     # GUARDRAIL: `\` comments must be blanked too, for the same reason the `( ... )` ones are - and the failure is
     # sneakier. A comment reading `\ BUSY settle, no loop: run_line zeroes the stack each line,` was parsed as a
     # DEFINITION of `run_line`, whose body then swallowed the real `: WB ... ;` two lines below it, and the linter

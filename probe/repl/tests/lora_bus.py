@@ -31,7 +31,11 @@ import serial
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 DRIVER = ROOT / "examples" / "apps" / "lora" / "lora1.fs"
-SCRATCH = ROOT / "probe" / "repl" / "tests" / "lora_bus.fs"
+# GUARDRAIL: this source lives in tools/, not tests/. `tests/run.sh` globs `tests/*.fs` and demands a
+# `tests/<name>.expected` golden for each, but a radio-echo instrument cannot have a host golden - it
+# measures the radio. Sitting in the glob path made the host suite report a FAIL for a file it cannot
+# run, which is a hole in "the suite is green".
+SCRATCH = ROOT / "probe" / "repl" / "tools" / "lora_bus.fs"
 LINTER = ROOT / "probe" / "repl" / "tools" / "lint_forth.py"
 
 # (payload written, MSB expected back). Two complementary patterns, so neither a stuck-low nor a stuck-high MISO

@@ -86,7 +86,14 @@ static u8 *P(u32 a) { return a < MEMSZ ? mem + a : &junk; }  /* wild pointers ar
  *   +0x04 W1TS (set)   +0x08 W1TC (clear)   +0x10 ENABLE_W1TS   +0x24 IN
  * Each register's data field starts at bit 10 (F-141), so a HALFWORD access at +2 covers pins 6..21 - which is why the
  * driver can use W! / W@ at all, and why pins below 6 are not addressable this way. */
-#define SIM_RTCIO_BASE   0x60008400u
+/* GUARDRAIL: the base is the COPROCESSOR's alias window (0xA400 per
+ * esp32s3.peripherals.ld: RTCIO = 0xA400), not the SoC address 0x60008400.
+ * The host models what the interpreter's `!` sees, and the interpreter runs
+ * on the coprocessor, whose bus does not decode A10/A11 of the SoC address -
+ * a simulator at the old base kept the byte-stream oracle green while the
+ * board did nothing, which is exactly the failure R20 warns about. Offsets
+ * within the block are identical in both windows. */
+#define SIM_RTCIO_BASE   0xA400u
 #define SIM_RTCIO_SIZE   0x40u
 #define SIM_RTCIO_SHIFT  6u          /* a halfword at +2 starts at bit 16 = pin 6 */
 static u16 sim_rtcio[SIM_RTCIO_SIZE / 2];
@@ -124,13 +131,28 @@ static u16 sim_rtcio_read(u32 a)
     return sim_rtcio[off / 2];
 }
 
-static u8  rd8(u32 a)            { return *P(a); }
+/* GUARDRAIL: the pad window is consulted in the BYTE path too, not only in wr16/rd16. The interpreter's word
+ * store decomposes into byte accesses on the host (rd32/wr32 are halves or bytes depending on the build), so a
+ * model that answered only halfword hits silently accepted nothing at all - the byte-stream oracle stayed green
+ * while the chip did something else, which is the class of lie R20 exists to prevent. The window the model
+ * covers must be the window the GATE covers (uforth.c: HW_GATE_LO/SPAN), byte stores included. */
+static u8  rd8(u32 a)            { if (sim_rtcio_hit(a)) return (u8)(sim_rtcio_read(a & ~1u) >> ((a & 1u) * 8)); return *P(a); }
+static void __attribute__((noinline)) wr8(u32 a, u8 v)
+{
+    if (sim_rtcio_hit(a)) {
+        const u32 al = a & ~1u;
+        const u32 cur = sim_rtcio_read(al);
+        const u32 mix = (u32)v << ((a & 1u) * 8) | (cur & ~(0xFFu << ((a & 1u) * 8)));
+        sim_rtcio_write(al, (u16)mix);
+        return;
+    }
+    *P(a) = v;
+}
 /* GUARDRAIL: noinline is a BUDGET pin, not a performance choice. With 3-byte headers `find()` and `mkhdr`
  * touch wr8/wr16 far more often, and GCC's decision to outline them is worth -90 B of .text — which is the
  * whole reason the header change fits: un-inlined it costs +82 B instead of -8 B, and the image would be
  * 82 B over the pool. Measured with the pin: .text 4 926 B, unchanged. Without it the number is one
  * heuristic away from 5 008 B, discovered at the worst possible time (a later edit, not this one). */
-static void __attribute__((noinline)) wr8(u32 a, u8 v)     { *P(a) = v; }
 /* GUARDRAIL: one halfword load, not two byte loads through rd8(). Measured on the chip (P42/E-053):
  * 1 757.75 -> 1 139.25 cycles per dispatch, -35.2 %, because rd16 used to pay two rd8() calls and each
  * call on this core costs ~24 cycles per instruction with no cache to hide it.

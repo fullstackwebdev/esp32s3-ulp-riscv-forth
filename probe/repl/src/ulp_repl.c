@@ -218,9 +218,12 @@ volatile u32 eng_rb;          /* the byte the C engine reads back out of the rad
  * pointer locals instead of letting each ENG_SET/ENG_CLR expansion materialise its own 32-bit literal pool.
  * GUARDRAIL: one pad bit per set/clear word - a word ORed from several pads is discarded whole (F-176 measured it).
  * Pads per docs/29: NSS 8, SCK 9, MOSI 10, MISO 11; OUT data starts at bit 10, so these are bits 18/19/20/21. */
-#define ENG_W1TS ((volatile u32 *)0x60008404u)
-#define ENG_W1TC ((volatile u32 *)0x60008408u)
-#define ENG_IN   (*(volatile u32 *)0x60008424u)
+/* GUARDRAIL: these probes must use the coprocessor's OWN alias window (esp32s3.peripherals.ld: RTCIO = 0xA400),
+ * not the SoC address. Absolute 0x600084xx loses A10/A11 for this core, so a probe written that way could only
+ * ever observe its own failure - which is what every "#z does nothing" result meant. */
+#define ENG_W1TS ((volatile u32 *)0xA404u)
+#define ENG_W1TC ((volatile u32 *)0xA408u)
+#define ENG_IN   (*(volatile u32 *)0xA424u)
 static u32 eng_x8(u32 out)                 /* one byte out, one byte in, MSB first, mode 0 */
 {
     u32 v = 0u;
@@ -652,8 +655,8 @@ int main(void)
         ulp_riscv_gpio_output_enable(8);   ulp_riscv_gpio_output_enable(12);
         ulp_riscv_gpio_input_enable(11);   ulp_riscv_gpio_input_enable(13);
         ulp_riscv_gpio_input_enable(14);
-        *(volatile u32 *)0x60008404u = (1u << (8 + 10)) | (1u << (12 + 10));   /* NSS, NRST high */
-        *(volatile u32 *)0x60008408u = (1u << (9 + 10));                        /* SCK low        */
+        *(volatile u32 *)0xA404u = (1u << (8 + 10)) | (1u << (12 + 10));   /* NSS, NRST high */
+        *(volatile u32 *)0xA408u = (1u << (9 + 10));                        /* SCK low        */
     }
 #endif   /* ULP_PAD_OWNERSHIP */
 #if defined(HWPROBE)
@@ -686,12 +689,12 @@ int main(void)
      * bit 19 can only have come from my instruction. bit 18 (NSS) is the engine's own write and bit 23 (BUSY, never
      * output-enabled) is the control that must stay clear. If bit 19 comes back SET, our stores reach RTCIO after all
      * and every earlier "lost" was about the pad or the value, not about the coprocessor being unable to write. */
-    *(volatile u32 *)0x60008404u = (1u << (9 + 10));   /* SCK high - the engine leaves it low */
+    *(volatile u32 *)0xA404u = (1u << (9 + 10));   /* SCK high - the engine leaves it low */
     /* GUARDRAIL: witness on MOSI (pad 10, bit 20), not NSS: the HP core idles NSS and NRST HIGH at boot, so a SET
      * observed on those pads cannot be told apart from the boot value. MOSI and SCK are idled low, so a single store
      * from the coprocessor either moves the register or it does not, with no ambiguity. One pad per word (F-176). */
-    *(volatile u32 *)0x60008404u = (1u << (10 + 10));
-    *(volatile u32 *)0x60008404u = (1u << (9 + 10));
+    *(volatile u32 *)0xA404u = (1u << (10 + 10));
+    *(volatile u32 *)0xA404u = (1u << (9 + 10));
     /* GUARDRAIL: a replacement that starts mid-line must end mid-line: gluing this comment onto the store turned every
      * following line into a comment continuation and the build failed on "unterminated comment" - check the tail of a
      * generated edit, not just its head (same family as the glued `#else` and the swallowed newline).
@@ -705,7 +708,7 @@ int main(void)
         asm volatile("rdcycle %0" : "=r"(t0));
         do { asm volatile("rdcycle %0" : "=r"(t)); } while ((t - t0) < 17500u);
     }
-    *(volatile u32 *)0x60008404u = (1u << (8 + 10));   /* and again after the delay, still one bit per word */
+    *(volatile u32 *)0xA404u = (1u << (8 + 10));   /* and again after the delay, still one bit per word */
     /* GUARDRAIL: count this wake, or the HP side cannot tell "the probe ran and the store was lost" from "this image never
      * ran at all" - which is exactly how two earlier bisect results became void (F-159). The liveness counter must be in
      * the same image as the experiment. */
