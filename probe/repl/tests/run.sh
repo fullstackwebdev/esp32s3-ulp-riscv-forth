@@ -90,6 +90,16 @@ done
 # and no host check used to read it - which is exactly how a stray duplicate `: !P` reached the board and answered `S?` two
 # definitions later, costing a flash cycle per attempt. `--repl` selects the rules that hold for a typed load (R21 line
 # length, R22 definition structure, R23 register width, R24 pad register) and drops the block-only ones (R1, R11).
+# GUARDRAIL: every Forth source in the tree goes through the linter (AGENTS.md rule). These are the typed-at-the-prompt
+# sources added for the LoRa stack; a refusal here is a build error, not advice.
+for f in ../../examples/apps/lora/lorainit.fs ../../examples/apps/lora/lora_rx.fs \
+         ../../examples/apps/lora/lora_aes.fs ../../examples/apps/lora/lora_keysched.fs; do
+  # lora_rx.fs depends on the driver's words, so it is checked with the driver as context
+  ctx=""
+  case "$f" in *lora_rx.fs) ctx="--after ../../examples/apps/lora/lorainit.fs" ;; esac
+  python3 tools/lintgate.py --repl $ctx "$f" >/dev/null 2>&1 || { echo "FAIL  lintgate: $f" >&2; fail=1; }
+done
+
 if python3 tools/lint_forth.py --repl ../../examples/apps/lora/lora1.fs >lint.$$ 2>&1; then :; else
     echo "FAIL  lint (--repl) lora1.fs" >&2; sed 's/^/      /' lint.$$ >&2; fail=1
 fi

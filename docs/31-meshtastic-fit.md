@@ -228,3 +228,45 @@ Two measurement corrections in the same pass, both from trusting a byte I had no
   (it answered `3 0 0 95`). It was replaced by `GetPacketType`, a documented command: `1` = LoRa.
 * `RL` read GetRxBufferStatus as two bytes, so the **status** byte became the payload length and `RB` dumped 208
   bytes instead of 4. The marker was at the front of the dump, which would have passed a sloppier check.
+
+## Appendix D — AES measured, and the answer to "how much app space"
+
+Written and measured on the board this session (`examples/apps/lora/lora_aes.fs`, `lora_keysched.fs`), FIPS-197 tables,
+byte-wise Forth with no `DO/LOOP` and no structure spanning a typed line.
+
+| file | code | headers | **total** | fits? |
+|---|---:|---:|---:|---|
+| `lora_keysched.fs` (S-box + RCON + W + schedule) | 774 B | 51 B | **825 B** | yes — a 999 B window with 174 B spare |
+| `lora_aes.fs` (S-box + W + block + CTR) | 1 230 B | 114 B | **1 344 B** | **no** — 16 B over the whole 1 328 B prompt, and 345 B over a phase window |
+
+So the honest answer to "how much app space do we need": the cipher alone is **~1.3 KB**, on top of the radio's
+1 186 B and the frame encoder. Nothing about that is close.
+
+What the split bought, and what it did not:
+
+* the key schedule is **825 B and separate**, so a chain can run it once per channel and never carry it again;
+* the block+CTR unit still needs **1 344 B**, which does not fit a 999 B phase, so `AES` cannot be one phase at its
+  current size. The three ways out, in order of value:
+  1. **compute the S-box instead of tabulating it** — the table is 256 B of the 1 344 B; a GF(2^8) inverse plus the
+     affine map replaces it with code, and the round keys (176 B) stay because they are per-channel data;
+  2. **one round per phase** — state (`ST`, `W`, `NONC`, the round counter) lives in the sealed registry, so a
+     `AES-ROUND` phase does SubBytes+ShiftRows+MixColumns+AddRoundKey and chains to itself; 11 hops at the measured
+     4.5 ms per adopt is ~50 ms against an air time of ~180 ms at SF9;
+  3. **grow the window**, which means growing `MEMSZ`, which costs image bytes 1:1 — and the image has 1 B free. The
+     only source is the interpreter itself (`vm_enter` = 2 104 B of the 7 931 B image, measured with `nm`).
+* both files pass `tools/lint_forth.py` (R21/R22/R28/R2/R3/R4) and `tools/namecheck.py` against the board.
+
+Three linter gaps this work exposed, all fixed:
+
+* **`collect_vocab` read a colon inside a comment as a definition opener.** `\ BUDGET: this driver needs MEMSZ >= 2550`
+  made the `--use` vocabulary capture `this` and swallow the real definitions up to the next `;`, so `RD-BYTE` and `RD2`
+  were invisible and a dependent file was refused for using them. It is a token scan now, with a selftest fixture.
+* **a declaration was borrowed from a later definition.** Reading 120 characters of tail gave `NSSLO` (which takes
+  nothing) an input, so five words that call it reported underflow. The declaration must now follow the name
+  immediately.
+* **R4 found a real bug in the shift-rows body** — a spurious `A @` at the head, which would have leaked a stack item
+  per round while producing plausible-looking output. That is the clearest argument for making the linter a gate.
+
+**The gate itself:** `probe/repl/tools/lintgate.py` wraps the linter in both modes, refuses on ANY finding, and takes
+`--after prior.fs` for files that are only checkable in context (the receive words need the driver's `NSSLO`). It is
+called by every hardware test and by `tests/run.sh`, and `AGENTS.md` states the rule in one line.

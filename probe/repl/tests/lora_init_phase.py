@@ -100,6 +100,9 @@ def main():
     a = ap.parse_args()
     B = Dev(port=a.b)
     B.reset()
+    from lintgate import require_clean
+    require_clean([INIT_PHASE], "--repl", where="init-phase")
+    require_clean([RX_WORDS], "--repl", where="rx-words", use=[INIT_PHASE])
     h0, l0 = B.num("HERE ."), B.num("LATEST .")
     load(B, INIT_PHASE, "init-phase")
     h1, l1 = B.num("HERE ."), B.num("LATEST .")

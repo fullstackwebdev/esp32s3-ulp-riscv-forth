@@ -335,8 +335,16 @@ def collect_vocab(src):
     # `--use` word the effect (0, 0): `CHAIN ( desc -- )` stopped consuming its descriptor, so every phase that ends
     # `X CHAIN` reported "R4 leak: ... leaves 1 item" (four lanes at once - mail, calc1, calc2, shelf - which is what
     # said "the tool is wrong, not the code"). Offsets are identical in both strings.
-    for m in re.finditer(r":\s+(\S+)(.*?);", src, re.S):
-        v[m.group(1)] = declared(raw[m.start(2):m.end(2)]) or (0, 0)
+    toks = list(re.finditer(r"\S+", src))
+    i = 0
+    while i < len(toks):
+        if toks[i].group(0) == ":" and i + 1 < len(toks):
+            name = toks[i + 1].group(0)
+            tail = raw[toks[i + 1].end():toks[i + 1].end() + 120]
+            v[name] = (declared(tail) if re.match(r"\s*\(", tail) else None) or (0, 0)
+            i += 2
+            continue
+        i += 1
     return v
 
 
@@ -966,6 +974,11 @@ def selftest():
         ok = ok and hit
         print(f"  {'caught' if hit else 'MISSED'}  {name:44} {rule}"
               + ("" if hit else f"  (got {sorted({r for _, r, _ in f})})"))
+    v = collect_vocab("\\ BUDGET: this needs memory\n: AA ( a -- b )\n  ;\n: BB\n  1 ;\n")
+    ok = ok and v.get("AA") == (1, 1) and v.get("BB") == (0, 0) and "this" not in v
+    print(f"  {'clean ' if v.get('AA') == (1, 1) and v.get('BB') == (0, 0) and 'this' not in v else 'WRONG'}  "
+          f"vocab scan: comment colon ignored, multi-line defs seen, effects not borrowed  AA={v.get('AA')} "
+          f"BB={v.get('BB')}")
     f = lint_definitions(GOOD)
     ok = ok and not f
     print(f"  {'clean ' if not f else 'FALSE+'}  good source (must be silent)      {f[:1] if f else ''}")

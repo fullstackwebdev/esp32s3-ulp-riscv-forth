@@ -40,15 +40,20 @@
 \ 0x82 SetRx, 0x02 ClearIrq, 0x12 GetIrqStatus,
 \ 0x13 GetRxBufferStatus, 0x1E ReadBuffer, 0x8C
 \ SetPacketParams.
-: SR NSSLO 130 >BYTE 255 >BYTE 255 >BYTE 255 >BYTE NSSHI ;
-: RC NSSLO 2 >BYTE 255 >BYTE 255 >BYTE NSSHI ;
-: IQ NSSLO 18 >BYTE 0 >BYTE RD2 NSSHI ;
+: SR ( -- )
+  NSSLO 130 >BYTE 255 >BYTE 255 >BYTE 255 >BYTE NSSHI ;
+: RC ( -- ) NSSLO 2 >BYTE 255 >BYTE 255 >BYTE NSSHI ;
+: IQ ( -- w ) NSSLO 18 >BYTE 0 >BYTE RD2 NSSHI ;
 \ Packet params are NOT re-sent here: INIT sets explicit header
 \ + length 4 + CRC, which is what both
 \ ends of this test send. Setting a larger maximum cost 34 B in
 \ a dictionary that had none to give.
-: RL NSSLO 19 >BYTE RD-BYTE DROP RD-BYTE RD-BYTE NSSHI ;
-: RDUMP BEGIN DUP WHILE RD-BYTE . 32 EMIT 1- REPEAT DROP ;
-: RB NSSLO 30 >BYTE >BYTE RD-BYTE DROP RDUMP NSSHI ;
-: RXTAKE DUP 2 AND IF DROP RL RB RC 1 ELSE DROP RC 0 THEN ;
-: RX1 RC SR 250 MS IQ ;
+: RL ( -- len off )
+  NSSLO 19 >BYTE RD-BYTE DROP RD-BYTE RD-BYTE NSSHI ;
+: RDUMP ( n -- )
+  BEGIN DUP WHILE RD-BYTE . 32 EMIT 1- REPEAT DROP ;
+: RB ( len off -- )
+  NSSLO 30 >BYTE >BYTE RD-BYTE DROP RDUMP NSSHI ;
+: RXTAKE ( irq -- ok )
+  DUP 2 AND IF DROP RL RB RC 1 ELSE DROP RC 0 THEN ;
+: RX1 ( -- irq ) RC SR 250 MS IQ ;

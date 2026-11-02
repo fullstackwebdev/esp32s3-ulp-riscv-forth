@@ -152,7 +152,9 @@ def main():
     A, B = Dev(port=a.a), Dev(port=a.b)
     A.reset(); B.reset()
     print(f"A {a.a}: here={A.num('HERE .')}   B {a.b}: here={B.num('HERE .')}")
-    lint([DRIVER, RX], "sources")
+    from lintgate import require_clean
+    require_clean([DRIVER], "--repl", where="driver")
+    require_clean([RX], "--repl", where="rx-words", use=[DRIVER])   # RD-BYTE/RD2 come from the driver
     load(A, "A")
     load(B, "B")
     print(f"driver + rx loaded on both; A here={A.num('HERE .')} latest={A.num('LATEST .')} "
