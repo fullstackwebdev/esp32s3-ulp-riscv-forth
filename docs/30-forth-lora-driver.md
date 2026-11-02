@@ -758,3 +758,68 @@ land is the reference engine's own `hal_init()`, which returns `GetStatus 0x2A` 
 a hand-replication of its register writes in Forth does not. So the ingredient is in that function, not in
 the addresses and not in the timing - and `#p <pad>` (HP reading `RTC_GPIO_IN`, the pin, with the input
 path enabled) is now the witness that can tell, one experiment at a time, which line it is.
+
+
+## 12. IT TRANSMITS (measured on the board, this session)
+
+The driver transmits, and the evidence is the radio's, not the interpreter's.
+
+| measurement | value (measured) | what it proves |
+|---|---|---|
+| `INIT` | `1` | reset released, RBUSY freed, 14 configuration commands clocked out |
+| `GetStatus` (opcode `0xC0`, 2 bytes MSB-first) | `0x2222` | the SX1262 answers the coprocessor's bit-banged SPI at all |
+| `WriteBuffer DE AD AB CA` then `ReadBuffer` | `202 171 235 222` | what Forth wrote is inside the radio's FIFO |
+| `SEND` | `1` (three runs in a row) | **TxDone**, bit 0 of the chip's own `GetIrqStatus` word |
+| `RTC_GPIO_IN` with SCK held high by a Forth word | `0x00080400` (bit 19 = pad 9) | the coprocessor owns the clock edge - read by the *other* core |
+| image | `7 931 B / 7 932` (measured, `riscv32-esp-elf-size`) | in budget, 1 B free |
+
+### The two faults that were actually in the way
+
+1. **The coprocessor does not decode the SoC address map.** `0x6000_84xx` loses
+   A10/A11 for the ULP, so every absolute access this firmware issued ever
+   landed in `RTC_CNTL`. `esp32s3.peripherals.ld` gives the ULP `RTCIO = 0xA400`,
+   `SENS = 0xC800`, and that alias window is what the working C driver puts on
+   the bus. With the gate and the constants in the coprocessor's own units, the
+   first pad moved, and then the radio talked.
+2. **`PIN@` never read the register.** `PADINRD AND` ANDed the mask with the
+   *address*; pad 11 and pad 9 both read 0 forever, `RADIORESET`/`BUSYOK`
+   "passed" on garbage, and MISO was never sampled. Found by asking the two
+   cores the same question with a pin held high: the HP core and a bare
+   `42020 @` agreed (`0x80400`) while `PIN@` said 0.
+
+`BUSY-LOW` replaced a 2 ms sleep after NSS had already dropped: the SX1262
+ignores the whole SPI while RBUSY is high, so a command issued in that window
+is lost with no answer and no error, and `GetStatus` reading `0x00` on a wired,
+awake chip is exactly what that looks like. This is the C HAL's own structure
+(`hal_wait_busy()` before every transfer), bounded at 200 polls so a radio that
+never frees the bus cannot hang the coprocessor.
+
+### What is NOT yet established, and why
+
+**No outside receiver has decoded a packet, and none can be reached from this
+machine**: only `/dev/ttyUSB0` exists (the Heltec itself), `lsusb` shows no
+SDR and no second radio, and `/dev/ttyACM*` is absent. The same limitation is
+recorded for the C driver in docs/29: `TxDone` + air-time + FIFO read-back is
+strong, an over-the-air decode is stronger, and closing that clause needs a
+second LoRa node or an 868 MHz SDR attached. Nothing here claims air-side
+reception.
+
+### The budget conflict, quantified (not a mystery)
+
+The pool is a hard wall: the ULP region is 8 192 B minus a 260 B reserve, so
+7 932 B is the ceiling and a 8 027 B measurement build proved that by failing to
+boot. `MEMSZ 2 562` is the largest value that fits (7 931 B measured), and the
+sealed phase window it leaves is **995 B**. calc (995), tape (641), mail (910)
+and reader (981) all build; the **shelf phase does not fit 995 B** and the engine
+names it (`block 21: ERR_DICT`). Before this investigation `MEMSZ` was 2 604
+(git history), which the extra ~98 B of coprocessor text that the gate and the
+wide 32-bit access paths cost this engine cannot pay for while also keeping the
+shelf's visible output - the card labels are strings the App Store test asserts
+on, so they are not removable, and folding the five card words into one would
+print numbers before labels. The App Store's 16/16 therefore needs a decision
+about which of the two budgets wins; see the ledger below.
+
+| era | `MEMSZ` | image | window | App Store |
+|---|---|---|---|---|
+| before this investigation | 2 604 (derived) | ≤ 7 932 (measured then) | ~1 037 B (derived) | 16/16 |
+| now | 2 562 (measured) | 7 931 (measured) | 995 B (measured) | shelf refused |
