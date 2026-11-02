@@ -526,3 +526,51 @@ design is worth building.
   BRT U/MOD`) were removed in a twin tree and the pool span went **7 937 -> 7 865 B, i.e. -72 B for eight**, about
   9 B each. The cipher needs 329 B, so this lever would need ~37 primitives that do not exist. Kept in the tree
   (`variants/nohw`) as the measurement, not as a proposed change.
+
+## Appendix I — the phase-chain premise is PROVEN: the radio's buffer survives an adopt
+
+This was the gate for Meshtastic AES. A store phase is replaced on every adopt, so the cipher cannot keep 16 B of
+state (let alone 176 B of round keys) in its own dictionary. The registry is resident and costs window bytes,
+and the image has 1 B, so the only candidate was the **SX1262's own 256-byte buffer**.
+
+`tests/lora_adopt.py` answers it through the REAL store, not a reset:
+
+```
+store built; adopting descriptor 64 ...
+raw reply: '17 34 51 68 85 102 119 136 153 170 187 204 221 238 240 15  ok'
+PASS  radio buffer survives an ADOPT (identical)
+```
+
+* `scr1.fs` (descriptor 64, 413 B) writes `11 22 33 … f0 0f` to buffer offset 240 and `CHAIN`s to 68;
+* `scr2.fs` (descriptor 68, 463 B) is **adopted into a fresh dictionary**, reads offset 240 through
+  `ReadBuffer(0x1E)` and prints the sixteen bytes;
+* they match. Nothing in scr2's dictionary came from scr1 — only the radio carried the data.
+
+Contrast with the reset experiment (`tests/lora_scratch.py`): the same 16 bytes are *destroyed* by an ESP32 reset,
+because a reset drives the pads. **An adopt does not touch the radio**, which is exactly why the chain design is
+possible and why the reset test could not answer it.
+
+### What this unlocks, in measured numbers
+
+| piece | measured | window |
+|---|---:|---:|
+| `scr1` write-16-and-chain phase | 413 B | 999 B |
+| `scr2` read-and-print phase | 463 B | 999 B |
+| key schedule (`lora_keysched.fs`) | 825 B | 999 B |
+| cipher as ONE phase | 1 328 B | **999 B — impossible** |
+| cipher split: S-box+SubBytes+ShiftRows | ~490 B, derived from the above | fits |
+| cipher split: MixColumns+AddRoundKey | ~430 B, derived | fits |
+
+So the cipher is reachable after all — not by growing the window (priced at ~136 B of levers against a 329 B
+need), but by splitting it across phases that hand state through the radio's buffer. At 4.5 ms per adopt, one
+16-byte block costs 22 hops ≈ 100 ms, and a 221-byte frame ≈ 1.4 s against ~2.5 s of air time.
+
+### Two tooling gaps this work exposed and closed
+
+1. **`--store` mode in the linter** (`lintgate.py --store`). R11 (a definition must fit one 92 B block) applies to
+   a source file uploaded through blocks, and R1 (comments are words) does not — `--repl` skipped the block check
+   and `--phase` refused every comment. Measured: `scr1.fs` was *clean* in `--repl` and the store's build then
+   refused it with "no interpret-state boundary inside one 92 B block". A third mode was missing, and the build was
+   the only thing catching that class.
+2. **`tools/reflow.py`** — wraps `\` comment lines to the 63 B ring limit. Four R21 findings in one session were
+   comment lines that had grown unwatched.

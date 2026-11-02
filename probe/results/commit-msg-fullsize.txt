@@ -1,0 +1,31 @@
+lora: FULL-SIZE packets work (221 B byte-exact), and the phase-chain premise is measured to its limit
+
+tests/lora_fullsize.py, 9/9: 221 B on the air = 16 B Meshtastic header + 5 B protobuf prefix (08 80 02 12 c8) +
+a 200-byte body, TxDone 0x0001 on the sender, RxDone 0x0016 on the peer, every byte read back out of the peer's
+own RX buffer identical. SETLEN takes the payload length at run time, so the frame is no longer fixed at 26 B;
+LoRa's 255 B ceiling is now a caller's number, not a code limit.
+
+PHASE-CHAIN PREMISE (tests/lora_scratch.py). A chain needs memory that survives a dictionary swap, and the only
+candidate is the SX1262's own 256-byte buffer. Measured: writing a 16-byte pattern to offset 240 and reading it
+back in the same dictionary is exact (11 22 33 ... f0 0f); after an ESP32 reset the bytes are gone. A reset is
+harsher than an adopt (it drives the pads), so the adopt case is UNPROVEN, not disproven - proving it needs two
+real phases taken through the store, which is the next step. Said plainly rather than assumed either way.
+
+LEVERS PRICED AND REJECTED (docs/31 Appendix H):
+- -Os on the ULP build: it was ALREADY -Os (IDF's flags). Appending another bought 0 B - same .text, same
+  vm_enter 2104, same pool span 7937. Reverted, because a flag nobody measured is a claim.
+- removing unused primitives: eight of the 27 corpus-unused ones (GPIO@ GPIO! ADC@ WAKE PUMP EV@ BRT U/MOD)
+  price at 7937 -> 7865 = -72 B, about 9 B each. The cipher needs 329 B, so this lever needs ~37 primitives that
+  do not exist. Kept under variants/nohw as the measurement.
+
+Chain cost from sizes already measured: key schedule 825 B of the 999 B window; SubBytes+ShiftRows ~490 B;
+MixColumns+AddRoundKey ~430 B; 22 hops per 16-byte block at 4.5 ms/adopt ~= 100 ms, and a 221-byte frame ~1.4 s
+against ~2.5 s of air time - affordable, which is why the design is worth building.
+
+Test bugs I hit and fixed, all mine: a one-byte reader that hard-coded its offset and reported the buffer's
+leftovers; a 76 B typed write line dropped silently by the ring (R21 again); lorainit+loratx both declare TBL
+so they cannot share a dictionary (they are separate phases - the peer defines SETLEN itself); and a protobuf
+prefix counted as four bytes when it is five.
+
+Green: suite 30 pass, selftest PASS, two-board 3+3, init-phase 8/8, aes 11/11, frame-phase 10/10,
+fullsize 9/9, lora_spi all checks pass.

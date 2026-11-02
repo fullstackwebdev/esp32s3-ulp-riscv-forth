@@ -213,6 +213,8 @@ APPSTORE = [
     ("reader", "examples/apps/reader/read1.fs",  48, "READ1"),
     ("shelf",  "examples/apps/shelf/shelf1.fs",  56, "RUNSHELF"),
     ("shelfkeys",  "examples/apps/shelf/shelfb.fs",  44, "SHELF-KEYS"),
+    ("scratch1", "examples/apps/lora/scr1.fs", 64, "SCR1"),
+    ("scratch2", "examples/apps/lora/scr2.fs", 68, "SCR2"),
 ]
 APPSTORE_RESIDENT = ["examples/apps/registry.fs", "examples/appstore.fs"]
 STAGING, STAGING_BLOCKS = 120, 8         # docs/26: the source of ANY phase is staged here, 8 blocks per pass

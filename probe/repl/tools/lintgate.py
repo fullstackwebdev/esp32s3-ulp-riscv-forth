@@ -53,8 +53,9 @@ def require_clean(paths, mode="--repl", where="", use=()):
 
 def main():
     argv = sys.argv[1:]
-    if not argv or argv[0] not in ("--repl", "--phase") or len(argv) < 2:
-        print("usage: lintgate.py {--repl|--phase} [--after prior.fs] file.fs [file.fs ...]", file=sys.stderr)
+    if not argv or argv[0] not in ("--repl", "--phase", "--store") or len(argv) < 2:
+        print("usage: lintgate.py {--repl|--phase|--store} [--after prior.fs] file.fs [file.fs ...]",
+              file=sys.stderr)
         return 2
     mode, files, use = argv[0], [], []
     i = 1

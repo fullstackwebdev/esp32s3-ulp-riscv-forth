@@ -1082,7 +1082,9 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
     # GUARDRAIL: `--repl` marks a source a harness TYPES line by line, which is the only path that meets the 63 B ring
     # limit; block uploads (everything the App Store and the corpus use) never see it. Off by default for that reason.
     repl = "--repl" in argv
-    argv = [a for a in argv if a not in ("--phase", "--repl")]
+    store = "--store" in argv          # source file, line semantics, uploaded through 92 B blocks
+    repl = repl or store               # ... so R1 must not treat its comments as words
+    argv = [a for a in argv if a not in ("--phase", "--repl", "--store")]
     if not argv:
         print(__doc__); return 2
     base, rest = {}, []
@@ -1099,7 +1101,7 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
     # typed load is never cut - it reported "REFUSING: no interpret-state boundary inside one 92 B block" on a driver that
     # the board accepts line by line, which is a true statement about an upload path nobody uses.
     findings = (lint_definitions(src, base, repl=repl)
-                + ([] if repl else check_blocks(src, base))
+                + ([] if repl and not store else check_blocks(src, base))
                 + (lint_phase(src) if phase else []))
     for ln, rule, msg in findings:
         print(f"  {argv[0]}:{ln}: {rule}: {msg}")
