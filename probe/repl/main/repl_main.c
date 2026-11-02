@@ -19,6 +19,9 @@
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "soc/soc.h"
+/* GUARDRAIL: RTC_GPIO_* and RTC_IO_TOUCH_PAD0_* live in soc/rtc_io_reg.h, not in soc.h - the pad driver pulls it in
+ * transitively for its own translation units, so #g failed to compile the first time with "undeclared". */
+#include "soc/rtc_io_reg.h"
 /* The ULP writes ONE byte per message into repl_out[] (0x81..) and msg_expand.h turns it back into text
  * here. Every other byte in that ring is ASCII (echoed input, digits, the offending word, '?', '\n'), so a
  * byte >= 0x80 is unambiguously a code, and the expansion is a substitution at the same position in the
@@ -597,6 +600,23 @@ static void seed_poll(void)
                     rtc_gpio_set_level((gpio_num_t)13, ln[1] == 'h' ? 1 : 0);
                     printf("pad13: %s\n", ln[1] == 'h' ? "driven high" : "driven low");
                 }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#g` prints the RTC GPIO registers as the HP core sees them. The ULP's own read of RTC_GPIO_IN
+             * returns 0x02010201 whatever drives the pads (two identical halves = the shape of a 16-bit fallback read),
+             * and there is no way to tell "the register really holds that" from "the ULP cannot read this address"
+             * without a second reader on the same silicon. Two readers, one register: if both agree, the pads are not
+             * reaching the register; if they disagree, the ULP's load path is the fault. Never conclude a hardware
+             * cause from a single reader - that is exactly how F-149 stayed hidden for a whole bring-up. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'g' && (ln[2] == 0 || ln[2] == ' ')) {
+                printf("gpio: OUT 0x%08X ENABLE 0x%08X IN 0x%08X | pad8 0x%08X pad11 0x%08X pad13 0x%08X\n",
+                       (unsigned)REG_READ(RTC_GPIO_OUT_REG), (unsigned)REG_READ(RTC_GPIO_ENABLE_REG),
+                       (unsigned)REG_READ(RTC_GPIO_IN_REG),
+                       (unsigned)REG_READ(RTC_IO_TOUCH_PAD0_REG + 8 * 4),
+                       (unsigned)REG_READ(RTC_IO_TOUCH_PAD0_REG + 11 * 4),
+                       (unsigned)REG_READ(RTC_IO_TOUCH_PAD0_REG + 13 * 4));
                 fflush(stdout);
                 n = 0;
                 continue;

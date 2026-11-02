@@ -311,3 +311,35 @@ round-trips exactly (`532480` in, `532480` out) at `+0x84 + pin*4`.
 The next step is not another guess: run the **C driver** (`probe/lora`, which passes `hal_pad_selftest` with mask 0) and
 print the raw `RTC_GPIO_IN` it sees while it drives a pad, then compare that number with what the Forth interpreter reads
 at the same address in the same image. Same register, same core, two builds — the difference will name the fault.
+
+### F-156 — the ULP's RTCIO accesses are swallowed while the HP core is awake (two-reader proof)
+
+This is the answer to the question §7 left open, and it needed a second reader to see. `#g` prints the RTC GPIO
+registers **as the HP core sees them**, so both readers can be compared in one board state:
+
+| | Forth (ULP) | HP core (`#g`) | agree? |
+|---|---|---|---|
+| `OUT` | `0x1C000000` | `0x00440000` | no |
+| `IN` | `0x02010201` | `0x00000400` (bit 23 = pin 13 driven) | no |
+| `pad13` after writing `532480` | `532480` (echoes the write) | `0x40082000` (unchanged) | no |
+| `0 → OUT`, then read back | `0` (echoes the write) | `0x00440000` (unchanged) | no |
+| memory `777 → 5000`, read back | **`0`** | — | — |
+
+Two things fall out of that table:
+
+1. **The gate is definitely active.** An address above `MEMSZ` (`5000`) does *not* round-trip — it lands in the one-byte
+   `junk` cell and reads back `0` — while a register address echoes its written value exactly. Registers and junk behave
+   differently, so `P_slow()` is being reached and it is returning the real pointer. The disassembly confirms it
+   (`wr32` does `sw a1,0(a0)` behind the `0x60008400 … +0x5FF` compare, `rd8`/`wr8` both call `P_slow`).
+2. **The accesses do not reach the peripheral.** The ULP's store is accepted by *something* that echoes it back on read,
+   while the HP core sees the register unchanged. That is the signature of an APB access to a clock-gated peripheral.
+
+The C driver did exactly the same `REG_WRITE(RTC_GPIO_OUT_W1TS_REG, …)` from exactly the same core and it worked — and
+in every one of those runs **the HP core was asleep** (`esp_deep_sleep_start`, 31/31 packets). The Forth REPL, by
+definition, runs with the HP core awake because it is feeding the interpreter over UART. So the working hypothesis is now
+precise and testable: **the RTCIO file is only reachable from the ULP while the HP core is not holding the bus.**
+
+The experiment that settles it does not need a guess: have the HP core queue a Forth line, enter light sleep for ~1 s,
+and read `#g` after waking. If the register changed, the contention hypothesis is right and the Forth driver needs the
+same shape as the C driver — ULP owns the radio *while the CPU sleeps*, which is also what the power budget in `docs/29`
+assumes anyway.
