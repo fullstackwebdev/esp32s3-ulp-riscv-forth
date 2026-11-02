@@ -212,6 +212,7 @@ APPSTORE = [
     ("mail",   "examples/apps/mail/mail1.fs",    32, "MAIL1"),
     ("reader", "examples/apps/reader/read1.fs",  48, "READ1"),
     ("shelf",  "examples/apps/shelf/shelf1.fs",  56, "RUNSHELF"),
+    ("shelfkeys",  "examples/apps/shelf/shelfb.fs",  44, "SHELF-KEYS"),
 ]
 APPSTORE_RESIDENT = ["examples/apps/registry.fs", "examples/appstore.fs"]
 STAGING, STAGING_BLOCKS = 120, 8         # docs/26: the source of ANY phase is staged here, 8 blocks per pass
@@ -538,8 +539,8 @@ def appstore(dev, root, only=()):
         # which of this file's own definitions exist, and print the pointers, BEFORE trusting the
         # entry. Nothing here changes the verdict; it names it.
         last = re.findall(r"^:\s+(\S+)", path.read_text(), re.M)[-6:]
-        have = {w: (dev.num(f"'{w} .") if _ok(dev, f"'{w} .") else None) for w in last}
-        if not _ok(dev, f"'{entry} ."):
+        have = {w: (dev.num(f"' {w} .") if _ok(dev, f"' {w} .") else None) for w in last}
+        if not _ok(dev, f"' {entry} ."):
             say(f"  {name}: entry `{entry}` missing; probe of the last definitions: "
                 f"{ {w: v for w, v in have.items()} } "
                 f"| HERE {ce} LATEST {hs} code {ce - cs} B headers {he - hs} B window {win} B", YL)

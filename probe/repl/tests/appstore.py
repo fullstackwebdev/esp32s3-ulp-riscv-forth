@@ -119,15 +119,38 @@ def main():
         # NOOP and the loop has nowhere to go - the operator lands at the prompt. That is dispatcher behaviour by design
         # (there is no "go back" destination and adding one costs resident bytes the shelf does not have to spare), so it is
         # asserted here rather than hidden: last, because it ends the session.
-        os.write(master, b"j")
-        frame(master)
+        # GUARDRAIL: reach the unbuilt card by TOGGLING THE BAND (`h`, the key the footer documents), not by
+        # pressing `j` again. Three `j`s walk the columns and the column counter is `3 /MOD`, so the third one
+        # wraps to column 0 and Enter opens the CALCULATOR - a built card, so this check was not measuring a
+        # refusal at all. Band 1 column 0 is slot 3 = GOPH = descriptor 40, which this build deliberately leaves
+        # blank, so Enter on it is the refused card the check is about.
+        # GUARDRAIL: land on the card this build leaves BLANK, by arithmetic, not by luck. The cursor is at
+        # slot 2 (MAIL) after the return; two `j`s walk to slot 1 = SHEET = descriptor 24, which the poison
+        # step writes empty on purpose. A single `j` wraps to slot 0 and an `h` here reaches a BUILT card,
+        # and either way the check would have been measuring a successful open, not a refusal.
+        os.write(master, b"jj")
+        for _ in range(2):
+            frame(master)
+        # GUARDRAIL: purge before measuring a key. The drawing phase hands off to the keys phase, so a frame
+        # can still be in flight when the next key is typed, and a check that reads the leftover byte stream
+        # measures the PREVIOUS screen (that is exactly how this check saw a 99 B calculator frame here).
+        while frames.dwell(master, 0.6):
+            pass
         os.write(master, b"\r")
         # GUARDRAIL: read a WINDOW, not one frame. The refusal's aftermath (the store leaving, or the shelf redrawing) does
         # not necessarily arrive inside the next SENT-delimited frame - measured as a 1307 B frame holding only the redraw
         # and the check failing on a run that behaved correctly. dwell() reads for the whole window on purpose.
         refused = frames.dwell(master, 3.0)
-        left_store = b"(back at the line prompt)" in refused or b"BACK" in refused
+        # GUARDRAIL: what a refused card ACTUALLY prints. `BACK` matched nothing in the firmware (grepped), so
+        # that branch could never fire, and the drawing phase no longer redraws before an open is attempted -
+        # the keys phase does the opening. A clean exit is now recognised by what the machine says: a NAMED
+        # refusal (the adopt reports magic/version/geometry itself) plus the prompt returning. Requiring the
+        # refusal name AND the prompt is not weaker than before: the old marker matched nothing at all.
+        left_store = (b"(back at the line prompt)" in refused
+                      or (b"REFUSED" in refused and b"ok" in refused))
         stayed = b"APP STORE" in refused
+        if os.environ.get("APPSTORE_DEBUG"):
+            print("  [debug] refused window:", repr(refused)[:400], flush=True)
         check("a card with no app refuses and the store survives or exits cleanly", left_store or stayed,
               f"{len(refused)} B, {'left the store' if left_store else 'stayed on the shelf'}")
 
