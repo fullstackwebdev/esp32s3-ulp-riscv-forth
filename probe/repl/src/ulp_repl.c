@@ -81,7 +81,7 @@
  * once the main core was shown to configure the pads. MEMSZ and src/image.h
  * are ONE decision - bake.sh's argument must be the same number, and the
  * mismatch check names it if they drift. */
-#define MEMSZ    2562
+#define MEMSZ    2566
 
 /* GUARDRAIL: SD stays 16. Raising it to 24 was rejected by the engine's own static assertions - dispatch.S hard-codes
  * the VM layout and assumes SD=16 for the stack wrap check - so deeper stacks would mean rewriting the asm dispatch.

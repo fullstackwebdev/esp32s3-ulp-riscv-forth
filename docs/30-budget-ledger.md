@@ -112,3 +112,36 @@ Two hazards were also caught this way, both mine:
 
 State left verified: image 7 931 B / 7 932 B, suite 30 PASS / 0 FAIL, oracle green, radio still
 reporting TxDone.
+
+## Continuation 6 - the shelf's real deficit, and where it came from
+
+Two earlier readings were wrong and are replaced by numbers the board gave:
+
+* the phase is **not** 9 B short. With every *valid* compaction applied (OPND, KENT,
+  SLOTNO, FLIP into KHL, BAND's five repeats collapsed into ROWLINE) the board reported
+  `code 890 B + headers 96 B = 986 B`, window 999 B, and *still* dropped the phase's last
+  six definitions, with `HERE 1948` against `LATEST 1961` - 13 B of contiguous room left
+  where a definition needs its 3-byte header plus 10-30 B of code in one piece. So the
+  shelf wants about **40 B** more than an in-budget image can give it.
+* `ERR_DICT` and a silent refusal are two different failures at the same boundary: the
+  interpreter names code overflow, but `mkhdr` refusing a header drops a definition with
+  no message at all (F-150). That is why three sessions read that timeout as a dead
+  console; `cli` now probes the phase's own last definitions and prints
+  HERE/LATEST/code/headers/window before trusting the entry word.
+
+What did land this continuation: `-fno-ipa-pure-const` in the ULP flag set, **measured**
+with `tools/measure.sh` at `pool span 7 937 -> 7 933` (-4 B), and `MEMSZ 2 566` with the
+image still `7 931 B / 7 932 B` (measured, `riscv32-esp-elf-size`) and a **999 B** phase
+window (measured, `resident sealed; phase window 999 B`). Combinations were swept and all
+did worse (7 949, 7 965), so the knob stands alone and stays documented as such.
+
+Also measured while proving the point: at the prompt `: KJ 8 ;` then `' KJ .` answers - no
+hash refusal there; the drop is the dictionary boundary during a phase compile, and it is
+silent. The `92 B` definition ceiling is not a margin either: it is derived from
+`BLKPASS = TIBSZ - 1 = 95`, so a longer definition cannot be loaded at all - which is what
+kills every "merge these words" idea for the shelf.
+
+Conclusion stands, and is now quantified to the byte: App Store 16/16 needs ~40 B of
+coprocessor text that no compiler knob in the swept set provides. The shelf's own source is
+already lean enough that remaining savings would change what it draws, and shared vocabulary
+(`COLR`, `COLL`, `RW`) is used by other apps or by tests, so it cannot be removed.

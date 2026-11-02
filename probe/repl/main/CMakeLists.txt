@@ -74,7 +74,11 @@ endif()
 # because its single number looks bad.
 # GUARDRAIL: the HOST build does not use these flags, so a green host suite alone would NOT validate them —
 # tests/run.sh's binaries are built without them. Run the twin check when changing this line.
-set(_ulp_cflags "${CMAKE_MATCH_1} ${ULP_EXTRA_DEFS} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants -fno-ssa-phiopt -fno-tree-pre")
+# GUARDRAIL: -fno-ipa-pure-const was priced with tools/measure.sh, not guessed: pool span 7 937 ->
+# 7 933 (-4 B), and 4 B of text buys 4 B of MEMSZ which buys 4 B of phase window (the window is
+# MEMSZ minus the seal). Combinations were swept too: adding any other knob made it worse again
+# (7 949 / 7 965), so this is the whole measured win and it must stay alone.
+set(_ulp_cflags "${CMAKE_MATCH_1} ${ULP_EXTRA_DEFS} -msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants -fno-ssa-phiopt -fno-tree-pre -fno-ipa-pure-const")
 message(STATUS "ULP C flags: ${_ulp_cflags}")
 idf_build_set_property(EXTRA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${_ulp_cflags}" APPEND)
 
