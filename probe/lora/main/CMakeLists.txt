@@ -17,6 +17,27 @@ set(ulp_riscv_sources "ulp/ulp_main.c" "ulp/sx126x_ulp_hal.c" "ulp/sx126x_min.c"
 # This file includes the generated ulp_lora.h that exports the ULP's variables.
 set(ulp_exp_dep_srcs "lora_main.c")
 
+# GUARDRAIL: F-160 bisect - build this KNOWN-GOOD ULP with probe/repl's exact flag set. Those flags exist because GCC
+# miscompiled the interpreter on this target (F-122 and the byte sweep), so they are the one difference nobody has tested
+# against a working radio. If the store stops landing here, the flags - not the board, not the Forth image - are the cause.
+if(LORA_REPL_FLAGS)
+    set(_tc "${idf_path}/components/ulp/cmake/toolchain-ulp-riscv.cmake")
+    file(READ "${_tc}" _tct)
+    string(REGEX MATCH "set\\(CMAKE_C_FLAGS \"([^\"]*)\"" _m "${_tct}")
+    if(NOT CMAKE_MATCH_1)
+        message(FATAL_ERROR "ULP baseline flags not found - refusing to guess")
+    endif()
+    set(_seed "${CMAKE_MATCH_1}")
+    # GUARDRAIL: the flag set is a PARAMETER, so a bisect is one -D per build instead of one source edit per build. The
+    # whole set was what broke the store, so which member matters is the next question and it should cost flashes, not edits.
+    set(_replbs "-msave-restore -fno-strict-aliasing -fno-tree-vrp -fno-tree-loop-im -fno-tree-fre -fno-tree-scev-cprop -fno-tree-forwprop -fno-tree-sink -fno-move-loop-invariants -fno-ssa-phiopt -fno-tree-pre")
+    if(DEFINED LORA_FLAGS)
+        set(_replbs "${LORA_FLAGS}")
+    endif()
+    idf_build_set_property(EXTRA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${_seed} ${_replbs}" APPEND)
+    message(STATUS "ULP extra flags: ${_replbs}")
+endif()
+
 ulp_embed_binary(${ulp_app_name} "${ulp_riscv_sources}" "${ulp_exp_dep_srcs}")
 
 # The bit-bang loop IS the measurement (docs/28 §4.4): build that translation unit for speed, not for debug (-Og).

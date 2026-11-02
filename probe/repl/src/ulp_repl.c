@@ -518,10 +518,14 @@ static void drain_cmd(void)
 int main(void)
 {
 #if defined(HWPROBE)
-    /* GUARDRAIL: F-158's bisect store, first instruction of main, in an image built with P42_ONLY so the interpreter is
-     * not even linked in (548 B instead of 7 831 B). Pad 11 (MISO, bit 21) is idle low at boot, so one HP-side read of
-     * RTC_GPIO_OUT answers it - and never probe with a pad the HP core idles HIGH, or the test cannot fail (docs/14 R18). */
-    *(volatile u32 *)0x60008404u = (1u << (11 + 10));
+    /* GUARDRAIL: PAD 8 (bit 18), the output pad this firmware enables - not pad 11, which is INPUT_ONLY here so its OUT
+     * data bit is not a meaningful target (that mistake made one whole bisect round inconclusive). The baseline trap (R18)
+     * is handled on the HP side, which clears the bit after arming the coprocessor and watches it come back. */
+    *(volatile u32 *)0x60008404u = (1u << (8 + 10));
+    /* GUARDRAIL: count this wake, or the HP side cannot tell "the probe ran and the store was lost" from "this image never
+     * ran at all" - which is exactly how two earlier bisect results became void (F-159). The liveness counter must be in
+     * the same image as the experiment. */
+    repl_wake_count = repl_wake_count + 1u;
     /* GUARDRAIL: keep every symbol the HP side links against. With P42_ONLY the interpreter is not linked, so
      * --gc-sections drops the variables it used and the app fails with "'ulp_repl_mem_addr' undeclared" - which reads
      * like a CMake error and is the linker doing its job. Same trick, same reason, as src/ulp_stub.c. */

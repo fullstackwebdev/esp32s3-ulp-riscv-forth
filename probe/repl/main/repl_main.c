@@ -1330,6 +1330,21 @@ static void lora_pads_setup(void)
 void app_main(void)
 {
     lora_pads_setup();
+#if defined(ULP_EARLY)
+    /* GUARDRAIL: F-160 app bisect. Start the coprocessor immediately after the pads are configured, before the watchdog,
+     * the UART driver and the flash store - the three things this firmware does that the working reference does not. If
+     * the store lands here, the cause is one of them; if it does not, it is earlier still (the bootloader image or the
+     * linker layout). GUARDRAIL: canary_paint() MUST be skipped in this build - it writes 260 B of paint at CANARY_BASE,
+     * which is the ULP's own stack, so painting after the coprocessor starts silently kills it (F-159). */
+    /* GUARDRAIL: keep the RTC peripheral power domain ON. The reference firmware (probe/lora) calls
+     * esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON) and THIS firmware never did - and the RTCIO block
+     * lives in that domain, so a ULP access to it is not guaranteed to be served while the domain is left to its
+     * default. This is the last HP-side call the two firmwares differ on. */
+    ESP_ERROR_CHECK(esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON));
+    ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
+    ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
+    ESP_ERROR_CHECK(ulp_riscv_run());
+#endif
     /* Watchdog first (P06): a hung bridge takes the console *and* the flashing port with it. */
     esp_task_wdt_config_t wdt = { .timeout_ms = 5000, .idle_core_mask = 0, .trigger_panic = true };
     esp_task_wdt_reconfigure(&wdt);
@@ -1357,7 +1372,9 @@ void app_main(void)
     /* GUARDRAIL: boot the store BEFORE the ULP is started, so the first block request is answered from a validated
      * store rather than from a zeroed RAM array. A refusal here is named and printed; the console's `#x` formats. */
     store_boot();
+#if !defined(ULP_EARLY)
     ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
+#endif
 
     /* Loud before anything else: if these disagree, every byte the user types is written to the wrong
      * place in the coprocessor's memory and the symptom looks like Forth corruption, not like a bug in
@@ -1371,10 +1388,30 @@ void app_main(void)
     }
     /* 1 000 ticks at the measured 6.46 us/tick = 6 460 us. The API takes microseconds. */
     ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
-#if defined(CANARY)
+#if defined(CANARY) && !defined(ULP_EARLY)
     canary_paint();                      /* before the ULP runs: the only moment the stack is untouched */
 #endif
+#if !defined(ULP_EARLY)
     ESP_ERROR_CHECK(ulp_riscv_run());
+#endif
+#if defined(ULP_EARLY)
+    /* GUARDRAIL: clear pad 8's data bit AFTER arming the coprocessor, then sample on the ULP's own cadence (it wakes
+     * every 6.46 ms, so a 200 ms window contains ~30 wakes). The bit returning SET can only mean the ULP's store landed -
+     * nothing else drives pad 8, and lora_pads_setup's own set already happened. Sampling the EVENT, not a guess. */
+    {
+        REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+        for (int i = 0; i < 20; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            uint32_t o = REG_READ(RTC_GPIO_OUT_REG);
+            if (o & (1u << (8 + 10))) {
+                printf("EARLYTEST: ULP store LANDED after %d ms (OUT 0x%08X)\n", i * 10 + 10, (unsigned)o);
+                break;
+            }
+            if (i == 19) printf("EARLYTEST: ULP store LOST (OUT 0x%08X)\n", (unsigned)o);
+        }
+        fflush(stdout);
+    }
+#endif
     ESP_LOGI(TAG, "ulp armed");
 
     /* GUARDRAIL: report the ULP's own wake counter before handing over. Without it, a silent console is

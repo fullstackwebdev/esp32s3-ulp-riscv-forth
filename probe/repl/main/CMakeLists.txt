@@ -2,7 +2,14 @@
 # GUARDRAIL: the ULP source must live in src/ next to uforth.c — ulp_p39.c includes "uforth.c" and
 # the .inc files by quoted include, which resolves relative to ulp_p39.c's own directory. Adding
 # include dirs here instead would let the ULP pick up a *different* uforth.c than the host build.
-set(COMPONENT_SRCS "repl_main.c"
+# GUARDRAIL: the HP side needs its OWN definition of ULP_EARLY. Passing it only through ULP_EXTRA_DEFS (which feeds the
+# ULP sub-build's CFLAGS) left repl_main.c on the normal boot path while I believed I had bisected "started early" - the
+# classic one-flag-two-builds mistake. -DULP_EARLY=1 now means both sides.
+if(ULP_EARLY)
+    add_definitions(-DULP_EARLY=1)
+endif()
+
+set(COMPONENT_SRCS "repl_main.c" 
             "flash_store.c")
 set(COMPONENT_ADD_INCLUDEDIRS "")
 set(COMPONENT_REQUIRES ulp soc esp_timer esp_hw_support driver esp_system spi_flash esp_partition)

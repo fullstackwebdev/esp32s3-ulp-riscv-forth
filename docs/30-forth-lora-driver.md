@@ -491,3 +491,41 @@ where `docs/29` records **2 804 B**. The 100 B difference is the probe only - th
 `docs/29` are unchanged, and the probe is one store plus two reads per wake. `probe/lora` also gained a documented
 `-DLORA_STAY_AWAKE=1` build switch that keeps the HP core running for 20 s and prints the counters every second; that is
 the tool that proved the ULP drives RTCIO with the CPU awake, and it is the one to reuse for the bisect in §8.
+
+## 9. F-160: the difference is neither the flags nor the config (measured, both directions)
+
+Three classes were opened and closed against the **only trustworthy reader** (the HP core, `#g`/`staytest.py`), with the
+ULP's own wake counter as proof of liveness:
+
+| experiment | result |
+|---|---|
+| Working ULP source compiled with **this firmware's full ULP flag set** (`-msave-restore -fno-strict-aliasing` + the nine tree flags) | store **LANDS** — flags eliminated |
+| Working firmware built with **this app's entire `sdkconfig`** (8 176 B ULP reserve, custom partitions, 2 MB flash, warn-level logs) | store **LANDS** — config eliminated |
+| This app, `P42_ONLY` image (3 616 B, **no interpreter linked**), ULP started immediately after pad setup, `wakes` verified moving | store **LOST** |
+| Same, plus `esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ON)` — the one RTC power call the reference makes and this app did not | store **LOST** |
+
+So the fault is in **this app binary**, not in how the ULP is compiled, not in the build configuration, and not in the
+interpreter. Everything the HP-side bisect could reach has been eliminated except the two things named at the end of §8:
+linker placement of `.rtc.*`, and what `flash_store`/`store_boot()` do to the memory map.
+
+### Two more invalid tests discarded on the way (same instrument mistake, twice)
+
+* Probing **pad 11** (`bit21`) as a store target. In this firmware pad 11 is `RTC_GPIO_MODE_INPUT_ONLY` — its `OUT` data
+  bit is not a meaningful thing to set. A round trip on an output pad, not a bit in a register, is the test.
+* Passing `-DULP_EARLY` **only** through `ULP_EXTRA_DEFS`, which feeds the ULP sub-build's CFLAGS. The HP side silently
+  kept the normal boot path, so "started early, still lost" was measured on a firmware that had not been changed. A flag
+  that reaches one of two builds is a footgun: the switch is now a CMake option that defines it on **both** sides
+  (`main/CMakeLists.txt`), and `strings build/*.elf | grep EARLYTEST` is the check that the code being run is the code
+  being tested.
+
+### Tools left in the tree, off by default
+
+* `probe/repl`: `-DULP_EARLY=1` (HP) + `-DULP_EXTRA_DEFS="-DP42_ONLY -DHWPROBE"` (ULP) builds the minimal liveness+store
+  probe; `tools/waketest.py` reads it from the port.
+* `probe/lora`: `-DLORA_STAY_AWAKE=1` prints one `AWAKETEST` line per ULP wake; `tests/staytest.py` decides LANDED/LOST.
+* `main/CMakeLists.txt` (lora): `-DLORA_FLAGS='...'` replaces any single flag, so one flash per hypothesis.
+
+### Restored and verified
+
+Shipping configuration rebuilt and flashed: **7 931 / 7 932 B**, `boot: ulp forth bridge, 7424 B image`, store formatted,
+`1 2 + .` → `3`, and a deliberately bad op failing loudly (`stack?`). Host suite below.

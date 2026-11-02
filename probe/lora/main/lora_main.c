@@ -195,6 +195,20 @@ void app_main(void)
          * store lands. GUARDRAIL: this belongs in the STAY_AWAKE loop only; the first version patched it into the
          * nightly report loop, where `s` does not exist and the build failed. */
         if (s == 1) REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+        /* GUARDRAIL: sample AT the wake, not once a second. The ULP wakes every ~5 s, so a 1 s poll either sees the bit
+         * before the store ran (clear, reads as "LOST") or after a later wake (set, reads as "LANDED") - the first version
+         * of this test reported LOST for a store that landed at the NEXT wake. A measurement of a periodic event must be
+         * keyed to the event: compare run_count and read the register the moment it changes. */
+        {
+            static uint32_t last_runs;
+            if ((uint32_t)ulp_run_count != last_runs) {
+                last_runs = (uint32_t)ulp_run_count;
+                printf("AWAKETEST runs=%u OUT=0x%08X bit18=%s\n", (unsigned)last_runs,
+                       (unsigned)REG_READ(RTC_GPIO_OUT_REG),
+                       (REG_READ(RTC_GPIO_OUT_REG) & (1u << (8 + 10))) ? "SET" : "clear");
+                fflush(stdout);
+            }
+        }
         /* GUARDRAIL: use the counters this firmware actually exports (ulp_run_count / ulp_tx_ok_count). The first version
          * named them from the console line instead of the symbol table and did not compile - the exported names are the
          * contract, so read them off ulp_lora.h. */
