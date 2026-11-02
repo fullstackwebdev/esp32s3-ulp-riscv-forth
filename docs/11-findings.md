@@ -903,3 +903,21 @@ way; it asks whether a word exists, not whether it does anything.
 A `return 0` in the device implementation is a lie that the host cannot detect, and it is worse than a missing word,
 because a missing word stops the program in the first second.
 
+### F-149 — The engine's memory guard makes Forth unable to reach a peripheral, and the host simulator hid it
+
+`static u8 *P(u32 a) { return a < MEMSZ ? mem + a : &junk; }` is *shared* by both builds. On the chip, every `W!`, `C!`
+and `@` to an address outside `mem[]` (MEMSZ 2 604) is therefore redirected to a one-byte `junk` cell — by design, so a
+wild pointer cannot corrupt anything. The consequence for the LoRa driver (docs/30 §5, option 2) is that writing
+`0x60008406` from Forth goes nowhere, and reading `0x60008426` always returns whatever `junk` holds. Measured on the
+board: `1 8 LORA! 8 LORA@ .` → **0**, and `GetStatus` → **0x00**, on a board where the C driver reads **0x2a** from the
+same pins.
+
+Worse, the host test *passed* — because the RTCIO window added to the host's `rd16`/`wr16` in `uforth.c` accepted exactly
+the addresses the chip refuses. A simulator more capable than the machine it simulates is worse than none: it converts a
+hardware limitation into a green tick (F-148's lesson, one level down again).
+
+**Rule.** A host simulation of a device must be no more permissive than the device. When adding one, write down what the
+real machine *refuses* and assert that too. Here the honest repair is a primitive pair that deliberately bypasses `P()`
+(`HW@` / `HW!` on an absolute address), which is a `.c` change costing pool bytes — the third time this feature has asked
+for bytes, and the third time the answer was "the pool has 1 B".
+

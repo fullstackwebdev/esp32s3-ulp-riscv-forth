@@ -33,6 +33,7 @@
 #include "ulp_main.h"
 #include "flash_store.h"
 #include "esp_system.h"
+#include "driver/rtc_io.h"
 #include "esp_rom_sys.h"   /* GUARDRAIL: esp_rom_delay_us is the bounded hot poll at the end of the server loop - see the note there */
 
 static void seed_poll(void);   /* defined after blkfile[]; called from the UART pump */
@@ -1200,8 +1201,37 @@ img_done:   ;
 
 static void block_task(void *arg);
 
+/* LoRa pads for the Heltec V3 (SX1262): SCK 9, MOSI 10, MISO 11, NSS 8, NRST 12, BUSY 13, DIO1 14.
+ *
+ * GUARDRAIL: the ULP cannot put a pad into RTC GPIO mode by itself reliably - measured on this board, a Forth driver that
+ * wrote RTC_IO_TOUCH_PADn / RTC_GPIO_ENABLE by hand read every pin back as 0, and "BUSY is low" then made a completely
+ * dead SPI link look like a successful radio init. The main core does it here, exactly as the working C driver does
+ * (probe/lora/main/lora_main.c), and it costs APP flash - not one byte of the 7 892 B ULP pool.
+ * GUARDRAIL: rtc_gpio_hold_en() must NOT be called on these: hold freezes the pad and the ULP can no longer drive it. */
+static void lora_pads_setup(void)
+{
+    const int outs[4] = { 8, 9, 10, 12 };
+    const int ins[3]  = { 11, 13, 14 };
+    for (int i = 0; i < 4; i++) {
+        rtc_gpio_init((gpio_num_t)outs[i]);
+        rtc_gpio_set_direction((gpio_num_t)outs[i], RTC_GPIO_MODE_OUTPUT_ONLY);
+        rtc_gpio_pullup_dis((gpio_num_t)outs[i]);
+        rtc_gpio_pulldown_dis((gpio_num_t)outs[i]);
+    }
+    for (int i = 0; i < 3; i++) {
+        rtc_gpio_init((gpio_num_t)ins[i]);
+        rtc_gpio_set_direction((gpio_num_t)ins[i], RTC_GPIO_MODE_INPUT_ONLY);
+        rtc_gpio_pullup_dis((gpio_num_t)ins[i]);
+        rtc_gpio_pulldown_dis((gpio_num_t)ins[i]);
+    }
+    rtc_gpio_set_level((gpio_num_t)8, 1);    /* NSS idle high */
+    rtc_gpio_set_level((gpio_num_t)12, 1);   /* NRST idle high */
+    rtc_gpio_set_level((gpio_num_t)9, 0);    /* SCK idle low */
+}
+
 void app_main(void)
 {
+    lora_pads_setup();
     /* Watchdog first (P06): a hung bridge takes the console *and* the flashing port with it. */
     esp_task_wdt_config_t wdt = { .timeout_ms = 5000, .idle_core_mask = 0, .trigger_panic = true };
     esp_task_wdt_reconfigure(&wdt);

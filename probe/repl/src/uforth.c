@@ -99,15 +99,85 @@ static void __attribute__((noinline)) wr8(u32 a, u8 v)     { *P(a) = v; }
  * ever stops being true the core raises a misaligned-access trap instead of returning a byte-swapped
  * value, which is the failure we want. Do NOT add a byte-pair fallback: it would hide exactly that bug.
  * Out-of-range keeps the old answer (0) so wild pointers behave as before. */
+#ifdef HOST
+/* ---------------------------------------------------------------- simulated RTC GPIO block (host only)
+ *
+ * The Forth LoRa driver addresses the real RTC GPIO registers directly (docs/30 §5, option 2: it costs 0 B of the ULP
+ * pool, which is why it was chosen). On the host those addresses do not exist and P() sends them to `junk`, so without
+ * this window the driver would "run" while every write landed nowhere and every read returned 0 - the same
+ * capable-in-one-build / stub-in-the-other lie that F-148 records, this time in the harness rather than the image.
+ *
+ * GUARDRAIL: this lives in uforth.c because that - not preoptimization.c - is what tests/build_host_app.sh compiles for
+ * the host. Putting it in preoptimization.c cost a full debug cycle: the shim was correct, linked into nothing, and the
+ * pin trace stayed empty.
+ *
+ * GUARDRAIL: the set/clear writes print the SAME `[gpio pin=level]` trace that pl_hw prints, so tests/lora_spi.py
+ * decodes register writes and pin writes with one decoder - two decoders would be two chances to disagree with the chip.
+ *
+ * ESP32-S3 RTCIO (DR_REG_RTCIO_BASE = 0x60008400): +0x04 W1TS, +0x08 W1TC, +0x24 IN. Every data field starts at bit 10
+ * (F-141), so a HALFWORD at +2 covers pins 6..21 - the reason W!/W@ can drive these pins at all. */
+#define SIM_RTCIO_BASE   0x60008400u
+#define SIM_RTCIO_SIZE   0x40u
+#define SIM_RTCIO_SHIFT  6u
+static u16 sim_rtcio[SIM_RTCIO_SIZE / 2];
+static u32 sim_pin_levels;
+
+static int sim_rtcio_hit(u32 a) { return a >= SIM_RTCIO_BASE && a < SIM_RTCIO_BASE + SIM_RTCIO_SIZE; }
+
+static void sim_rtcio_write(u32 a, u16 v)
+{
+    const u32 off = a - SIM_RTCIO_BASE;
+    if (off == 0x06u || off == 0x0Au) {
+        for (u32 i = 0; i < 16u; i++) {
+            if ((v >> i) & 1u) {
+                const u32 pin = i + SIM_RTCIO_SHIFT;
+                if (off == 0x06u) {
+                    sim_pin_levels |= 1u << pin;
+                    printf("[gpio %u=1]", pin);
+                } else {
+                    sim_pin_levels &= ~(1u << pin);
+                    printf("[gpio %u=0]", pin);
+                }
+            }
+        }
+        return;
+    }
+    sim_rtcio[off / 2] = v;
+}
+
+static u16 sim_rtcio_read(u32 a)
+{
+    const u32 off = a - SIM_RTCIO_BASE;
+    if (off == 0x26u) {
+        return (u16)((sim_pin_levels >> SIM_RTCIO_SHIFT) & 0xFFFFu);
+    }
+    return sim_rtcio[off / 2];
+}
+#endif
+
 #if defined(ALIGN_TRAP)
-static u16 rd16(u32 a)           { if (a & 1u) pl_halt(0x50u); return *(volatile u16 *)(mem + a); }
+static u16 rd16(u32 a)           { if (a & 1u) pl_halt(0x50u);
+#ifdef HOST
+    if (sim_rtcio_hit(a)) return sim_rtcio_read(a);
+#endif
+    return *(volatile u16 *)(mem + a); }
 #else
 /* GUARDRAIL: the old test was `a + 1u < MEMSZ`, which WRAPS for a = 0xFFFFFFFF: the sum becomes 0, the
  * test passes, and the load reads mem - 1 — a wild pointer, not a rejected address. (`-1 @` reaches it.)
  * Compare the address, never the address plus its own width. P(a) never had this bug because it tests `a`. */
-static u16 rd16(u32 a)           { return a < MEMSZ - 1u ? *(volatile u16 *)(mem + a) : 0u; }
+static u16 rd16(u32 a)           {
+#ifdef HOST
+    if (sim_rtcio_hit(a)) return sim_rtcio_read(a);
 #endif
-static void __attribute__((noinline)) wr16(u32 a, u16 v)   { wr8(a, v); wr8(a + 1, v >> 8); }
+    return a < MEMSZ - 1u ? *(volatile u16 *)(mem + a) : 0u; }
+#endif
+static void __attribute__((noinline)) wr16(u32 a, u16 v)
+{
+#ifdef HOST
+    if (sim_rtcio_hit(a)) { sim_rtcio_write(a, v); return; }
+#endif
+    wr8(a, v); wr8(a + 1, v >> 8);
+}
 static u32 rd32(u32 a)           { return rd16(a) | (u32)rd16(a + 2) << 16; }
 static void wr32(u32 a, u32 v)   { wr16(a, v); wr16(a + 2, v >> 16); }
 /* GUARDRAIL: host-only. A 3-byte header entry (P54) cannot be read with rd32 at all — half of the

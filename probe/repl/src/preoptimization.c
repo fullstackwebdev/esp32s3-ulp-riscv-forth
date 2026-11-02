@@ -71,6 +71,59 @@ static u8 mem[MEMSZ];
 static u8 junk;
 
 static u8 *P(u32 a) { return a < MEMSZ ? mem + a : &junk; }  /* wild pointers are harmless */
+/* ---------------------------------------------------------------- simulated RTC GPIO block (host only)
+ *
+ * The Forth LoRa driver addresses the real RTC GPIO registers directly (docs/30 §5, option 2: it costs 0 B of the ULP
+ * pool, which is the whole point). On the host those addresses do not exist, and P() sends wild pointers to `junk` - so
+ * without this window the driver would appear to work while every write landed nowhere and every read returned 0, which
+ * is precisely the "capable in one build, stub in the other" lie F-148 records.
+ *
+ * GUARDRAIL: the window is checked BEFORE the mem[] path in both directions, and the set/clear writes print the same
+ * `[gpio pin=level]` trace that pl_hw prints, so tests/lora_spi.py decodes register writes and pin writes with ONE
+ * decoder. Two decoders would be two chances to disagree with the chip.
+ *
+ * Offsets are the ESP32-S3 RTCIO block (DR_REG_RTCIO_BASE = 0x60008400):
+ *   +0x04 W1TS (set)   +0x08 W1TC (clear)   +0x10 ENABLE_W1TS   +0x24 IN
+ * Each register's data field starts at bit 10 (F-141), so a HALFWORD access at +2 covers pins 6..21 - which is why the
+ * driver can use W! / W@ at all, and why pins below 6 are not addressable this way. */
+#define SIM_RTCIO_BASE   0x60008400u
+#define SIM_RTCIO_SIZE   0x40u
+#define SIM_RTCIO_SHIFT  6u          /* a halfword at +2 starts at bit 16 = pin 6 */
+static u16 sim_rtcio[SIM_RTCIO_SIZE / 2];
+static u32 sim_pin_levels;           /* what the pads would be showing */
+
+static int sim_rtcio_hit(u32 a) { return a >= SIM_RTCIO_BASE && a < SIM_RTCIO_BASE + SIM_RTCIO_SIZE; }
+
+static void sim_rtcio_write(u32 a, u16 v)
+{
+    const u32 off = a - SIM_RTCIO_BASE;
+    if (off == 0x06u || off == 0x0Au) {                    /* W1TS / W1TC halfword = pins 6..21 */
+        for (u32 i = 0; i < 16u; i++) {
+            if ((v >> i) & 1u) {
+                const u32 pin = i + SIM_RTCIO_SHIFT;
+                if (off == 0x06u) {
+                    sim_pin_levels |= 1u << pin;
+                    printf("[gpio %u=1]", pin);
+                } else {
+                    sim_pin_levels &= ~(1u << pin);
+                    printf("[gpio %u=0]", pin);
+                }
+            }
+        }
+        return;
+    }
+    sim_rtcio[off / 2] = v;                                 /* everything else is plain storage */
+}
+
+static u16 sim_rtcio_read(u32 a)
+{
+    const u32 off = a - SIM_RTCIO_BASE;
+    if (off == 0x26u) {                                     /* IN, upper halfword = pins 6..21 */
+        return (u16)((sim_pin_levels >> SIM_RTCIO_SHIFT) & 0xFFFFu);
+    }
+    return sim_rtcio[off / 2];
+}
+
 static u8  rd8(u32 a)            { return *P(a); }
 /* GUARDRAIL: noinline is a BUDGET pin, not a performance choice. With 3-byte headers `find()` and `mkhdr`
  * touch wr8/wr16 far more often, and GCC's decision to outline them is worth -90 B of .text — which is the
@@ -86,14 +139,20 @@ static void __attribute__((noinline)) wr8(u32 a, u8 v)     { *P(a) = v; }
  * value, which is the failure we want. Do NOT add a byte-pair fallback: it would hide exactly that bug.
  * Out-of-range keeps the old answer (0) so wild pointers behave as before. */
 #if defined(ALIGN_TRAP)
-static u16 rd16(u32 a)           { if (a & 1u) pl_halt(0x50u); return *(volatile u16 *)(mem + a); }
+static u16 rd16(u32 a)           { if (a & 1u) pl_halt(0x50u); if (sim_rtcio_hit(a)) return sim_rtcio_read(a); return *(volatile u16 *)(mem + a); }
 #else
 /* GUARDRAIL: the old test was `a + 1u < MEMSZ`, which WRAPS for a = 0xFFFFFFFF: the sum becomes 0, the
  * test passes, and the load reads mem - 1 — a wild pointer, not a rejected address. (`-1 @` reaches it.)
  * Compare the address, never the address plus its own width. P(a) never had this bug because it tests `a`. */
-static u16 rd16(u32 a)           { return a < MEMSZ - 1u ? *(volatile u16 *)(mem + a) : 0u; }
+static u16 rd16(u32 a)           { if (sim_rtcio_hit(a)) return sim_rtcio_read(a); return a < MEMSZ - 1u ? *(volatile u16 *)(mem + a) : 0u; }
 #endif
-static void __attribute__((noinline)) wr16(u32 a, u16 v)   { wr8(a, v); wr8(a + 1, v >> 8); }
+static void __attribute__((noinline)) wr16(u32 a, u16 v)
+{
+    /* GUARDRAIL: the simulated RTC GPIO window is consulted first; adding it after the mem[] path made every
+     * peripheral write land in `junk` and the driver "run" without moving a pin (F-148 in the host build). */
+    if (sim_rtcio_hit(a)) { sim_rtcio_write(a, v); return; }
+    wr8(a, v); wr8(a + 1, v >> 8);
+}
 static u32 rd32(u32 a)           { return rd16(a) | (u32)rd16(a + 2) << 16; }
 static void wr32(u32 a, u32 v)   { wr16(a, v); wr16(a + 2, v >> 16); }
 /* GUARDRAIL: host-only. A 3-byte header entry (P54) cannot be read with rd32 at all — half of the

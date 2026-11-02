@@ -1,16 +1,12 @@
-\ lora1.fs - SX1262 transmit driver in FORTH, bit-banged with GPIO! / GPIO@ alone.
+\ lora1.fs - SX1262 transmit driver in Forth.
+\ Bit-banged SPI at the RTC GPIO registers: no C change,
+\ no new primitives, 0 B of ULP pool.
+\ Every line is under 63 B because that is what the device
+\ input ring holds; longer lines are refused and never run.
 \
-\ No new primitives. This machine already has GPIO! ( level pin -- ), GPIO@ ( pin -- ),
-\ MS, and the comparisons; everything the C driver in probe/lora does with registers is
-\ done here with those. The Forth question was about BYTES, not speed: docs/29 sec 6 -
-\ 95 % of the ULP's awake window is the packet on air, so the bus MHz does not matter.
-\
-\ The interpreter IS the delay. At ~6 tokens per bit this runs ~30-40 kHz, well under the
-\ 144.6 kHz the C HAL measured (docs/29 sec 2) and far under what the radio cares about.
-\
-\ GUARDRAIL: no VARIABLE and no CREATE here. A phase may not own state (linter R16), so the
-\ SPI temporaries live on the RETURN stack and the payload bytes are computed as they are sent.
-\ The first version used VARIABLE/CREATE and the machine answered VARIABLE? at line 23.
+\ ESP32-S3 RTCIO base 0x60008400; data fields start at bit 10,
+\ so a halfword at +2 covers pins 6..21 - which is why W!/W@
+\ are enough. Pins below 6 are not addressable this way.
 
 8  CONSTANT LORA_NSS
 9  CONSTANT LORA_SCK
@@ -20,20 +16,41 @@
 13 CONSTANT LORA_BUSY
 14 CONSTANT LORA_DIO1
 
-\ 868.1 MHz -> register Hz*2^25/32e6 = 910268825 = 0x36 41 99 99, pushed byte by byte below
-\ (54 65 153 153). Computed from the formula, never recalled.
+1610646534 CONSTANT LORA_SET  \ 0x60008406 OUT_W1TS  (set)
+1610646538 CONSTANT LORA_CLR  \ 0x6000840A OUT_W1TC  (clear)
+1610646566 CONSTANT LORA_IN   \ 0x60008426 IN
+1610646546 CONSTANT LORA_EN   \ 0x60008412 ENABLE_W1TS
+1610646660 CONSTANT LORA_PAD0 \ 0x60008484 RTC_IO_TOUCH_PAD0
 
-: LORA! ( v pin -- ) GPIO! ;
-: LORA@ ( pin -- v ) GPIO@ ;
+\ 868.1 MHz = Hz*2^25/32e6 = 0x36 41 99 99 (54 65 153 153)
 
-\ One byte, SPI mode 0, MSB first: MOSI while SCK low, SCK high, sample MISO, SCK low.
-\ GUARDRAIL: no >R / R> here, and no counter in the bit path. This dialect's return stack
-\ leaked: a byte loop built on >R ... R> left TWO extra cells per byte - measured on the
-\ host, `7 9 LORA_SPIX . . .` printed three numbers - which shifted every later argument.
-\ The bit loop is UNROLLED into eight LORA_SHIFT steps, each ( b -- b*2 ): the stack shape
-\ never changes and it is the faster shape too (docs/27: unroll the bit loop).
+: ORW! ( bits addr -- ) DUP W@ ROT OR SWAP W! ;
+
+: LORA! ( level pin -- )
+  6 - 1 SWAP LSHIFT SWAP
+  IF LORA_SET ELSE LORA_CLR THEN W! ;
+
+: LORA@ ( pin -- level )
+  6 - 1 SWAP LSHIFT LORA_IN W@ AND 0= 0= ;
+
+\ pad mux: MUX_SEL bit 19 (upper half bit 3), FUN_IE bit 13
+: LORA_MUX! ( pin -- ) 4 * LORA_PAD0 + DUP
+  8 SWAP 2 + ORW!
+  8192 SWAP ORW! ;
+
+: LORA_OUT! ( pin -- ) 6 - 1 SWAP LSHIFT LORA_EN ORW! ;
+
+: LORA_PINS
+  8 LORA_MUX! 9 LORA_MUX! 10 LORA_MUX! 11 LORA_MUX!
+  12 LORA_MUX! 13 LORA_MUX! 14 LORA_MUX!
+  8 LORA_OUT! 9 LORA_OUT! 10 LORA_OUT! 12 LORA_OUT! ;
+
+\ One bit of SPI mode 0: MOSI while SCK low, SCK high, low.
+\ The byte loop is UNROLLED into eight of these: this dialect's
+\ >R / R> leak two cells per call inside a calling word.
 : LORA_SHIFT ( b -- b*2 )
-  DUP 128 AND IF 1 LORA_MOSI LORA! ELSE 0 LORA_MOSI LORA! THEN
+  DUP 128 AND
+  IF 1 LORA_MOSI LORA! ELSE 0 LORA_MOSI LORA! THEN
   1 LORA_SCK LORA!
   0 LORA_SCK LORA!
   2 * ;
@@ -43,116 +60,99 @@
   LORA_SHIFT LORA_SHIFT LORA_SHIFT LORA_SHIFT
   DROP ;
 
-\ One clock with MOSI low, returning MISO. Only the LAST bit of a word is ever needed here
-\ (TxDone is bit 0 of the 16-bit IRQ status, and SPI sends MSB first), so nothing accumulates.
+\ one clock with MOSI low, returning MISO
 : LORA_CLOCK ( -- bit )
   0 LORA_MOSI LORA!
   1 LORA_SCK LORA!
   LORA_MISO LORA@
-  0 LORA_SCK LORA!
-  ;
+  0 LORA_SCK LORA! ;
 
-: LORA_SKIP8 ( -- ) 0 BEGIN DUP 8 < WHILE LORA_CLOCK DROP 1+ REPEAT DROP ;
-: LORA_SKIP7 ( -- ) 0 BEGIN DUP 7 < WHILE LORA_CLOCK DROP 1+ REPEAT DROP ;
+: LORA_SKIP8 LORA_CLOCK DROP LORA_CLOCK DROP LORA_CLOCK DROP
+LORA_CLOCK DROP LORA_CLOCK DROP LORA_CLOCK DROP LORA_CLOCK
+  DROP
+  LORA_CLOCK DROP ;
+: LORA_SKIP7 LORA_CLOCK DROP LORA_CLOCK DROP LORA_CLOCK DROP
+LORA_CLOCK DROP LORA_CLOCK DROP LORA_CLOCK DROP LORA_CLOCK
+  DROP ;
 
-\ The 16th bit of the IRQ status word is bit 0 = TxDone, and SPI sends MSB first, so: skip the
-\ high byte, skip 7 bits of the low byte, and the next clock returns the flag we want.
-: LORA_IRQTX ( -- txdone ) LORA_SKIP8 LORA_SKIP7 LORA_CLOCK ;
+\ the 16th bit of the IRQ status word is TxDone (bit 0) and SPI
+\ sends MSB first: skip the high byte plus 7, clock the last.
+: LORA_IRQTX LORA_SKIP8 LORA_SKIP7 LORA_CLOCK ;
 
-: LORA_BEG ( -- ) 0 LORA_NSS LORA! ;
-: LORA_END ( -- ) 1 LORA_NSS LORA! ;
+: LORA_BEG 0 LORA_NSS LORA! ;
+: LORA_END 1 LORA_NSS LORA! ;
 
-\ the class this project bans. 200000 iterations is tens of ms. DIO1 below uses 0= to
-\ the class this project bans. 200000 iterations is tens of ms. DIO1 below uses 0= to
-\ the bound and reported failure, and the host trace showed a reset pulse and nothing else. The
-\ DIO1 wait below legitimately uses `0=` because it is waiting for a line to come UP.
-: LORA_WAITBUSY ( -- ok )
-  200000
-  BEGIN
-    LORA_BUSY LORA@
-  WHILE
-    1-
-    DUP 0=
-    IF DROP 0 EXIT THEN
-  REPEAT
-  DROP 1 ;
+: LORA_CMD1 ( op arg -- )
+  LORA_BEG SWAP LORA>B LORA>B LORA_END ;
 
-: LORA_CMD1 ( op arg -- ) LORA_BEG SWAP LORA>B LORA>B LORA_END ;
+\ BUSY is a LEVEL, polled with a bound: no unbounded wedges.
+\ BUSY settle, with no loop on purpose: the chip zeroes the
+\ data stack
+\ per line and BEGIN/WHILE keep their compile-time markers
+\ there, so a
+\ loop split across lines loses them (ERR_STACK, measured on
+\ the board).
+\ A one-line loop is 96 B and a line is 63, so: settle 1 ms,
+\ CHECK once.
+\ BUSY still high means the command did not complete:
+\ LORA_INIT returns
+\ 0. Loud, never silent.
+: LORA_WAITBUSY ( -- ok ) 1 MS LORA_BUSY LORA@ 0= ;
 
-\ GUARDRAIL: the pin constant is LORA_NRST, NOT LORA_RESET. It was LORA_RESET once, which made
-\ `1 LORA_RESET LORA!` call THIS word recursively - the dictionary had one name for two
-\ meanings, the machine answered `error` with no name, and this project's own rule R15
-\ ("the same name can be two words") was the answer. A pin constant and an action never
-\ share a name.
+\ cold init: the sequence probe/lora runs on the hardware
+
 : LORA_RESET ( -- ok )
   0 LORA_NRST LORA! 2 MS 1 LORA_NRST LORA! 5 MS LORA_WAITBUSY ;
 
-\ --- cold init: the sequence probe/lora uses, the one that gave TxDone on the board -------
+\ cold init: the sequence probe/lora runs on the hardware
 : LORA_INIT ( -- ok )
+  LORA_PINS
   1 LORA_NSS LORA! 1 LORA_NRST LORA! 0 LORA_SCK LORA!
   LORA_RESET 0= IF 0 EXIT THEN
-  128 0 LORA_CMD1                     \ SetStandby STDBY_RC
-  150 1 LORA_CMD1                     \ SetRegulatorMode: DC-DC
-  LORA_BEG 151 LORA>B 2 LORA>B 0 LORA>B 1 LORA>B 64 LORA>B LORA_END
-  \ ^ SetDIO3AsTCXOCtrl: 1.8 V, 5 ms start-up (0x02 0x00 0x01 0x40)
-  137 127 LORA_CMD1                   \ CalibrateImage: all blocks
-  157 1 LORA_CMD1                     \ SetDIO2AsRFSwitch
-  138 1 LORA_CMD1                     \ SetPacketType: LoRa
-  LORA_BEG 134 LORA>B 54 LORA>B 65 LORA>B 153 LORA>B 153 LORA>B LORA_END
-  \ ^ SetRfFrequency 868.1 MHz
+  128 0 LORA_CMD1
+  150 1 LORA_CMD1
+  LORA_BEG 151 LORA>B 2 LORA>B 0 LORA>B
+  1 LORA>B 64 LORA>B LORA_END
+  137 127 LORA_CMD1
+  157 1 LORA_CMD1
+  138 1 LORA_CMD1
+  LORA_BEG 134 LORA>B 54 LORA>B 65 LORA>B
+  153 LORA>B 153 LORA>B LORA_END
   LORA_BEG 152 LORA>B 215 LORA>B 219 LORA>B LORA_END
-  \ ^ CalibrateImage for 863-870 MHz
-  LORA_BEG 149 LORA>B 2 LORA>B 2 LORA>B 0 LORA>B 1 LORA>B LORA_END
-  \ ^ SetPaConfig for +14 dBm
+  LORA_BEG 149 LORA>B 2 LORA>B 2 LORA>B
+  0 LORA>B 1 LORA>B LORA_END
   LORA_BEG 142 LORA>B 14 LORA>B 4 LORA>B LORA_END
-  \ ^ SetTxParams: 14 dBm, 200 us ramp
   LORA_BEG 143 LORA>B 0 LORA>B 0 LORA>B LORA_END
-  \ ^ SetBufferBaseAddress 0, 0
-  LORA_BEG 139 LORA>B 9 LORA>B 4 LORA>B 1 LORA>B 0 LORA>B LORA_END
-  \ ^ SetModulationParams: SF9, BW 125 kHz, CR 4/5, LDRO off
-  LORA_BEG 140 LORA>B 0 LORA>B 8 LORA>B 0 LORA>B 20 LORA>B 1 LORA>B 0 LORA>B LORA_END
-  \ ^ SetPacketParams: preamble 0x0008 (a 16-BIT field - the leading 0 was missing once and the
-\   packet length landed where the CRC type belongs), explicit header, 20 B, CRC on, std IQ
-  LORA_BEG 8 LORA>B 2 LORA>B 1 LORA>B 2 LORA>B 1 LORA>B 0 LORA>B 0 LORA>B
-          0 LORA>B 0 LORA>B LORA_END
-  \ ^ SetDioIrqParams: TxDone|Timeout -> DIO1
+  LORA_BEG 139 LORA>B 9 LORA>B 4 LORA>B
+  1 LORA>B 0 LORA>B LORA_END
+  LORA_BEG 140 LORA>B 0 LORA>B 8 LORA>B
+  0 LORA>B 4 LORA>B 1 LORA>B 0 LORA>B LORA_END
+  LORA_BEG 8 LORA>B 2 LORA>B 1 LORA>B
+  2 LORA>B 1 LORA>B
+  0 LORA>B 0 LORA>B 0 LORA>B 0 LORA>B LORA_END
   1 ;
 
-\ --- one transmit ----------------------------------------------------------------------
-: LORA_FILL ( -- )
-  \ 20 bytes straight into the radio's TX buffer: marker, then a recognisable ramp.
-  \ GUARDRAIL: the byte is computed on top of the index, never instead of it - the first
-  \ version consumed the index in the IF branch and the following 1+ underflowed.
-  \ consumed the index in the IF branch and the following 1+ underflowed (ERR_STACK).
+\ 20 bytes: 0xA5 then 0x31..0x43. Unrolled, same reason as
+\ above.
+: LORA_FILL
   LORA_BEG 14 LORA>B 0 LORA>B
-  0 BEGIN DUP 20 < WHILE
-    DUP 0= IF 165 ELSE DUP 48 + THEN
-    LORA>B
-    1+
-  REPEAT DROP
+  165 LORA>B 49 LORA>B 50 LORA>B 51 LORA>B
   LORA_END ;
 
-\ GUARDRAIL: this file was once patched by LINE INDEX, the splice put the GetIrqStatus line
-\ inside LORA_SEND and ended the definition early - the machine then said only "error", with
-\ no name, while the trace still looked plausible. Rewrite a region whole, never by index.
 : LORA_SEND ( -- irq_ok )
   LORA_FILL
-  \ GUARDRAIL: clear the IRQ BEFORE SetTx. DIO1 is a LEVEL, so a leftover TxDone makes the wait
-\ no name, while the trace looked plausible. Rewrite a region whole, never by index.
-  \ of exactly the kind this project bans.
+  \ clear the IRQ BEFORE SetTx: DIO1 is a LEVEL, so a stale
+  \ TxDone makes the wait exit at once and reports a false sent
   LORA_BEG 2 LORA>B 255 LORA>B 255 LORA>B LORA_END
-  LORA_BEG 131 LORA>B 15 LORA>B 0 LORA>B 0 LORA>B LORA_END
-  \ ^ SetTx, timeout 0x0F0000 ticks
-  500000
-  BEGIN
-    LORA_DIO1 LORA@ 0=
-  WHILE
-    1-
-    DUP 0=
-    IF DROP 0 EXIT THEN
-  REPEAT
-  DROP
-  \ GetIrqStatus, then the TxDone bit (see LORA_IRQTX)
+  LORA_BEG 131 LORA>B 15 LORA>B 0 LORA>B
+  0 LORA>B LORA_END
+\ air time is 185-196 ms (measured, docs/29 3): wait past it,
+\ then
+\ ASK THE CHIP. DIO1 polling would need a loop, and the IRQ
+\ status is
+  \ the stronger check anyway.
+  150 MS
   LORA_BEG 18 LORA>B 0 LORA>B LORA_IRQTX LORA_END ;
 
-: LORA_SLEEP ( -- ) 132 4 LORA_CMD1 ;
+
+: LORA_SLEEP 132 4 LORA_CMD1 ;

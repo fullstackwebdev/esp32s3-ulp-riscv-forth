@@ -102,6 +102,28 @@ their measured costs:
 Nothing was shaved to make it fit: the image is back at 7 891/7 892 and the GPIO work is kept as a stash plus the
 measurements above.
 
+## 5b. What happened when it ran on the board (measured)
+
+Our Forth firmware was flashed onto the Heltec V3 and the driver typed into its REPL (every line ≤63 B — the device input
+ring refuses anything longer, which cost a full debugging cycle because the refusal arrives as "line too long" on a line
+the operator can see is fine). Results:
+
+| step | result |
+|---|---|
+| driver source loads | **1 100 B** compiled (`HERE` 786 → 1 886), fits the window |
+| `LORA_INIT` | returns **1** — but see the last row: BUSY reading 0 always makes that check vacuous |
+| `LORA_SEND` | **0** (no TxDone) |
+| chip status via a Forth `GetStatus` | **0x00**, where the C driver on this board reads **0x2a** |
+| pin readback `1 8 LORA! 8 LORA@` | **0** |
+
+Cause (F-149): the engine's pointer guard, `P(a) = a < MEMSZ ? mem + a : &junk`, is shared by both builds, so on the
+chip every register access from Forth lands in a one-byte `junk` cell. The host test passed because the RTCIO window added
+to the *host's* `rd16`/`wr16` accepted precisely the addresses the chip refuses.
+
+So option 2 does not work as written, and the reason is not the driver: **Forth cannot address a peripheral at all** on
+this machine. The repair is a primitive pair that bypasses `P()` on purpose (`HW@` / `HW!` taking an absolute address),
+which is a `.c` change and therefore pool bytes — the same wall as option 1, one level down.
+
 ## 6. What is NOT done, precisely
 
 * **It is not yet a device phase.** `probe/repl/tools/lint_forth.py` refuses it as phase source: a block has no line

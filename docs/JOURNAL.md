@@ -2404,3 +2404,20 @@ high-water 240 B, docs/23 - and the rest must come from vocabulary, which is a p
 registers from Forth with W!/W@ at absolute addresses (0 B of pool, but the host has no such memory so the wire-byte test
 needs a shim first); or keep the C driver, which is the one actually transmitting on hardware today.
 
+**J-124 · On the board: the driver loads and runs, and the machine refuses to let Forth touch a register.**
+Our Forth firmware went onto the Heltec and the driver was typed into its REPL, one line at a time. It compiles there
+(**1 100 B**, HERE 786 -> 1 886, inside the window) and both words run — but `LORA_SEND` returns 0, `GetStatus` reads
+0x00 where the C driver on the same board reads 0x2a, and a pin write followed by a pin read returns 0.
+
+The cause is in the engine, not the driver: `P(a) = a < MEMSZ ? mem + a : &junk` is shared by both builds, so every W!, C!
+or @ outside `mem[]` is redirected to a one-byte junk cell — deliberately, so a wild pointer cannot corrupt anything. Forth
+on this machine therefore cannot address a peripheral at all, and the register trick that cost 0 B of pool costs exactly
+what the primitive would have: a `.c` change (F-149).
+
+What that taught, and it is the same lesson twice in two days: the host test passed because the host's RTCIO window
+accepted addresses the chip refuses. A simulator more permissive than the machine is worse than no simulator — it converts
+a hardware limit into a green tick. Two smaller ones too: the device input ring is 63 B, not the TIB's 95, and a refused
+line never runs (so a definition silently does not exist and the failure surfaces as NAME? on a later, innocent line); and
+BEGIN/WHILE keep their compile-time markers on the data stack, which the chip zeroes per line, so a loop can never span
+lines — the driver was rewritten loop-free (unrolled payload, fixed measured waits, single status check).
+
