@@ -204,6 +204,12 @@ def lint_phase(src):
                   re.search(rf"(?:C!|W!|\+!|(?<!C)!)[^\n;]*\b{re.escape(name)}\b", code)
         if not written:
             continue                      # a read-only table: part of the image, replaced with its own code
+        # GUARDRAIL: a phase needs SCRATCH. Reading 16 bytes out of the radio in one transaction and computing in RAM is
+        # what makes a block take seconds instead of a minute: byte-at-a-time SPI measured 3.6 s for SubBytes alone
+        # (~45 ms per byte). A buffer written and freed inside ONE phase is not state - nothing is expected to survive
+        # the adopt - so the file declares it and the declaration is the difference from the bug R16 exists for.
+        if re.search(r"^\s*\\\s*SCRATCH:\s*" + re.escape(name) + r"\s*$", src, re.M):
+            continue
         findings.append((ln, "R16 phase state",
                          f"{m.group(1)} {name}: WRITTEN by this phase, so it is state - and a phase is REPLACED on every"
                          " adopt, so it vanishes with it. Keep state in examples/apps/registry.fs, below the seal"
@@ -352,7 +358,7 @@ def collect_vocab(src):
     return v
 
 
-def check_source_shape(src, phase=False, repl=False):
+def check_source_shape(src, phase=False, repl=False, limit=63):
     """R21-R24: rules about the FILE, not about a definition's stack effect.
 
     Every one of these is from the 2026-11-01 LoRa bring-up, and every one of them produced a failure with NO error
@@ -370,12 +376,12 @@ def check_source_shape(src, phase=False, repl=False):
     # sees them - the first version of this rule fired on 02_loops.fs (72 B) and 03_digits.fs (77 B), both of which the
     # board compiles today. A rule that flags working code is worse than no rule. `--repl` is for sources a harness TYPES
     # line by line (tools/lora_device.py).
-    if repl and not phase:
+    if (repl or limit == 92) and not phase:
         for i, ln in enumerate(lines, 1):
-            if len(ln.encode()) > 63:
+            if len(ln.encode()) > limit:
                 findings.append((i, "R21 line length",
-                                 f"{len(ln.encode())} B: the device input ring holds 63 and refuses the rest silently, "
-                                 "so this line never reaches the machine and its definition never exists"))
+                                 f"{len(ln.encode())} B: the limit on this path is {limit} B and a longer line is "
+                                 "refused silently, so it never reaches the machine and its definition never exists"))
     # GUARDRAIL: R22. A `:` line that opens while a previous definition has not reached `;` SWALLOWS the next
     # definition. Measured: a stray duplicate `: !P ( level pin -- ) 10 + 1 SWAP LSHIFT SWAP` (left by an edit) ate
     # `: S ... ;`, so `S` did not exist and the load failed with `S?` on the line that USED it - two definitions away
@@ -532,9 +538,9 @@ def check_source_shape(src, phase=False, repl=False):
     return findings
 
 
-def lint_definitions(src, base=None, repl=False):
+def lint_definitions(src, base=None, repl=False, limit=63):
     """Yield findings for a source file. R1 runs over raw lines; R2/R3/R4 run per definition."""
-    findings = check_source_shape(src, repl=repl)
+    findings = check_source_shape(src, repl=repl, limit=limit)
     # GUARDRAIL: R1 must scan OUTSIDE parentheses and `."` strings. The earlier regex missed a comment that followed
     # code on the same line, and the app then compiled the words `poll:` and `the` - which is exactly what R1 exists for.
     i, line_no, in_str = 0, 1, False
@@ -1106,7 +1112,8 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
     # GUARDRAIL: `--repl` skips the block checks as well as R1. `check_blocks` cuts the source into 92 B blocks, and a
     # typed load is never cut - it reported "REFUSING: no interpret-state boundary inside one 92 B block" on a driver that
     # the board accepts line by line, which is a true statement about an upload path nobody uses.
-    findings = (lint_definitions(src, base, repl=repl)
+    limit = 92 if store else 63
+    findings = (lint_definitions(src, base, repl=repl, limit=limit)
                 + ([] if repl and not store else check_blocks(src, base))
                 + (lint_phase(src) if phase else []))
     for ln, rule, msg in findings:

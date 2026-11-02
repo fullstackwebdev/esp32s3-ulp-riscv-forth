@@ -1,0 +1,37 @@
+lora: the AES chain exists as SIX real store phases, all built and adoptable; dispatch still cycles
+
+State, all measured on the board this session:
+  aesseed 72   347 B   nonce + round 0 into the SX1262 buffer (17 bytes, one transaction)
+  aessub  76   836 B   SubBytes            (verified against a reference: 63 6b 67 76 f2 01 ab 7b ...)
+  aessr   84   722 B   ShiftRows           (six ROT4 calls, one byte of temp)
+  aesmc   92   974 B   MixColumns          (b_i = a_i ^ t ^ xt(a_i ^ a_i+1))
+  aesark 100   894 B   AddRoundKey + round counter, chains back to 76 while round < 11
+  aesout 112   402 B   prints the 17 bytes at 223 then stops
+Every descriptor hands back exactly the entry xt the build reported (1360/1818/1686/1920/1856/1376), so the
+images are in the store where the table says they are.
+
+WHAT WORKS: the dispatcher loop itself. Driving PICKX+EXECUTE (SWITCH's own two halves - SWITCH is below the seal
+and not reachable from the prompt after a build) walks 72 -> 100 -> 76 -> 84 -> 92 in that order, 8.8 s for 60
+hops, no named error.
+
+WHAT DOES NOT: executing descriptor 92 sets NXT to 92, so the chain cycles MixColumns forever instead of moving
+to 100. aes_mc.fs has exactly ONE definition and it says `SS 100 CHAIN`. So either the image executed at 92 is not
+the one compiled, or the flash sector cache did not take the last write (#d lands in the sector cache; #f flushes).
+Next step is to rule those two out by reading the descriptor back after a flush and by adopting 92 alone and asking
+which words the loaded dictionary holds.
+
+FOUND AND GATED ALONG THE WAY (each cost a build):
+- R16 now separates STATE from a READ-ONLY TABLE, and honours `\ SCRATCH: name` for a buffer written and freed
+  inside one phase. That distinction is what let the cipher be split at all.
+- R21's limit is the PATH's: 63 B typed, 92 B for a store phase. Enforcing 63 for --store is why A0..A3 existed.
+- lintgate --store: a store phase is a source FILE (comments fine) uploaded through 92 B blocks, so R11 applies
+  and R1 does not. scr1.fs was CLEAN in --repl while the build refused it.
+- fsplit: `C,`/`W,` close a CREATE unit AND a value keeps its comma, or a table over 92 B cannot be uploaded and a
+  block boundary lands between `0` and `C,` (ERR_STACK on an empty stack).
+- Resident names are only knowable from the BOARD: T, XT-era traps - `SB` and `T` are resident while
+  tools/resident_names.txt does not list them, and one collision's errf flag makes every later definition fail
+  (a cascade of MCS? MB? MCW? MC1? MCGO? that looked like six bugs).
+- Descriptor spans: aessub 836 B is 7 blocks, so 84 sat inside 76..82; and the table is walked in ORDER, so a
+  descriptor listed out of order is silently never built (`72 SWITCH` ran 0.0 s on an empty block).
+
+Green: suite 30, selftest PASS, Store 16/16, two-board 3+3, aes 11/11, frame-phase, fullsize 9/9, lora_spi.

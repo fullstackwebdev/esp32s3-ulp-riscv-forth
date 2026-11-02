@@ -61,7 +61,7 @@ def sbox():
 def reference(state):
     S = sbox()
     sb = [S[b] for b in state]
-    return [sb[(i & 3) * 4 + (((i >> 2) + (i & 3)) & 3)] for i in range(16)]
+    return [sb[(i % 4) + 4 * (((i // 4) + (i % 4)) % 4)] for i in range(16)]
 
 
 def last_line(rep):
@@ -101,7 +101,8 @@ def main():
     want = reference(state)
     dev = Dev(port=a.port)
     dev.reset()
-    dev.cmd("CREATE NXT 0 ,", 8.0, allow_error=True)   # the store's resident cell, without appstore.fs (block-only)
+    dev.cmd("CREATE NXT 0 ,", 8.0, allow_error=True)   # the store's resident pair
+    dev.cmd(": CHAIN ( desc -- ) NXT ! ;", 8.0, allow_error=True)
     h0 = dev.num("HERE .")
     load(dev, PHASE)
     h1, l1 = dev.num("HERE .", 20.0), dev.num("LATEST .", 20.0)
@@ -115,7 +116,11 @@ def main():
     t0 = time.time()
     dev.cmd("AES-SUB", 240.0, allow_error=True)
     elapsed = time.time() - t0
-    got = [dev.num(f"{i} SB@ .", 10.0) & 0xFF for i in range(16)]
+    dev.cmd("NSSLO 30 >BYTE 224 >BYTE RD-BYTE DROP", 10.0, allow_error=True)
+    got = []
+    for _ in range(16):
+        got.append(dev.num("RD-BYTE .", 10.0) & 0xFF)
+    dev.cmd("NSSHI", 10.0, allow_error=True)
     check("SubBytes+ShiftRows matches the reference", got == want, " ".join(f"{b:02x}" for b in got))
     print(f"        one phase = {elapsed:.2f} s wall (SPI byte-by-byte, includes the reply)")
     print(f"  {len(fails)} failure(s)")

@@ -1,11 +1,7 @@
-\ aes_sub.fs - PHASE: AES SubBytes + ShiftRows on the state at
-\ buffer 224. The cipher is 1328 B and a phase window is 999 B,
-\ so it is split; the state is handed over in the SX1262's
-\ buffer, measured to survive an ADOPT. GUARDRAIL: the S-box is
-\ a READ-ONLY table (allowed by R16): it is part of this
-\ phase's image and is replaced with the code that reads it.
-\ GUARDRAIL: no scratch cell - one SPI byte at a time, R16
-\ forbids storage. Pads: NSS 8, SCK 9, MOSI 10, MISO 11, BUSY
+\ aes_sub.fs - AES SubBytes + ShiftRows on the state at buffer
+\ 224. One phase of the cipher chain; state travels in the
+\ radio buffer. GUARDRAIL: SBOX is read-only (phase image);
+\ ST/TZ are SCRATCH. Pads: NSS 8, SCK 9, MOSI 10, MISO 11, BUSY
 \ 13, ALIAS WINDOW.
 
 : PIN! ( level pin -- )
@@ -27,12 +23,20 @@
 : RD-BYTE ( -- b ) 0 BITREAD BITREAD BITREAD BITREAD
   BITREAD BITREAD BITREAD BITREAD ;
 
-\ the state is at buffer offset 224 + o, for o = 0..15
-: SB@ ( o -- b ) 224 + NSSLO 30 >BYTE >BYTE RD-BYTE DROP
-  RD-BYTE NSSHI ;
-: SB! ( b o -- ) 224 + NSSLO 14 >BYTE >BYTE >BYTE NSSHI ;
-\ the AES S-box, generated from the field definition (poly
-\ 0x11B, affine 0x63)
+\ SCRATCH: ST SCRATCH: TZ
+CREATE ST
+  0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
+  0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
+: LB ( i -- i ) DUP RD-BYTE SWAP ST + C! ;
+: LH ( -- ) NSSLO 30 >BYTE 224 >BYTE RD-BYTE DROP ;
+: LS ( -- ) LH 0 BEGIN DUP 16 < WHILE LB 1+ REPEAT DROP
+  NSSHI ;
+: SBF ( i -- i ) DUP ST + C@ >BYTE ;
+: SH ( -- ) NSSLO 14 >BYTE 224 >BYTE ;
+: SS ( -- ) SH 0 BEGIN DUP 16 < WHILE SBF 1+ REPEAT DROP
+  NSSHI ;
+
+\ the AES S-box: READ-ONLY, generated from the field definition
 CREATE SBOX
   99 C, 124 C, 119 C, 123 C, 242 C, 107 C, 111 C, 197 C,
   48 C, 1 C, 103 C, 43 C, 254 C, 215 C, 171 C, 118 C,
@@ -66,37 +70,14 @@ CREATE SBOX
   155 C, 30 C, 135 C, 233 C, 206 C, 85 C, 40 C, 223 C,
   140 C, 161 C, 137 C, 13 C, 191 C, 230 C, 66 C, 104 C,
   65 C, 153 C, 45 C, 15 C, 176 C, 84 C, 187 C, 22 C,
-\ SBOX lookup: ( o -- S(state[o]) )
-: SBX ( o -- b ) SB@ SBOX + C@ ;
-: SB1 ( o -- ) DUP SBX SWAP SB! ;
-: SBALL ( -- ) 0 BEGIN DUP 16 < WHILE DUP SB1 1+ REPEAT DROP ;
 
-\ ShiftRows: state[c*4+r] = state[r*4 + ((c+r) mod 3? no: mod
-\ 4)] computed straight from the row/col of the destination
-\ index.
-: ROW ( i -- r ) 3 AND ;
-: COL ( i -- c ) 2 RSHIFT ;
-: SRC ( i -- s )
-  DUP 2 RSHIFT OVER 3 AND + 3 AND
-  SWAP 3 AND 4 * + ;
-: TZ@ ( o -- b ) 208 + NSSLO 30 >BYTE >BYTE RD-BYTE DROP
-  RD-BYTE NSSHI ;
-: TZ! ( b o -- ) 208 + NSSLO 14 >BYTE >BYTE >BYTE NSSHI ;
-: CPZ1 ( i -- ) DUP SB@ SWAP TZ! ;
-: CPZ ( -- ) 0 BEGIN DUP 16 < WHILE DUP CPZ1 1+ REPEAT DROP ;
-: CPB1 ( i -- ) DUP TZ@ SWAP SB! ;
-: CPB ( -- ) 0 BEGIN DUP 16 < WHILE DUP CPB1 1+ REPEAT DROP ;
-: SR1 ( i -- ) DUP SRC SB@ SWAP TZ! ;
-: SRALL ( -- ) CPZ 0 BEGIN DUP 16 < WHILE DUP SR1 1+ REPEAT
-  DROP
-  CPB ;
+: SB1 ( i -- i ) DUP ST + DUP C@ SBOX + C@ SWAP C! ;
+: SBALL ( -- ) 0 BEGIN DUP 16 < WHILE SB1 1+ REPEAT DROP ;
+: AES-SUB ( -- ) LS SBALL SS 84 CHAIN ;
 
-\ guards: nothing may run before the radio answers, so the
-\ phase reports the first byte it read back - silence is not
-\ allowed to look like success.
-: CHK ( -- b ) 0 SB@ ;
-: SUB1 ( -- ) SBALL SRALL ;
-: AES-SUB ( -- ) SUB1 0 NXT ! ;
+
+
+
 
 
 

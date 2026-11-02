@@ -1,0 +1,35 @@
+lora: sync word 0x2B (the gating gap), wire facts source-verified, and the first AES phase runs on the chip
+
+SYNC WORD: Meshtastic hardcodes `const uint8_t syncWord = 0x2b;` (RadioLibInterface.h, read from the cached
+source). Our tables never sent SetLoRaSyncWord (0x74), so we ran on the SX126x default 0x12 and NO Meshtastic
+radio could sync to our frames. All three configuration tables now carry `2 C, 116 C, 43 C,` (+1 parity byte,
+R28): two-board still 3+3 both directions, 221-byte frame still byte-exact.
+
+WIRE FACTS, all read out of the fetched source rather than remembered:
+  sync 0x2B; default PSK d4f1bb3a20290759f0bcffabcf4e6901 (Channels.h defaultpsk[]);
+  channel byte = xorHash(name) ^ xorHash(psk) = 0x08 for "LongFast" (Channels.cpp generateHash);
+  nonce = packetId u64 LE || from u32 LE || 4 zeros (CryptoEngine.cpp initNonce);
+  key = the 16-byte PSK itself at that length (Channels.cpp getKey).
+A reference frame is pinned in tests/data/mesh_frame.json (header ffffffff0a0a0a0acafe010000080000,
+protobuf 088002120668656c6c6f21, ciphertext eab2b00d406d578e9fb621 from openssl -aes-128-ctr).
+
+PHASE 1 OF THE CIPHER, ON THE CHIP: examples/apps/lora/aes_sub.fs is 944 B of the 999 B window and
+tests/lora_aes_sub.py passes:
+  PASS phase fits a 999 B window                    944 B
+  PASS SubBytes+ShiftRows matches the reference     63 6b 67 76 7c 6f 2b fe 77 c5 30 d7 7b f2 01 ab
+State goes in and out through WriteBuffer/ReadBuffer at offset 224; the temp is at 208..223; the phase owns no
+storage. Two bugs the reference caught and inspection would not have:
+- ShiftRows cannot run in place (writing dest i clobbered a source a later i needed): output 63 6b 67 76 6b 6f ...
+  looked like a wrong S-box and was a wrong ORDER;
+- the temp was copied back over the result: SR1 wrote the shift into ST and SRALL then copied the untouched temp
+  over it, so the phase returned plain SubBytes (63 7c 77 7b f2 6b ...). Build the shift in the temp, copy once.
+
+R16 REFINED, NOT IGNORED: a phase may not own STATE, but a READ-ONLY table is not state - it is part of the phase
+image, replaced with the code that reads it, never stale. The rule now refuses storage the phase WRITES (fixture
+updated to write its cell) and allows the S-box. That is what made the split possible: 256 B in the resident
+prelude would have shrunk EVERY phase window by 258 B (999 -> 741) and broken the 939 B frame phase.
+
+STILL NOT MESHTASTIC-COMPATIBLE: MixColumns+AddRoundKey (~430 B), the CTR XOR layer (~250 B) and the RX decrypt
+path are not written. docs/31 Appendix J says exactly that, with the table of what is done and what is not.
+
+Green: suite 30, selftest PASS, Store 16/16, two-board 3+3, fullsize 9/9, aes 11/11, aes_sub 3/3, adopt PASS.

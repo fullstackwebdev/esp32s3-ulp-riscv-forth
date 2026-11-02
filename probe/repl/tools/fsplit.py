@@ -51,7 +51,7 @@ def safe_after(toks):
         elif t == ";":
             in_def = False
             expect_name = False
-        elif t == ",":
+        elif t in (",", "C,", "W,"):
             in_create = False
             expect_name = False
         else:
@@ -63,7 +63,7 @@ def safe_after(toks):
     # cascading `NAME?` lines that all blamed the WRONG words. CONSTANT takes its value from the stack, so the token
     # before it belongs to it - exactly the rule already applied to a CREATE's name and its `,`.
     for i in range(1, len(toks)):
-        if toks[i] == "CONSTANT":
+        if toks[i] == "CONSTANT" or toks[i] in (",", "C,", "W,"):
             safe[i - 1] = False
     return safe
 
