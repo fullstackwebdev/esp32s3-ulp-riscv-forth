@@ -64,12 +64,11 @@ CREATE RB 0 C, 0 C,
 : SH ( -- ) NSSLO 14 >BYTE 223 >BYTE 0 RB + C@ >BYTE ;
 : SS ( -- ) SH 0 BEGIN DUP 16 < WHILE SBF 1+ REPEAT DROP NSSHI ;
 
-: ARB ( i -- i ) DUP ST + DUP C@
-  OVER RB C@ 16 * + W + C@ XOR SWAP C! ;
+: ARB ( i -- i ) DUP DUP ST + C@ OVER RB C@ 16 * + W + C@ XOR SWAP ST + C! ;
 : ARK ( -- ) 0 BEGIN DUP 16 < WHILE ARB 1+ REPEAT
   DROP ;
 
 : RINC ( -- ) 0 RB + C@ 1+ 0 RB + C! ;
-: NXT2 ( r -- ) 11 < IF 76 CHAIN ELSE 112 CHAIN THEN ;
+: NXT2 ( r -- ) 11 < IF 88 CHAIN ELSE 9 CHAIN THEN ;
 : AES-ARK ( -- ) LS ARK RINC SS 0 RB + C@ NXT2 ;
 

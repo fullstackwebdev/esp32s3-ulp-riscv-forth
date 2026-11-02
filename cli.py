@@ -215,12 +215,15 @@ APPSTORE = [
     ("shelfkeys",  "examples/apps/shelf/shelfb.fs",  44, "SHELF-KEYS"),
     ("scratch1", "examples/apps/lora/scr1.fs", 64, "SCR1"),
     ("scratch2", "examples/apps/lora/scr2.fs", 68, "SCR2"),
-    ("aesseed","examples/apps/lora/aes_seed.fs", 72, "AES-SEED"),
-    ("aessub", "examples/apps/lora/aes_sub.fs", 76, "AES-SUB"),
-    ("aessr",  "examples/apps/lora/aes_sr.fs",  84, "AES-SR"),
-    ("aesmc",  "examples/apps/lora/aes_mc.fs",  92, "AES-MC"),
-    ("aesark", "examples/apps/lora/aes_ark.fs", 100, "AES-ARK"),
-    ("aesout", "examples/apps/lora/aes_out.fs", 112, "AES-OUT"),
+    ("aesseed","examples/apps/lora/aes_seed.fs", 80, "AES-SEED"),
+    ("aessub", "examples/apps/lora/aes_sub.fs", 88, "AES-SUB"),
+    ("aessr",  "examples/apps/lora/aes_sr.fs",  96, "AES-SR"),
+    ("aesmc",  "examples/apps/lora/aes_mc.fs",  104, "AES-MC"),
+    ("aesark", "examples/apps/lora/aes_ark.fs", 112, "AES-ARK"),
+    ("loratx", "examples/apps/lora/loratx.fs", 72, "RUNLORA"),
+    ("aespr", "examples/apps/lora/aes_pr.fs", 4, "AES-PR"),
+    ("aesdec", "examples/apps/lora/aes_dec.fs", 9, "AES-DEC"),
+    ("aesout", "examples/apps/lora/aes_out.fs", 9, "AES-OUT"),
 ]
 APPSTORE_RESIDENT = ["examples/apps/registry.fs", "examples/appstore.fs"]
 STAGING, STAGING_BLOCKS = 120, 8         # docs/26: the source of ANY phase is staged here, 8 blocks per pass

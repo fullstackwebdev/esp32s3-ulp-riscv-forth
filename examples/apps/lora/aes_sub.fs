@@ -73,7 +73,7 @@ CREATE SBOX
 
 : SB1 ( i -- i ) DUP ST + DUP C@ SBOX + C@ SWAP C! ;
 : SBALL ( -- ) 0 BEGIN DUP 16 < WHILE SB1 1+ REPEAT DROP ;
-: AES-SUB ( -- ) LS SBALL SS 84 CHAIN ;
+: AES-SUB ( -- ) LS SBALL SS 96 CHAIN ;
 
 
 

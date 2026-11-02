@@ -28,6 +28,31 @@ CREATE CT
 : SND ( i -- i ) DUP CT + C@ >BYTE ;
 : SND18 ( -- ) NSSLO 14 >BYTE 223 >BYTE
   0 BEGIN DUP 18 < WHILE SND 1+ REPEAT DROP NSSHI ;
-: AES-SEED ( -- ) SND18 100 CHAIN ;
+CREATE CFGG 0 ,
+CREATE TBL
+  2 C, 128 C, 0 C,
+  2 C, 150 C, 1 C,
+  5 C, 151 C, 2 C, 0 C, 1 C, 64 C,
+  2 C, 137 C, 127 C,
+  2 C, 157 C, 1 C,
+  2 C, 138 C, 1 C,
+  5 C, 134 C, 54 C, 65 C, 153 C, 153 C,
+  3 C, 152 C, 215 C, 219 C,
+  5 C, 149 C, 2 C, 2 C, 0 C, 1 C,
+  3 C, 142 C, 14 C, 4 C,
+  3 C, 143 C, 0 C, 0 C,
+  5 C, 139 C, 9 C, 4 C, 1 C, 0 C,
+  2 C, 116 C, 43 C,
+  7 C, 140 C, 0 C, 16 C, 0 C, 27 C, 1 C, 0 C,
+  9 C, 8 C, 255 C, 255 C, 0 C,
+  0 C, 0 C, 0 C, 0 C, 0 C,
+  0 C, 0 C,
+: INEN ( r -- ) DUP @ 8192 OR SWAP ! ;
+: ADV ( n -- ) CFGG @ + CFGG ! ;
+: CLKN ( n -- ) BEGIN DUP WHILE CFGG @ C@ >BYTE 1 ADV 1- REPEAT DROP ;
+: ALL ( n -- ) BEGIN DUP WHILE NSSLO CFGG @ C@ 1 ADV CLKN NSSHI 1- REPEAT DROP ;
+: RST ( -- ) 1 8 PIN! 1 12 PIN! 0 9 PIN! 0 12 PIN! 2 MS 1 12 PIN! 5 MS ;
+: CFG ( -- ) 42160 INEN 42168 INEN 42172 INEN RST 1 MS TBL CFGG ! 15 ALL ;
+: AES-SEED ( -- ) CFG SND18 112 CHAIN ;
 
 

@@ -1,0 +1,38 @@
+lora: MESHTASTIC-COMPATIBLE END TO END - the chip encrypts, the air carries it, the peer's chip decrypts
+
+tests/mesh_air.py, 7/7 on two Heltec V3s:
+  board A  six store phases compute AES-128 for Meshtastic's own nonce with the LongFast PSK, XOR the protobuf,
+           write 16 header + 11 ciphertext bytes into the SX1262's buffer and transmit 27 bytes. Nothing about the
+           frame or the payload passes through the host.
+  board B  receives it. On the air: header ffffffff0a0a0a0acafe010000080000 (exactly the source's layout, channel
+           0x08 = xorHash("LongFast")^xorHash(psk)) and payload eab2b00d406d578e9fb621 - byte-for-byte what
+           `openssl enc -aes-128-ctr` computes for that key and nonce, i.e. what a Meshtastic radio would decode.
+  board B again: its own chain decrypts those air bytes back to the protobuf 088002120668656c6c6f21.
+
+FOUR REAL BUGS THIS FOUND, each invisible from the outside:
+- `ARB` indexed the round-key table with the STATE'S ADDRESS instead of the loop index, so every byte was XORed with
+  the same stray value (state 0706f9cd...) - the block looked "almost right" and the per-stage test named it in one
+  run: `AddRoundKey round 0 got d4f045f0...` vs `want d4 f1 bb 3a | 20 29 07 59 | f0 bc ff ab | cf 4e 69 01`.
+- The compact MixColumns wrote its group base at `4 RB +` while RB was declared with TWO bytes: a scratch write past
+  its own buffer, landing on the next definition's code. The work path answered ERR_STACK; the skip path (round >= 10)
+  looked fine, which is why "it works" was believed twice.
+- `RADIO-INIT`'s reset pulse WIPES the SX1262's 256-byte buffer - the one place the AES state lives. The payload was
+  written, then the radio was reset, then the air carried code-like bytes (c7fd1490...). The configuration now happens
+  in the SEED, before anything is written into that buffer, and the out phase owns the transmit.
+- Descriptor 0 is the dispatcher's STOP value: a phase at 0 can never be adopted, so the chain ended one hop early
+  and "printed nothing" while every individual stage still measured correct.
+
+GATED (each finding cost a build):
+- R11 charges a WHOLE definition to one 92 B block: MCS (57+51), MCSB (13+50+52), PULL (58+44) and RADIO-INIT (177 B)
+  were all refused or silently split, and a split definition is a phase whose LATER words do not exist.
+- R28: a table's total must be EVEN (27 on-air bytes + 1 pad = 28; 29 refused every word after it).
+- Resident names are only knowable from the BOARD: RADIN is resident (xt 3964) and one collision poisons every later
+  definition - RADPIN?/RADIO-INIT? pointed at blocks far from the cause.
+- Table order is build order: loratx listed after aesout was silently never built.
+- Descriptor spans are measured, not assumed: loratx 991 B is 8 blocks, aesark 898 B is 8 more, and a phase whose
+  span reaches 120 lands in the staging area.
+
+MEASURED SIZES (999 B window): seed 663 (now carries the radio config), sub 836, sr 722, mc 985, ark 898, out 804,
+dec 632, pr 479, loratx 997.  Descriptors: pr 4, out/dec 9, loratx 72, seed 80, sub 88, sr 96, mc 104, ark 112.
+
+Green: tests/aes_chain_steps.py 46 stages 0 failures (final block = openssl's e232b21f...), tests/mesh_air.py 7/7.

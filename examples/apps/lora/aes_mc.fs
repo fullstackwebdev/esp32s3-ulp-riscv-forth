@@ -30,7 +30,7 @@ CREATE TZ
 CREATE ST
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
-CREATE RB 0 C, 0 C,
+CREATE RB 0 C, 0 C, 0 C, 0 C,
 : STZW ( b o -- ) ST + C! ;
 
 : LB ( i -- i ) DUP RD-BYTE SWAP ST + C! ;
@@ -51,11 +51,12 @@ CREATE RB 0 C, 0 C,
 : AX ( i -- b ) 3 AND TZ@ ;
 : MCO ( i -- b ) DUP AX OVER 1+ AX XOR
   XT SWAP AX XOR TSUM XOR ;
-: MCW ( i -- ) DUP MCO SWAP 4 RB + C@ + STZW ;
-: MC1 ( c -- ) 4 * DUP 4 RB + C! LD4A LD4B DROP ;
+: MCW ( i -- ) DUP MCO SWAP 3 RB + C@ + STZW ;
+: MC1 ( c -- ) 4 * DUP 3 RB + C! LD4A LD4B DROP ;
 : MCW4 ( -- ) 0 MCW 1 MCW 2 MCW 3 MCW ;
-: MCGO ( -- ) 0 RB + C@ 10 < IF 0 MC1 MCW4 1 MC1 MCW4 2 MC1 MCW4 3 MC1 MCW4 THEN ;
-: AES-MC ( -- ) LS MCGO SS 100 CHAIN ;
+: MC0 ( -- ) 0 MC1 MCW4 1 MC1 MCW4 2 MC1 MCW4 3 MC1 MCW4 ;
+: MCGO ( -- ) 0 RB + C@ 10 < IF MC0 THEN ;
+: AES-MC ( -- ) LS MCGO SS 112 CHAIN ;
 
 
 
