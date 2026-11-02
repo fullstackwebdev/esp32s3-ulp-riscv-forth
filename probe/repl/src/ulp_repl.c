@@ -65,7 +65,7 @@
  * GUARDRAIL: this block was once orphaned - a probe edit replaced the `#define` line and left these two comment
  * fragments outside any comment, which the compiler reported as "expected identifier before numeric constant" plus a
  * cascade of nonsense from _stdint.h. When a probe changes MEMSZ, change the value, not the line the comment sits on. */
-#define MEMSZ    1950   /* F-175 probe: ULP-side pad ownership funded 1:1 by dictionary space */
+#define MEMSZ    2550
 /* GUARDRAIL: SD stays 16. Raising it to 24 was rejected by the engine's own static assertions - dispatch.S hard-codes
  * the VM layout and assumes SD=16 for the stack wrap check - so deeper stacks would mean rewriting the asm dispatch.
  * An app that overflows therefore has to nest less, not ask for a bigger stack. */
@@ -532,7 +532,7 @@ static void drain_cmd(void)
 
 int main(void)
 {
-#if !defined(HOST)
+#if defined(ULP_PAD_OWNERSHIP) && !defined(HOST)
     /* GUARDRAIL: F-175 - the fix the inverse bisect found. probe/lora's hal_init() is the gate (deleting it LOSTs, and
      * deleting only its three level writes LOSTs while deleting only the pull operations LANDED), so the requirement is:
      * THE COPROCESSOR MUST CONFIGURE ITS OWN PADS AND DRIVE THEIR LEVELS. Handing the pads over from the HP core is not
@@ -555,7 +555,7 @@ int main(void)
         *(volatile u32 *)0x60008404u = (1u << (8 + 10)) | (1u << (12 + 10));   /* NSS, NRST high */
         *(volatile u32 *)0x60008408u = (1u << (9 + 10));                        /* SCK low        */
     }
-#endif
+#endif   /* ULP_PAD_OWNERSHIP */
 #if defined(HWPROBE)
     /* GUARDRAIL: PAD 8 (bit 18), the output pad this firmware enables - not pad 11, which is INPUT_ONLY here so its OUT
      * data bit is not a meaningful target (that mistake made one whole bisect round inconclusive). The baseline trap (R18)
