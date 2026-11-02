@@ -483,6 +483,17 @@ def library(dev, root):
     return built
 
 
+def _ok(dev, line):
+    """True when the board answers `line` with a number. GUARDRAIL: this exists because dev.num
+    RAISES Timeout on a missing word, and that exception reads exactly like a dead console - three
+    sessions were spent chasing a "board stopped answering" that was really a silent refusal of the
+    phase's later definitions. A probe must say yes/no, not explode."""
+    try:
+        return bool(dev.nums(dev.cmd(line, 5.0)))
+    except Exception:
+        return False
+
+
 def appstore(dev, root, only=()):
     """Build the App Store: resident + SEAL, then every phase's descriptor, then hand the terminal to the shelf.
 
@@ -520,6 +531,19 @@ def appstore(dev, root, only=()):
             return None
         cs, ce = dev.num("bh @ ."), dev.num("HERE .")
         hs, he = dev.num("LATEST ."), dev.num("bl @ .")
+        # GUARDRAIL: `dev.num("' ENTRY .")` on a missing word does not return a number, and devio raises
+        # Timeout, so the build said "no number in reply" and looked like a dead console for three
+        # sessions while the real fault was a silent refusal of the phase's LATER definitions (a phase
+        # whose header area runs out drops words with no message - the F-150 family). Ask the board
+        # which of this file's own definitions exist, and print the pointers, BEFORE trusting the
+        # entry. Nothing here changes the verdict; it names it.
+        last = re.findall(r"^:\s+(\S+)", path.read_text(), re.M)[-6:]
+        have = {w: (dev.num(f"'{w} .") if _ok(dev, f"'{w} .") else None) for w in last}
+        if not _ok(dev, f"'{entry} ."):
+            say(f"  {name}: entry `{entry}` missing; probe of the last definitions: "
+                f"{ {w: v for w, v in have.items()} } "
+                f"| HERE {ce} LATEST {hs} code {ce - cs} B headers {he - hs} B window {win} B", YL)
+            return None
         ent = dev.num(f"' {entry} .")
         if ent in (0, -1):
             say(f"  {name}: `' {entry}` did not resolve - the phase did not compile", YL)
