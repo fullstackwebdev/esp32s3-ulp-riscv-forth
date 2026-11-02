@@ -185,3 +185,63 @@ One narrow, auditable door beats a memory model with a hole in it.
   `probe/lora` C image.
 * **The ~30–40 kHz estimate is an estimate.** `docs/27` describes the measurement (a counted loop timed by the main core);
   it needs our interpreter on this board, which is the same missing piece as above.
+
+## 6. The gate is on, and it works (measured, 2026-11-01)
+
+The `HW_GATE` shape described in §5c was enabled and run on the board. Three separate problems were found by running it,
+and all three matter beyond LoRa.
+
+### 6a. The gate reaches the registers — proved, not assumed
+
+`262144 1610646528 ! 1610646528 @ .` answers `262144`, and `12345 … @ .` answers `12345`. A Forth word wrote an RTCIO
+register and read the value back. **F-149 is closed**: `P_slow()` returns a real pointer and `!`/`@` are enough.
+
+### 6b. F-151 — byte-decomposed stores do not latch a W1TS register
+
+`wr32` is `wr16(a,v); wr16(a+2,v>>16)`, i.e. **four byte stores**. That is correct for memory and wrong for
+`RTC_GPIO_OUT_W1TS`: the register is write-one-to-set and a byte write does not latch, so **the pad never moved**, the SPI
+clock never clocked, and `GetStatus` read `0x00` while every address round-trip "passed" — the round-trip used a plain
+read/write register (`OUT_REG`), which byte writes *do* update. The C driver never hit this because `REG_WRITE` is a
+single `sw`.
+
+Fix: `wr32` now takes the gate path with a genuine 32-bit store (`*(volatile u32 *)a = v`). Gate addresses are register
+bases, so they are 4-byte aligned by construction and the wide store is safe there and only there. Cost: **+30 B**
+(7 929 → 7 959). Lesson: a write that "works" on one register proves the bus, not the store width.
+
+### 6c. F-150 — a stack that overlaps the image corrupts the dictionary *silently*
+
+With the gate on, the image grew to 7 959 B and the reserve was cut to 200 B to make it fit. The machine then answered
+`ok` to `: XX 42 ;` and `XX?` to `XX .`; `7 CONSTANT SEVEN` followed by `SEVEN .` gave `SEVEN?`; `HERE` never moved;
+**no error was ever reported**. `#k` gave the answer: `high-water 184 B of 184 B region (0 B free)` — the stack was
+running through the paint and into the image, overwriting dictionary writes.
+
+This looks exactly like a broken compiler, and it was diagnosed as one for several build cycles. The rule: the paint is
+a lower bound, not a guarantee. Require `image + reserve <= 8192` with margin, and treat any "definition compiles but
+does not exist" as a stack-overlap symptom, not a compiler bug.
+
+The measured high-water with the driver loaded and `INIT`/`SEND` executed is **240 B of 244** — which vindicates
+`docs/23`'s 240 B. The 144 B reading came from a session where the driver was not loaded, i.e. it measured a different
+workload. Paint must be re-established per boot and read after the *heaviest* workload, not the first one.
+
+### 6d. F-152 — never write arbitrary bits to `RTC_GPIO_OUT_REG`
+
+`12345 1610646528 !` **reboots the S3** (`ESP-ROM:esp32s3-20210327` on the console). Bits 0..21 of that register are RTC
+GPIO 0..21, which include pads tied to flash, PSRAM and the brownout detector. Only single-bit writes through
+`RTC_GPIO_OUT_W1TS` are safe. This also retires the address round-trip as a test method: use a scratch register, never
+this one.
+
+### 6e. Where it stands
+
+| | |
+|---|---|
+| image | **7 907 B / 7 932 B** (POOL 7932 = 8192 − 260 reserve) |
+| stack | **240 B used of 244 B region, 4 B free** — too tight, needs ~40 B more headroom |
+| `MEMSZ` | 2 550 (baked 2 422/2 550) |
+| driver | 950 B compiled (was 1 100 B; compaction saved only 8 B — headers dominate, not names) |
+| host suite | 30 PASS, `lora_spi.py` still wire-identical to the C driver |
+| on the board | `INIT .` → `1`, `GetStatus` → **0x00**, `SEND .` → `0` |
+
+`INIT` returning 1 is **vacuous**: BUSY reads 0 because the input path returns 0 for every pin, so "BUSY low → ready"
+passes on a dead bus. The next probe must be one that *cannot* pass vacuously: drive a pad high from the main core and
+require the ULP to read 1. Until that passes, Forth SPI is unproven in either direction — 6b proves the store is right,
+not that the pads are muxed.

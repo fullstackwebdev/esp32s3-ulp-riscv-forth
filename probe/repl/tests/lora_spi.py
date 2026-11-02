@@ -108,7 +108,7 @@ def check_send(fails):
     pins, so DIO1 never rises and LORA_SEND correctly returns 0 - a test that expected 1 here would be a test that lies
     about hardware it does not have. What is checked is the byte stream through SetTx, which is the whole write path.
     """
-    out, _ = run("LORA_INIT DROP LORA_SEND .")
+    out, _ = run("INIT DROP SEND .")
     txns = [t for t in transactions(out) if all(isinstance(b, int) for b in t)]
     print("send: %d transactions after init" % len(txns))
     tail = txns[len(EXPECTED_INIT):]
@@ -122,12 +122,12 @@ def check_send(fails):
     # the trailing "." must print 0: no radio answered DIO1 on the host
     plain = re.sub(rb"\[gpio \d+=\d\]", b"", out).replace(b"SRV blk0[0]=00 blk0[9]=09 blk3[9]=1e", b"")
     if b"0" not in plain:
-        fails.append("LORA_SEND did not report the no-DIO1 outcome on the host")
+        fails.append("SEND did not report the no-DIO1 outcome on the host")
 
 
 def main():
     fails = []
-    out, err = run("LORA_INIT .")
+    out, err = run("INIT .")
     text = out.decode("latin-1")
     if b"ERR_" in out:
         fails.append("engine reported an error: %r" % re.findall(r"ERR_[A-Z_]+", text))

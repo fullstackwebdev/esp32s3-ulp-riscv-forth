@@ -247,7 +247,7 @@ static void store_boot(void)
  * hardware gate in P() moved the image to 7 903 B: "the stack paint is covering live .bss". The assertion is the feature;
  * the fix is to keep the two numbers tied (F-131's lesson: an instrument that writes must derive its base from an
  * enforced budget). */
-#define ULP_POOL_BUDGET 7892u
+#define ULP_POOL_BUDGET 7932u
 #define STACK_TOP   0x1FF0u
 /* the paint starts exactly AT the budget: flash_safe.sh refuses any image whose size passes ULP_POOL_BUDGET, so the
  * image can never reach this address. Deriving it from STACK_TOP instead was off by 16 B (0x1FF0, not 0x2000) and put

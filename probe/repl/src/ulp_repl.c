@@ -55,7 +55,12 @@
 /* GUARDRAIL: 2620 -> 2604 pays for the KEY queue (a published cell plus the host's raw path). The stack region stays at
  * 317 B, above the 300 B floor set by the measured 240 B high-water; the dictionary gives up 16 B instead. A working
  * keyboard is worth more than 16 bytes of program. */
-#define MEMSZ    2604          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
+/* GUARDRAIL: 2604 -> 2560 buys the hardware gate in P() (F-149) out of APP SPACE instead of the stack margin.
+ * MEMSZ is 1:1 pool bytes (the 256 B block window lives inside mem[]), so -44 here is +44 of pool; and app space measured
+ * (LATEST 2152 - HERE 786) was 1 366 B, so the trade costs 3 % of a surplus to buy 44 % of the pool's free space. That is
+ * the right direction: the pool is the scarce budget, the dictionary is not. Any future edit that needs pool bytes should
+ * look here first, and re-measure both numbers rather than assuming the surplus is still there. */
+#define MEMSZ    2550          /* GUARDRAIL: with blocks on, the 256 B window lives INSIDE mem[], so every byte here is 1:1 pool:
  * 1 704 left the image 131 B over the 7 856 B limit with the block layer linked; 1 500 lands at ~7 780.
  * App space is (MEMSZ - BLKSZ - headers) - V_HERE, which the countdown now computes from V_LATEST. */
 /* GUARDRAIL: SD stays 16. Raising it to 24 was rejected by the engine's own static assertions - dispatch.S hard-codes
@@ -138,7 +143,8 @@
 
 /* HW_GATE: the 64-byte RTC GPIO window opened in P() itself (F-149). Measured 12 B of .text, +29 B of stack high-water
  * (240 -> 269, painted, 0 B free), so ~41 B end to end against 12 B of room. Kept implemented and off. */
-/* #define HW_GATE 1   -- measured shapes, none affordable (baseline image 7 891, POOL 7 892):
+#define HW_GATE 1
+/* -- measured shapes, none affordable (baseline image 7 891, POOL 7 892):
  *      gate inline inside P()            +42 B  (7 933)
  *      all of P() noinline               +12 B  (7 903)  but painted stack 240 -> 269 B (+29)
  *      fast path inline + P_slow noinline +38 B  (7 929)

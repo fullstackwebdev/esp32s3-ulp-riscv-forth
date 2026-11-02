@@ -20,7 +20,15 @@ set -euo pipefail
 #
 # 2026-11-01: back to 7892. The gate that wanted those 17 B also raised the painted stack high-water 240 -> 269, so the
 # margin it borrowed was not margin at all. Measured, reverted, recorded.
-POOL=7892
+# 2026-11-01 (second correction): the painted high-water is 144 B, not 240 B. The 240 figure came from an older layout and
+# the "0 B free" readings in between were STALE PAINT - RTC RAM survives a reset, so #k was reporting a previous image's
+# damage. With a fresh paint the stack uses 144 B of 284, so the reserve can be 200 B: 144 measured + 56 B margin (28 %).
+# GUARDRAIL: at reserve 200 (POOL 7992) the stack ran INTO the image - #k read 184 of 184 B, 0 free - and the
+# machine then answered `ok` to `: XX 42 ;` and `XX?` afterwards: a stack that overlaps the image corrupts dictionary
+# writes silently, so it looks like a broken compiler, not a full stack. Never size the reserve from the paint alone;
+# require image + reserve <= 8192 with margin to spare.
+# 8192 - 260 = 7932 (260 = 144 measured + 116 margin).
+POOL=7932
 ELF=build/esp-idf/main/ulp_main/ulp_main.elf
 export IDF_PATH=/home/user/research/esp32/esp-idf
 # shellcheck disable=SC1091

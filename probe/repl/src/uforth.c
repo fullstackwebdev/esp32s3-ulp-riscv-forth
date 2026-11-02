@@ -101,7 +101,12 @@ static u8 junk;
  * tests/lora_spi.py decodes. Two different mechanisms, one address range, and the host one must never be more
  * permissive than this gate (F-149: a simulator that accepts what the chip refuses turns a hardware limit into a tick). */
 #define HW_GATE_LO 0x60008400u   /* RTC_GPIO_OUT_REG     */
-#define HW_GATE_SPAN 0x40u       /* 64 B: the whole RTCIO register file */
+/* GUARDRAIL: 0x200, not 0x40. The RTCIO register file is 60 registers from +0x000 to +0x1FC, and the pad-mux
+ * registers (RTC_IO_TOUCH_PAD0 at +0x84, i.e. 0x60008484) sit past a 64-byte window - so with a 64 B gate every
+ * LORA_MUX! write went to `junk` and the pads were never muxed, which looked exactly like a dead SPI bus (pin readback 0,
+ * GetStatus 0x00) while the gate itself worked. Size the window from the register file, not from the first address you
+ * needed. */
+#define HW_GATE_SPAN 0x200u      /* 0x60008400..0x600085FF: the whole RTCIO register file (60 registers) */
 /* GUARDRAIL: noinline is a BUDGET pin here, the same technique the wr8/wr16 comment above records (it was worth -90 B
  * there). Inlined, the gate's compare plus constant is duplicated into every caller; outlined it appears once and costs
  * one call on the MISS path only, because `a < MEMSZ` still returns before the call is ever reached in the common case. */
@@ -176,22 +181,34 @@ static int sim_rtcio_hit(u32 a) { return a >= SIM_RTCIO_BASE && a < SIM_RTCIO_BA
 static void sim_rtcio_write(u32 a, u16 v)
 {
     const u32 off = a - SIM_RTCIO_BASE;
-    if (off == 0x06u || off == 0x0Au) {
-        for (u32 i = 0; i < 16u; i++) {
-            if ((v >> i) & 1u) {
-                const u32 pin = i + SIM_RTCIO_SHIFT;
-                if (off == 0x06u) {
-                    sim_pin_levels |= 1u << pin;
-                    printf("[gpio %u=1]", pin);
-                } else {
-                    sim_pin_levels &= ~(1u << pin);
-                    printf("[gpio %u=0]", pin);
-                }
-            }
-        }
+    /* A 32-bit store arrives here as two halfwords: +0 carries bits 10..15 (pins 0..5) and +2 carries 16..31 (pins 6..21).
+     * GUARDRAIL: handle both or the width swap is silent - the driver moved from W! at +2 to ! at the base because 16-bit
+     * accesses read back 0 from the ULP (measured), and a shim that only knew +2 turned the new width into no trace at
+     * all, which reads exactly like "the driver stopped working" (F-149 again). */
+    u32 pins = 0, first_pin = 0, is_set = 0, known = 1;
+
+    if (off == 0x06u)      { pins = v;        is_set = 1; first_pin = SIM_RTCIO_SHIFT; }
+    else if (off == 0x0Au) { pins = v;        is_set = 0; first_pin = SIM_RTCIO_SHIFT; }
+    else if (off == 0x04u) { pins = v >> 10;  is_set = 1; first_pin = 0; }
+    else if (off == 0x08u) { pins = v >> 10;  is_set = 0; first_pin = 0; }
+    else                   { known = 0; }
+
+    if (!known) {
+        sim_rtcio[off / 2] = v;
         return;
     }
-    sim_rtcio[off / 2] = v;
+    for (u32 i = 0; i < 16u; i++) {
+        if ((pins >> i) & 1u) {
+            const u32 pin = i + first_pin;
+            if (is_set) {
+                sim_pin_levels |= 1u << pin;
+                printf("[gpio %u=1]", pin);
+            } else {
+                sim_pin_levels &= ~(1u << pin);
+                printf("[gpio %u=0]", pin);
+            }
+        }
+    }
 }
 
 static u16 sim_rtcio_read(u32 a)
@@ -228,7 +245,22 @@ static void __attribute__((noinline)) wr16(u32 a, u16 v)
     wr8(a, v); wr8(a + 1, v >> 8);
 }
 static u32 rd32(u32 a)           { return rd16(a) | (u32)rd16(a + 2) << 16; }
-static void wr32(u32 a, u32 v)   { wr16(a, v); wr16(a + 2, v >> 16); }
+static void wr32(u32 a, u32 v)
+{
+#if defined(HW_GATE) && !defined(HOST)
+    /* GUARDRAIL: a register inside the gate gets a REAL 32-bit store. wr32 normally decomposes into four byte stores,
+     * which is right for memory and wrong for the RTC GPIO W1TS/W1TC registers: a byte write does not latch, so the pad
+     * never moved, the SPI clock never clocked, and GetStatus read 0x00 while every Forth-level test "passed" (the
+     * address round-trip with a plain read/write register worked, which is exactly what made this hard to see).
+     * Gate addresses are 4-byte aligned by construction - they are register bases - so the wide store is safe here and
+     * only here. */
+    if ((u32)(a - HW_GATE_LO) < HW_GATE_SPAN) {
+        *(volatile u32 *)(uintptr_t)a = v;
+        return;
+    }
+#endif
+    wr16(a, v); wr16(a + 2, v >> 16);
+}
 /* GUARDRAIL: host-only. A 3-byte header entry (P54) cannot be read with rd32 at all — half of the
  * entries sit at odd addresses and an `lw` there traps on rv32 — so the bake-time collision check needs
  * this reader. find() must NOT call it: there the bytes are compared one at a time on purpose, so the
