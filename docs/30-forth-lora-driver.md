@@ -681,3 +681,49 @@ Two build traps hit and recorded while doing this, both worth repeating:
   (R21).
 * The ULP linker region comes from `CONFIG_ULP_COPROC_RESERVE_MEM`; a stale generated `ulp_riscv.ld` reports
   "`.bss` not within region ram" for a perfectly good image. `idf.py fullclean` before trusting a size change.
+
+## 12. The environment was never the blocker (F-176 .. F-176j)
+
+The inverse bisect kept saying `hal_init()` is the gate, so the next step was to compile *that file* into our own image
+instead of transcribing it. Result, every verdict attributed to a distinct artifact size:
+
+| what our image did | artifact | HP-side witness |
+|---|---|---|
+| real `hal_init()` compiled in, called at wake start | 7 249 | **NSS(bit18) SET** |
+| `output_enable(NSS)` only | 7 025 | clear |
+| `init` + `output_enable` for one pad | 7 069 | clear |
+| all seven pads configured, no level writes | 7 219 | clear |
+| burst of 11 stores to `OUT_W1TS` | 7 239 | clear |
+| `hal_init()` + our own store to SCK (engine drives it low) | 7 257 | NSS SET, SCK clear |
+| **engine's own C SPI: `hal_reset()` then GetStatus** | **7 917** | **`eng_status = 0x2A`** |
+
+Read the last row with the first: **inside our firmware, driven by our app, the C engine's SPI transaction returns
+`0x2A` from the SX1262** - the same value the C driver's bring-up recorded (docs/29). So the coprocessor can move these
+pads in this firmware, the pads are configured, the radio answers, and nothing about this app or its build was ever the
+obstacle. What remains is narrower than the 165 probes before it: instructions from `hal_engine.c` move the pads, and
+instructions from the *interpreter's* `!` do not - both measured on the uncontended pad 10 (MOSI), where the register
+mirror shows Forth's bit after its own store (`OUT` reads `0x100000`) and yet nothing the engine does afterwards is
+disturbed.
+
+Two measurement corrections came out of the same series, both worth repeating:
+
+* **`RTC_GPIO_IN` is not a witness for pads the engine did not input-enable.** Only MISO/BUSY/DIO1 get
+  `ulp_riscv_gpio_input_enable()`, so reading `IN` for pad 8/9/10 stays constant however those pads are driven - it told
+  me nothing about NSS and I nearly concluded "the pin doesn't follow".
+* **A "witness" bit that is ORed into the write it watches can destroy that write.** `#z` once set bit 18 *and* bit 23 in
+  one `OUT_W1TS` word; the word never landed at all and the SET I was after came from the engine's own single-bit store.
+  One pad per set/clear word.
+
+Traps hit while doing this (each cost a run, all three are recorded rules already):
+
+* Retiring a switch by wrapping it in `#if 0` when the thing under test sits in its `#else` deletes the thing too - the
+  build that "proved" no write lands had no `hal_init()` in it (text 4 984 against 5 220 is what caught it).
+* CMake keeps probe flags in its cache: `-DULP_EXTRA_DEFS` left at `-DULP_HAL=1 -DENGINE_TEST=1` made the *shipping*
+  build overflow its region, and only reconfiguring with explicit zeros brought 7 931 back.
+* A per-wake `printf` from the coprocessor floods the console and corrupts every reply. Reports are one-shot and short.
+
+The next question is specific and cheap: why does a store from the interpreter's `wr32` not move a pad that a store from
+`REG_WRITE` moves, in the same image, on the same core, to the same address? Difference candidates left, in order:
+store-buffer drain at the end of the interpreter's turn (`ulp_riscv_halt()` immediately after), the width/alignment the
+two compilers choose, and the possibility that the engine's write is followed by reads of other addresses which force
+the write out. The cheap discriminator is to make Forth's `!` followed by an engine read of the same register.

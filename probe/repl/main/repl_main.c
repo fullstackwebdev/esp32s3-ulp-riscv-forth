@@ -639,15 +639,28 @@ static void seed_poll(void)
                 continue;
             }
             if (n >= 2 && ln[0] == '#' && ln[1] == 'z' && (ln[2] == 0 || ln[2] == ' ')) {
-                REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+                /* GUARDRAIL: F-176, TWO witness bits. Every previous `#z` watched only bit 18 (pad 8 / NSS), the pad the
+                 * HP core itself configures and drives - so "LOST" there cannot tell "the coprocessor's store was
+                 * discarded" apart from "the HP core's own pad driver state owns that bit". Bit 23 (pad 13 / BUSY) is an
+                 * HP-side INPUT: nothing in this firmware writes its OUT data bit, so a store from the ULP to it is
+                 * unambiguous. Clearing both and reporting both is the one measurement the 165 probes before it skipped. */
+                /* GUARDRAIL: F-176h - clear and watch THREE bits: bit 18 (the engine's own NSS write), bit 19 (SCK, which
+                 * the engine drives LOW, so a SET there is proof of OUR store reaching RTCIO) and bit 23 (BUSY, never
+                 * output-enabled: the control that must stay clear or the witness means nothing). */
+                const uint32_t both = (1u << (8 + 10)) | (1u << (13 + 10)) | (1u << (9 + 10));
+                REG_WRITE(RTC_GPIO_OUT_W1TC_REG, both);
                 uint32_t w0 = ulp_repl_wake_count;
-                int landed = 0;
-                for (int i = 0; i < 40 && !landed; i++) {
+                int bit18 = 0, bit23 = 0, sck19 = 0;
+                for (int i = 0; i < 40 && !(bit18 && bit23 && sck19); i++) {
                     vTaskDelay(pdMS_TO_TICKS(10));
-                    if (REG_READ(RTC_GPIO_OUT_REG) & (1u << (8 + 10))) landed = 1;
+                    uint32_t out = REG_READ(RTC_GPIO_OUT_REG);
+                    if (out & (1u << (8 + 10))) bit18 = 1;
+                    if (out & (1u << (13 + 10))) bit23 = 1;
+                    if (out & (1u << (9 + 10))) sck19 = 1;
                 }
-                printf("storetest: %s (clear, %u ULP wakes, OUT 0x%08X)\n",
-                       landed ? "LANDED" : "LOST", (unsigned)(ulp_repl_wake_count - w0),
+                printf("storetest: NSS(bit18) %s  SCK(bit19,ours) %s  BUSY(bit23) %s  (%u wakes, OUT 0x%08X)\n",
+                       bit18 ? "SET" : "clear", sck19 ? "SET" : "clear", bit23 ? "SET" : "clear",
+                       (unsigned)(ulp_repl_wake_count - w0),
                        (unsigned)REG_READ(RTC_GPIO_OUT_REG));
                 fflush(stdout);
                 n = 0;

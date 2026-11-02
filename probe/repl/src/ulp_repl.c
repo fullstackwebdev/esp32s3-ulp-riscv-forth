@@ -202,6 +202,12 @@ volatile u32 repl_out_drop;      /* bytes dropped because the ring was full; zer
 volatile u32 repl_out_head;      /* written by the ULP */
 volatile u32 repl_out_tail;      /* written by the HP */
 volatile u32 repl_wake_count;
+#if defined(ENGINE_TEST) && !defined(HOST)
+volatile u32 eng_status;      /* published: only the HP core reads registers honestly (F-158) */
+volatile u32 eng_status_addr, eng_self_addr, eng_dio1_addr;
+volatile u32 eng_selftest;
+volatile u32 eng_dio1;
+#endif
 /* GUARDRAIL: see the probe in main(). `go` is written by the HP core, `res` by the ULP; neither is read by the
  * same side that writes it, which is what makes this a two-reader measurement rather than an echo. */
 volatile u32 pl_hwgo;      /* the SENS value the ULP read */
@@ -530,8 +536,69 @@ static void drain_cmd(void)
 #include "p42_bench.inc"
 #endif
 
+#if defined(ULP_HAL) && !defined(HOST)
+/* GUARDRAIL: F-176b - the DECISIVE experiment, and the reason F-175 could not answer it. hal_init() compiled from
+     * the reference file itself, in our image, called before our own store. If bit 23 (pad 13, an HP-side input that
+     * nothing else writes) comes back SET, the coprocessor CAN reach RTCIO and every earlier "environmental block"
+     * conclusion is wrong; if it stays clear with the working engine running first, the block is in this app, not in
+     * the program - which is a different investigation and a shorter one. */
+#include "hal_engine.h"   /* LORA_PIN_* and the prototypes */
+#endif
+#if defined(ENGINE_TEST) && !defined(HOST)
+#include "hal_engine.h"
+#endif
+
 int main(void)
 {
+#if defined(ULP_HAL) && !defined(HOST)
+    /* GUARDRAIL: F-176i - the ladder is retired (its text now lives in docs/30, not here): output_enable alone LOST,
+     * init+enable for one pad LOST, all seven configured with no level writes LOST, a burst of stores LOST. What LANDED
+     * was hal_init() complete, compiled from the reference file. So this block calls the engine and then, immediately
+     * after, issues ONE store from our own image's code to SCK (bit 19), which the engine drives LOW: a SET bit 19 can
+     * only come from my instruction. GUARDRAIL learned the hard way two turns ago: do not retire a switch by wrapping it
+     * in `#if 0` when the working call sits in its `#else` - the call is then silently dropped too, and the verdict reads
+     * off a build that no longer contains the thing under test (text 4 984 vs 5 220 is what told me so). */
+    hal_init();
+#endif
+#if defined(ENGINE_TEST) && !defined(HOST)
+    /* GUARDRAIL: ENGINE_TEST is the control experiment, the only way to split the two live hypotheses. The Forth bus
+     * probe reads 0 for every byte the radio is asked to echo (tests/lora_bus.py): either the coprocessor's pad writes
+     * never move the pins, or they do and MISO cannot be read back. Running the reference engine's OWN C code -
+     * hal_reset() then GetStatus over hal_read() - inside this image answers that with a number rather than a guess,
+     * and it is published to the HP core because only the HP core reads registers honestly (F-158). */
+    hal_reset();
+    eng_selftest = hal_pad_selftest();
+    {
+        u8 op = 0xC0u;                      /* GetStatus */
+        u8 b = 0u;
+        hal_read(&op, 1u, &b, 1u);
+        eng_status = b;
+        eng_dio1 = (u32)hal_dio1();
+    }
+    /* GUARDRAIL: report through the coprocessor's OWN console path (echo + saynum, the same pair the bench uses). The
+     * alternative - referencing ulp_repl_eng_* from the app - fails at the HP build, because ulp_embed_binary publishes
+     * a fixed symbol set and silently omits anything new, so the app just does not compile. */
+    /* GUARDRAIL: emit with pl_emit alone. echo()/saynum() are not visible at this point in the translation unit (they
+     * live inside the bench region behind its own guards), and an implicit declaration is a build failure at best and a
+     * silent wrong-number print at worst. Hex digits by hand, through the one function that never blocks. */
+    {
+        /* GUARDRAIL: print ONCE and print it right. An unguarded per-wake report floods the console at 24 groups a
+         * second, and every Forth reply then reads as garbage (measured: `IN after` returned the middle of another
+         * wake's digits). One line, one prefix, eight digits per value. */
+        const char hx[] = "0123456789ABCDEF";
+        u32 vals[3] = { eng_status, eng_selftest, eng_dio1 };
+        static u32 once;
+        if (once == 0u) {
+            once = 1u;
+            pl_emit('\n'); pl_emit('E'); pl_emit('=');
+            for (int v = 0; v < 3; v++) {
+                pl_emit(' '); pl_emit('0'); pl_emit('x');
+                for (int sh = 28; sh >= 0; sh -= 4) pl_emit(hx[(vals[v] >> sh) & 0xFu]);
+            }
+            pl_emit('\n');
+        }    }
+#endif
+
 #if defined(ULP_PAD_OWNERSHIP) && !defined(HOST)
     /* GUARDRAIL: F-175 - the fix the inverse bisect found. probe/lora's hal_init() is the gate (deleting it LOSTs, and
      * deleting only its three level writes LOSTs while deleting only the pull operations LANDED), so the requirement is:
@@ -566,6 +633,27 @@ int main(void)
      * clock-enable may be per-master, so an HP-side set of the same bit would not open the ULP's own path - which would
      * explain every symptom (HP sees its own writes, the ULP's reads and writes vanish, and the difference between the
      * two firmwares is invisible in every dump because the register reads the same). */
+    /* GUARDRAIL: F-176 - set TWO bits, not one: bit 18 (pad 8/NSS, an HP-configured output) and bit 23 (pad 13/BUSY,
+     * an HP-side input whose OUT data bit nothing in this firmware writes). If the coprocessor's store reaches the
+     * register at all, bit 23 proves it; if only bit 18 fails, the earlier 165 probes were watching a contested bit. */
+    /* GUARDRAIL: F-176f - ONE pad bit per W1TS word. The two-bit witness I just added is what made this build lose:
+     * in the LANDED run bit 18 came back SET while bit 23 stayed CLEAR, i.e. the store that ORed both never landed
+     * at all and bit 18 was set solely by hal_init's own single-bit pin_high(). On this core a set/clear word that
+     * includes a pad whose output path is not enabled is discarded as a whole, so a "witness" bit on an input pad is
+     * not free evidence - it poisons the very write it is watching. Never OR unrelated pads into one word. */
+    /* GUARDRAIL: F-176g - the last asymmetry between the working image and this one is COUNT: hal_init issues three
+     * level stores (NSS, RESET, SCK) and lands; one store to the same address with the same value, after the same
+     * configuration, does not. If the coprocessor's write buffer needs a companion transaction to drain, repeating
+     * the store is the fix, and the Forth driver has to follow every pad write with a second one. */
+    /* GUARDRAIL: never name a local `w` or `ip` in anything that includes uforth.c - the VM does `#define w (V->W)` and
+     * `#define ip (V->IP)` at file scope, so the identifier silently expands and the build fails with nonsense
+     * ("invalid type argument of unary '*'" and a cascade inside vm_enter). That cost one build cycle here. */
+    /* GUARDRAIL: F-176h - the confound-free witness. Let the WORKING engine configure and drive the pads, then issue
+     * exactly one store from THIS image's own code to SCK (bit 19), a pad the engine deliberately drives LOW, so a SET
+     * bit 19 can only have come from my instruction. bit 18 (NSS) is the engine's own write and bit 23 (BUSY, never
+     * output-enabled) is the control that must stay clear. If bit 19 comes back SET, our stores reach RTCIO after all
+     * and every earlier "lost" was about the pad or the value, not about the coprocessor being unable to write. */
+    *(volatile u32 *)0x60008404u = (1u << (9 + 10));   /* SCK high - the engine leaves it low */
     *(volatile u32 *)0x60008404u = (1u << (8 + 10));
     /* GUARDRAIL: F-166 - hold the coprocessor awake for ~1 ms AFTER the store. The hypothesis: a ULP peripheral write
      * is posted, and `ulp_riscv_halt()` right after it gates the ULP's bus before the write reaches the APB - which is
@@ -577,7 +665,7 @@ int main(void)
         asm volatile("rdcycle %0" : "=r"(t0));
         do { asm volatile("rdcycle %0" : "=r"(t)); } while ((t - t0) < 17500u);
     }
-    *(volatile u32 *)0x60008404u = (1u << (8 + 10));   /* and once more, after the delay, for good measure */
+    *(volatile u32 *)0x60008404u = (1u << (8 + 10));   /* and again after the delay, still one bit per word */
     /* GUARDRAIL: count this wake, or the HP side cannot tell "the probe ran and the store was lost" from "this image never
      * ran at all" - which is exactly how two earlier bisect results became void (F-159). The liveness counter must be in
      * the same image as the experiment. */
@@ -592,7 +680,12 @@ int main(void)
         /* GUARDRAIL: ASSIGN these, do not merely reference the arrays. The real path publishes the offsets after the
          * P42_ONLY return, so with the bench build the variables were published by nothing and --gc-sections dropped
          * them - the app then failed on 'ulp_repl_mem_addr undeclared'. Referencing &mem[0] keeps mem[], not the offset. */
-        repl_mem_addr = (u32)&mem[0];
+    #if defined(ENGINE_TEST) && !defined(HOST)
+    eng_status_addr = (u32)&eng_status;      /* published for the HP core, the only honest reader (F-158) */
+    eng_self_addr = (u32)&eng_selftest;
+    eng_dio1_addr = (u32)&eng_dio1;
+#endif
+    repl_mem_addr = (u32)&mem[0];
         repl_mb_addr  = (u32)&mailbox[0];
         repl_blk_off  = (u32)BLKADR;
         repl_blk_sz   = (u32)BLKSZ;
