@@ -191,3 +191,24 @@ it, because that arm never executed (`F-134`).
 undescribed block and requires the line to return, the counter to stop, and `REFUSED` to be printed), and confirm the new
 test fails when the fix is reverted. When two spellings look interchangeable, find the primitive table
 (`src/p31_prims.inc`) and read the immediate flag instead of assuming.
+
+## R16 — A substring hit is not an identity
+
+**What happened.** Before taking an 8 MB flash dump, the chip was "identified" by counting occurrences of
+`uforth|ULPCODE|BLKXFER|APP STORE|repl` in the the app region. Four hits appeared, the dump was taken, and the backup was
+recorded as *the App Store board*. It was not: every one of those four hits was the word **`repl`**, which appears in stock
+ESP-IDF strings. The board on `/dev/ttyUSB0` was a Heltec V3 running Meshtastic, and the real board's flash was never
+captured. The backup was valid — of the wrong machine.
+
+**Why the check felt sufficient.** It was cheap, it used our own vocabulary, and it returned a positive number. A positive
+number from a weak test is worse than no test, because it closes the question.
+
+**The rule.** An identity check must produce something that could only come from the entity you think you have:
+a full-region hash compared against a known build, a structure that is unique (the image's project-description string at
+`0x30`, a partition layout, a MAC you have recorded before), or a challenge/response that only that firmware answers. Substring
+counts, banner text and "it answered" are not identity.
+
+**Corollary for ports.** A device that changes port changed nothing about its identity — and a *different* device on the
+same path looks identical to a tool that only knows the path. After any replug, re-establish identity before writing or
+reading anything you intend to keep.
+

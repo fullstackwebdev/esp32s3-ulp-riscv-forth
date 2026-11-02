@@ -2283,3 +2283,24 @@ previous packet and looks like a radio fault; BUSY timeouts must be derived from
 count; a freq computed from a variable drags a 64-bit divide into the ULP image; and the cfg in a block must use 4-byte
 offsets, because F-136 already proved what an unaligned load does on rv32.
 
+**J-117 · The backup was of the wrong board, and the identity check that "passed" was a substring count.**
+With the LoRa board now on `/dev/ttyUSB0`, the flash backup was taken and recorded as the App Store machine. It is not: the
+app region says `esp-idf: v4.4.7 38eeba213a / arduino-lib-builder`, the strings say `SX126xInterface<T>` and
+`meshtastic_MeshPacket`, and it is a **Heltec V3 running Meshtastic**. The four "our firmware" hits that satisfied the check
+were all the word **`repl`** inside stock IDF strings. The App Store board had already gone (its `/dev/ttyACM1` console was
+absent - that is also why the new board's console looked silent at 115200: Meshtastic talks over USB-CDC). The 8 MB image
+is re-filed as `heltec-v3-meshtastic-...bin`, which is genuinely useful - it is the LoRa board's factory firmware - but the
+App Store flash was **not** captured, and `backup/README.md` now says so in its first paragraph plus the exact 3-minute
+procedure for when that board is back.
+
+Rule R16 was written for it: an identity check must produce something only that entity could produce - a full-region hash
+against a known build, the project-description string, a recorded MAC - never a substring count, a banner, or "it answered".
+Corollary: a device on the same path after a replug is a different device until proven otherwise.
+
+The measurement itself could not run (no board with our interpreter attached), so the tool that will run it is committed
+instead: `probe/repl/tools/token_rate.py` measures per-token cost from the differences between three same-loop definitions
+(so loop overhead cancels), refuses to report if the REPL is not ours, and derives the whole LoRa table from it - including
+the honest modelling of the C primitive at its own 350 kHz rather than as "1 token per byte". Two unit bugs were found in
+it before committing: SCK kHz printed as 1000/(8*us_byte) understated the bus 1000x, which would have made a 40 kHz bus look
+like 0.65 kHz and "Forth is hopeless" for arithmetic reasons.
+

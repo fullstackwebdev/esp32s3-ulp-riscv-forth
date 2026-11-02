@@ -755,7 +755,13 @@ So the shape is **three or four primitives + a phase**, not a C driver.
 **Conclusion: the Forth driver cannot coexist with the current interpreter in the same image** — not because it is too
 slow, but because the pool is full. It fits as a **phase**, which is the architecture we already built.
 
-### 4.4 How slow would the bit loop be in pure Forth? (derived, not measured)
+### 4.4 How slow would the bit loop be in pure Forth? (**derived — the measurement is one command away**)
+
+> **Status.** `probe/repl/tools/token_rate.py` performs the measurement this section needs: three definitions with the same
+> loop and 1/3/5 `1-` in the body, so the loop overhead cancels and the per-token cost falls out of the differences. It
+> refuses to report anything if the machine does not answer as ours (R16 — the SX1262 board on `/dev/ttyUSB0` today is a
+> Heltec V3 running Meshtastic, not our interpreter). Until it has run on the App Store board, the numbers below are a
+> derivation at an **assumed** token cost; `--assume-token-us` reproduces the table, and the measured run replaces it.
 
 Per bit, a Forth loop body is realistically 6–10 threaded tokens: mask, test, branch, pin write, clock high, read MISO,
 clock low, shift. At ~2–4 µs per token on the ULP (derived from 17.5 MHz with a multi-cycle dispatch per token — **this is
@@ -767,7 +773,8 @@ the number to measure, and it cannot be measured without a board**):
 ```
 
 Call it **30–80 kHz**, versus the C reference's ~350 kHz: **4–10× slower**, exactly as one would expect from an
-interpreter.
+interpreter. `token_rate.py --assume-token-us 3.0` prints exactly this table (144/192/240 µs per byte → 55.6/41.7/33.3 kHz),
+and prints the C primitive at its own fixed cost (~22.9 µs/byte, 350 kHz) rather than pretending a primitive is free.
 
 ### 4.5 Why 4–10× slower does not matter here
 
