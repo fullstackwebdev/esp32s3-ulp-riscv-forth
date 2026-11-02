@@ -50,7 +50,7 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
                 (F-151 stores, F-153 loads) - every probe read 0x00, with no error.
   R24 pad register  writing 1610646528 (RTC_GPIO_OUT_REG). Measurement: `12345 1610646528 !` REBOOTS the S3
                 (`ESP-ROM:esp32s3-20210327` on the console) - bits 0..21 are RTC GPIO 0..21 including the pads tied to
-                flash, PSRAM and the brownout detector. Single pads go through OUT_W1TS 1610646532 / W1TC 1610646536.
+                flash, PSRAM and the brownout detector. Single pads go through OUT_W1TS 41988 / W1TC 1610646536.
   R9 (RETIRED)  `MS does not sleep` was earned when the primitive returned the wake count (measured: twenty
                 `200 MS` in 0.05 s). MS now busy-waits on rdcycle (tests/ms_clock.py: 100 MS = +100 ms,
                 300 MS = +301 ms), so the rule's premise is gone and it was removed instead of left as
@@ -410,9 +410,16 @@ def check_source_shape(src, phase=False, repl=False):
     # measured twice on the board (F-151 stores, F-153 loads): every register probe returned 0x00 while the same address
     # round-tripped through `!`/`@`. Any literal >= 0x10000 is a register address on this machine: MEMSZ is ~2.5 KB, so
     # nothing that large can be memory.
+    # GUARDRAIL: the range test has to know BOTH address forms. It used to be `>= 0x10000` alone, which was sound
+    # while drivers used SoC addresses - and went silently blind the moment pool code moved to the ALIAS WINDOW
+    # (RTCIO 0xA400, SENS 0xC800), where every register literal is BELOW 0x10000 and no narrow access was reported.
+    # 0xA400..0xD3FF cannot be pool memory (MEMSZ is ~2.5 KB), so in that range a literal is always a register.
     for i, ln in enumerate(lines, 1):
         for tok in tokens(code_only(ln)):
-            if not tok.isdigit() or int(tok) < 0x10000:
+            if not tok.isdigit():
+                continue
+            v = int(tok)
+            if not (v >= 0x10000 or 0xA400 <= v < 0xD400):
                 continue
             for narrow in ("W!", "W@", "C!", "C@"):
                 if narrow in tokens(code_only(ln)):
@@ -425,12 +432,48 @@ def check_source_shape(src, phase=False, repl=False):
     # bits 0..21 are RTC GPIO 0..21, which include the pads tied to flash, PSRAM and the brownout detector. Measured:
     # `12345 1610646528 !` produced `ESP-ROM:esp32s3-20210327` on the console. Single pads go through OUT_W1TS (…404)
     # and OUT_W1TC (…408), which touch one bit each.
+    # GUARDRAIL: R26. The coprocessor does NOT decode the SoC address map: A10/A11 are dropped, so an absolute
+    # 0x6000_84xx access from pool code lands in RTC_CNTL and nothing answers it - the root cause that cost months,
+    # and the reason every driver constant is written in the ALIAS WINDOW (`esp32s3.peripherals.ld`: RTCIO 0xA400,
+    # SENS 0xC800). It fails by silence: the value looks right, the store runs, the pad does not move. A literal in
+    # the SoC peripheral range is therefore a defect even when it decodes to the correct register.
+    for i, ln in enumerate(lines, 1):
+        for tk in tokens(code_only(ln)):
+            v = None
+            if re.fullmatch(r"\d{6,}", tk) or re.fullmatch(r"0[xX][0-9a-fA-F]{6,}", tk):
+                v = int(tk, 0)
+            if v is not None and 0x60000000 <= v < 0x61000000:
+                findings.append((i, "R26 alias window",
+                                 f"{tk} = 0x{v:08X} is a SoC address; the coprocessor drops A10/A11 and it lands in "
+                                 "RTC_CNTL. Use the alias window the linker defines: RTCIO 41984 (0xA400), "
+                                 "SENS 51200 (0xC800)"))
+    # GUARDRAIL: R27. A second BEGIN inside an open BEGIN in the SAME definition is refused by the loader with no
+    # message at all - measured on a phase upload where `RUNSHELF` simply vanished (no ERR_DICT, no `NAME?`): the
+    # control-structure stack has 3 slots and nesting counted loops in one definition overruns it on the way in.
+    # Depth rule: BEGIN +1, WHILE -1 (it consumes BEGIN's forward ref), REPEAT no change, UNTIL -1.
+    depth = 0
+    for lineno, line in enumerate(scan_lines, 1):
+        for tk in line.split():
+            if tk == ":":
+                depth = 0
+            elif depth and tk == "BEGIN":
+                findings.append((lineno, "R27 nested loop",
+                                 "BEGIN inside an open BEGIN: the loader drops the whole definition silently, so "
+                                 "the loop that looks present is not - keep one loop per definition and call a "
+                                 "bounded wait word instead"))
+                depth += 1
+            elif tk == "BEGIN":
+                depth += 1
+            elif tk in ("WHILE", "UNTIL"):
+                depth = max(0, depth - 1)
+            elif tk == ";":
+                depth = 0
     for i, ln in enumerate(lines, 1):
         toks = tokens(code_only(ln))
         if "1610646528" in toks and "!" in toks:
             findings.append((i, "R24 pad register",
                              "writing RTC_GPIO_OUT_REG reboots the S3 (flash/PSRAM/brownout pads share those bits): set "
-                             "one pad at a time through OUT_W1TS 1610646532 / OUT_W1TC 1610646536"))
+                             "one pad at a time through OUT_W1TS 41988 / OUT_W1TC 1610646536"))
     return findings
 
 
@@ -774,6 +817,10 @@ def check_blocks(src, base=None, blocks=None):
 
 
 BUGS = {
+ "SoC absolute address from pool code (the alias-window root cause)":
+   (""": PADSET 1610646532 ! ;\n""", "R26 alias window"),
+ "nested counted loop in one definition (loader refuses it silently)":
+   (""": RUNSHELF BEGIN KEY 1+ BEGIN KEY UNTIL UNTIL ;\n""", "R27 nested loop"),
  "missing DUP (our JK bug)":
    (""": JK DUP 106 = IF DROP NEXT EXIT THEN 107 = IF PREV EXIT THEN DROP ;
 : ACT DUP 13 = IF DROP PICKED EXIT THEN JK ;
@@ -819,7 +866,7 @@ BUGS = {
 : S ( b -- b*2 ) DUP 2 * ;
 """, "R22 definition"),
  "narrow access to a register (F-151/F-153)":
-   (""": STA ( -- ) 1610646564 W@ DROP ;
+   (""": STA ( -- ) 42000 W@ DROP ;
 """, "R23 access width"),
  "arbitrary write to OUT_REG (the `#h` reboot)":
    (""": OUT ( v -- ) 1610646528 ! ;
@@ -878,7 +925,7 @@ GOOD_PHASE = """: PH1 ( -- ) ." CREATE X" 96 CHAIN ;
 """
 # GUARDRAIL: R21-R24's two directions, one line each. The register fixture uses OUT_W1TS with a single bit and `!`, which
 # is the correct shape the LoRa driver ended up with - if the rules ever fire on this, they will fire on the driver.
-GOOD_REG = ": NSS_HI ( -- ) 262144 1610646532 ! ;\n: RD ( -- v ) 1610646564 @ ;"
+GOOD_REG = ": NSS_HI ( -- ) 262144 41988 ! ;\n: RD ( -- v ) 42000 @ ;"
 
 
 def selftest():

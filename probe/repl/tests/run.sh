@@ -67,6 +67,15 @@ python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1
 # a missing DUP (underflow three steps later), a leaked digit (a stack cell per colour change), a word used before
 # it is defined, and a backslash comment that compiled as words. Run its selftest, then lint every example.
 python3 tools/lint_forth.py --selftest >/dev/null || { echo "FAIL  linter selftest" >&2; fail=1; }
+# GUARDRAIL: hashcheck is the only gate that sees the 12-bit dictionary identity - two names with the same hash
+# means the chip REFUSES the definition and answers `NAME?` two lines later, which cost 165 probe cycles once. It
+# existed as a hand-run tool, so drift went unnoticed; `DIO1PAD` in the driver collides with baked `AP1` and only
+# this line says so on every run. It refuses outright when the resident vocabulary is missing.
+for f in ../../examples/apps/lora/lora1.fs ../../examples/apps/shelf/shelf1.fs \
+         ../../examples/apps/shelf/shelfb.fs ../../examples/apps/calc/calc1.fs \
+         ../../examples/apps/mail/mail1.fs ../../examples/apps/reader/read1.fs; do
+  python3 tools/hashcheck.py "$f" >/dev/null 2>&1 || { echo "FAIL  hash collision or missing vocabulary in $f" >&2; fail=1; }
+done
 # Strict lint for everything that can actually run on the machine.
 # GUARDRAIL: the launchers are linted here, not only on the board. `boot.fs`/`menu.fs` carried a bare `' NOOP` in PICKX's
 # refusal arm - a RUN-time parse inside a definition - for a whole turn; the linter had no rule for it, the device tests

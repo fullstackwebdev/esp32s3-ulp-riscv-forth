@@ -137,6 +137,19 @@ if [ "$NAME" = base ]; then
   fi
   printf '%-22s baseline twin .text == shipped .text (sha=%s)\n' "$NAME" "$sh"
 fi
+# GUARDRAIL: a variant that compiles to the SAME .text as base tested nothing. This is not hypothetical:
+# `measure.sh v -DSD=8` and `-DMEMSZ=2000` came back byte-identical (sha 94718ad28332d72d, exit 0) because the
+# shipping compile line ALREADY defines those macros (-DSD=16 -DMEMSZ=<n> -DTIBSZ=<n>), and a later -D of the same
+# macro loses to the earlier one. Every "no lever exists" conclusion drawn from such a row was fiction, so refuse.
+if [ "$NAME" != base ] && [ -f "$OUT/base.text" ]; then
+  b=$(sha256sum "$OUT/base.text" | cut -c1-16)
+  if [ "$h" = "$b" ]; then
+    echo "measure: $NAME produced the SAME .text as base (sha=$h) - the appended flags never reached the compiler." >&2
+    echo "measure: the shipping compile line defines macros itself (-DSD=16 -DMEMSZ=<n> -DTIBSZ=<n>); an appended -D" >&2
+    echo "measure: of the same macro loses. Change the flag in main/CMakeLists.txt, or price a real source edit." >&2
+    exit 1
+  fi
+fi
 printf '%-22s elf .text=%-5s .rodata=%-5s .data=%-5s .bss=%-5s | obj .text=%-5s .rodata=%-5s | sha=%s\n' \
        "$NAME" "$tt" "$tr" "$td" "$tb" "$ot" "$orod" "$h"
 printf '%-22s pool span=%s B (end of last placed section; THIS is the bytes-of-app-space number)\n' \

@@ -305,3 +305,29 @@ Two habits:
   the diff was noise.
 * **Classify each differing register before interpreting it** (`*_STATE`, `*_INT_`, ADC/ATTN, W1TS/W1TC aliases are all
   dynamic by construction). A diff that survives classification is worth a flash; one that doesn't is worth a comment.
+
+## Gate additions this era, and the one command that is not a gate
+
+`tools/lint_forth.py` grew **R26 alias window** (a SoC absolute address in pool code: the coprocessor drops A10/A11,
+the store runs, the pad never moves - and the linter's own `GOOD_REG` fixture had been *teaching* the broken form, so
+the fixture was corrected too) and **R27 nested loop** (a second `BEGIN` inside an open `BEGIN` in one definition is
+refused by the loader with no message at all). Widening **R23** was the quieter fix: it recognised register addresses
+as "any literal >= 0x10000", which stopped matching anything once addresses moved to the alias window, so narrow
+accesses on registers had gone silently unreported.
+
+`tests/run.sh` now runs `hashcheck.py` over the app corpus, because that tool existed as a hand-run step and the
+driver carries a real collision (`DIO1PAD` hashes like baked `AP1`). `tools/measure.sh` refuses a variant whose
+`.text` is identical to base: `measure.sh v -DSD=8` and `-DMEMSZ=2000` used to exit 0 while quoting a number, because
+the shipping compile line already defines those macros and an appended `-D` of the same macro loses.
+
+`cli` gained host-side gates for the mistakes that cost days this session, and refuses by name: an entry word that the
+file does not define (a typo looked like a compile failure), a phase sitting on a card descriptor (`OPND` maps a slot
+to 24, so the keys phase adopted *itself* and the store took no action forever), and a phase reaching for a word only
+another phase defines (a phase cannot see another phase's words). Overlap is checked *after* the build against the span
+each image actually occupies - the pre-flight 8-block assumption flagged the working `shelfkeys@44` against
+`reader@48`, and a rule that blocks working code is worse than no rule.
+
+And the counter-rule worth writing down: **`#c <desc>` is not a passive read.** Measured twice on the same store: with
+verification in the build path the shelf stops drawing (4 420 B first frame, no card titles); with it off the same
+store is 16/16. A check that damages what it checks is a diagnostic behind a flag (`APPSTORE_VERIFY=1`), not a build
+step, and the tool itself now has an open question against it.
