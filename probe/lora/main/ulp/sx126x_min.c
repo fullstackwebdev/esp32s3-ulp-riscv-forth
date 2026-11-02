@@ -129,8 +129,8 @@ int sx126x_cold_init(const sx126x_cfg_t *c)
     if ((e = cmd(OP_SET_MOD_PARAMS, p, 4)) != 0) return e;
 
     /* TxDone + Timeout, both routed to DIO1 */
-    p[0] = (uint8_t)((IRQ_TX_DONE | IRQ_TIMEOUT) >> 8);
-    p[1] = (uint8_t)(IRQ_TX_DONE | IRQ_TIMEOUT);
+    p[0] = 0xFF;
+    p[1] = 0xFF;
     p[2] = p[0]; p[3] = p[1];
     p[4] = p[5] = p[6] = p[7] = 0x00;
     if ((e = cmd(OP_SET_DIO_IRQ_PARAMS, p, 8)) != 0) return e;

@@ -96,18 +96,26 @@ def freq_of(dev):
     return dev.num("NSSLO 134 >BYTE 0 >BYTE 0 >BYTE 0 >BYTE 0 >BYTE NSSHI DROP 1 .", timeout=8.0)
 
 
-def watch(dev, seconds, results, key, stop):
-    """Listen on one board for `seconds`, collecting every decoded frame as a list of decimal bytes."""
+def watch(dev, seconds, results, key):
+    """Listen continuously and collect decodes.
+
+    GUARDRAIL: listen in CONTINUOUS mode and poll the chip's irq word; do not re-arm a 250 ms window per attempt.
+    Measured: four frames sent 400 ms apart were ALL missed by the windowed `RX1` (each attempt cost a host round
+    trip, so the receiver was deaf between windows), while `RC SR` once and polling `IQ` caught the very first frame
+    (irq 0x0016 = RxDone|Preamble|Header) and printed the payload out of the radio's own buffer. A window is fine for
+    a hand test; a listener has to stay listening.
+    """
+    dev.cmd("RC SR", timeout=8.0, allow_error=True)
     end = time.time() + seconds
-    while time.time() < end and not stop.is_set():
-        irq = dev.num("RX1 .", timeout=8.0)
-        if irq == 0:
-            continue
-        dec = dev.num("RXTAKE .", timeout=8.0)
-        if dec != 1:
-            results[key].append({"NODECODE": irq})
-            continue
-        results[key].append({"irq": irq})
+    while time.time() < end:
+        irq = dev.num("IQ .", timeout=8.0)
+        if irq & 0x0002:
+            payload = dev.cmd("RL RB", timeout=10.0, allow_error=True)
+            results[key].append({"irq": irq, "payload": payload.strip()})
+            dev.cmd("RC", timeout=5.0, allow_error=True)
+        elif irq & 0x0040:
+            results[key].append({"crc": irq})
+            dev.cmd("RC", timeout=5.0, allow_error=True)
 
 
 def main():
@@ -134,8 +142,7 @@ def main():
     results = {"a_to_b": [], "b_to_a": [], "b_lines": [], "a_lines": []}
 
     # ---- direction 1: A transmits (Forth/ULP driver), B listens ------------------------------------------------
-    stop = threading.Event()
-    t = threading.Thread(target=watch, args=(B, 25.0, results, "a_to_b", stop), daemon=True)
+    t = threading.Thread(target=watch, args=(B, 25.0, results, "a_to_b"), daemon=True)
     t.start()
     time.sleep(1.0)
     tx = []
@@ -146,8 +153,7 @@ def main():
     print(f"A->B: SEND answered {tx} (TxDone from the chip's own irq), B decoded {len(results['a_to_b'])} frame(s)")
 
     # ---- direction 2: B transmits, A listens ------------------------------------------------------------------
-    stop2 = threading.Event()
-    t2 = threading.Thread(target=watch, args=(A, 25.0, results, "b_to_a", stop2), daemon=True)
+    t2 = threading.Thread(target=watch, args=(A, 25.0, results, "b_to_a"), daemon=True)
     t2.start()
     time.sleep(1.0)
     tx2 = []
@@ -171,10 +177,7 @@ def main():
         print("FAIL  A decoded NOTHING from B (one-way only)")
         ok = False
     print("PASS  the frame crosses between two boards in both directions, decoded by the chip's own CRC" if ok else
-          "FAIL  no frame crossed. Measured on both boards: SetRx reaches chipmode 5 but a finite 64 ms RX timeout"
-          " never raises IRQ 0x0200, no preamble/header/CRC interrupt ever appears, and instantaneous RSSI stays at"
-          " -105 dBm with the other board transmitting 20 cm away. That is an RF-path finding, not a Forth one;"
-          " see docs/29-lora-measurements.md for the table and the discriminating test that needs a third node.")
+          "FAIL  no frame crossed - see the irq words above; docs/29-lora-measurements.md has the table")
     A.close(); B.close()
     return 0 if ok else 1
 

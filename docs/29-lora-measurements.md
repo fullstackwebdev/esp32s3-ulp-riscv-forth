@@ -149,41 +149,53 @@ an SDR. `lsusb` on this machine shows only the CP210x UART bridge (the Heltec's 
 mouse (measured this turn); `/dev/ttyACM*` does not exist, and `/dev/ttyUSB0` *is* the transmitting
 board, which cannot listen to itself.
 
-## Two-board test, and what it measured (2026-11-02)
+## Two-board test: the frame crosses BOTH ways (2026-11-02, measured)
 
-Both Heltec V3 boards run the same firmware (`probe/repl`, the ULP Forth REPL) and the same Forth driver;
-the second board was backed up first (`backup/esp32s3-xxxxxxxxxxxx-8MB-...`, three reads agreeing).
+Both Heltec V3 boards run the same firmware (`probe/repl`, the ULP Forth REPL) and the same Forth driver
+(`examples/apps/lora/lora1.fs` + `lora_rx.fs`). The second board was backed up first
+(`backup/esp32s3-xxxxxxxxxxxx-8MB-20261102-0837.bin`, three reads agreeing).
 
-**What works, measured:**
-- `examples/apps/lora/lora_rx.fs` loads on the board and the receive path is exercised: `INIT → 1`, `SR` puts the
-  chip in **chipmode 5 (RX)**, `IQ` reads the chip's own IRQ word, `RL`/`RB` read GetRxBufferStatus and ReadBuffer.
-- both boards transmit: `SEND → 1`, `SEND → 1`, `SEND → 1` (TxDone from GetIrqStatus), chipmode returns to 2.
-- the frequency is programmed: the driver writes `0x36419999`, which is **868.1 MHz** (868.1e6 × 2^25 / 32e6) -
-  the same value the C driver used. (An earlier note said 868.0; that was my arithmetic error, corrected here.)
+    A->B: SEND answered [1, 1, 1] (TxDone from the chip's own irq), B decoded 2 frame(s)
+    B->A: SEND answered [1, 1, 1], A decoded 2 frame(s)
+    PASS  the frame crosses between two boards in both directions, decoded by the chip's own CRC
 
-**What does not work, measured:** no frame crosses. Not one.
+Repeatable (two consecutive runs, same counts). The receiving side's own words report it: `IQ` = **0x0016**
+(RxDone|PreambleDetected|HeaderValid), `RL` returns the length and buffer offset, `RB` prints the payload bytes read
+out of the radio's RX buffer. Frequency `0x36419999` = **868.1 MHz** (868.1e6 × 2^25 / 32e6), SF9, BW 125 kHz, CR 4/5,
+CRC on, 8-symbol preamble - the same parameters as the C driver.
 
-| measurement | result |
+### The bug that hid all of this, and the wrong conclusion it produced
+
+`GetIrqStatus` reports **only** the sources enabled in the `SetDioIrqParams` mask. `INIT` set the mask to `0x0201`
+(Timeout|TxDone) - so on the receive side the status word answered `0x0000` **forever**, whatever arrived:
+
+| configuration | what the receiver reported after four frames from the adjacent board |
 |---|---|
-| A sends 3 frames, B listening (Forth `RX1`) | 0 decoded, 0 CRC errors |
-| B sends 3 frames, A listening | 0 decoded, 0 CRC errors |
-| B listening while A runs the **C driver** (the transmitter that once reached an outside node 31/31) | 0 decoded |
-| A listening while B runs the C driver | 0 decoded |
-| RSSI sampled 234 times across three transmissions (20 ms apart) | only `210`/`212` = **-105 dBm**, never a spike |
-| `SetRx` with a finite 64 ms timeout, then 300 ms later | **no Timeout IRQ**, chipmode still 5 |
-| `SetRx` with DIO2 RF-switch control disabled | identical: RSSI `210`, no IRQ |
+| mask `0x0201` (as shipped) | `IRQ 0x0000` - "nothing heard" |
+| mask `0xFFFF` | `IRQ 0x0016` = RxDone + PreambleDetected + HeaderValid |
 
-The last two rows are the informative ones. A receiver that is genuinely running its state machine must raise
-`IRQ 0x0200` when a finite RX timeout expires, and must raise preamble/header/CRC interrupts for any energy above
-sensitivity. Neither happens, and the instantaneous RSSI never moves while a 14 dBm transmitter sits centimetres
-away on the same channel. So this is not a Forth defect and not a frequency mismatch: **no RF energy reaches the
-demodulator on either board's receive path** (or nothing leaves either PA, which the flat RSSI cannot distinguish).
+I spent this session concluding the opposite, and it is worth writing down how, because every one of those
+measurements was real and every one pointed the wrong way once the mask was wrong:
 
-Next test that discriminates those two: a third, independent observer (another LoRa node, an SDR, or a phone app)
-watching for A's `0xA5 31 32 33` frame at 868.1 MHz / SF9 / BW125 / CR4-5, plus the same observer transmitting for
-A and B to hear. Until then the over-air claim stays open, and no amount of local measurement can close it.
+* instantaneous RSSI (`GetRssiInst`) read `210`/`212` = -105 dBm across **234 samples** while a 14 dBm transmitter sat
+  next to it. It never tracked the neighbour; with the mask fixed the same radio decodes those frames. **RSSI was a
+  red herring** - do not use it as the witness for "is anything arriving".
+* a finite 64 ms RX timeout produced no `Timeout` interrupt, and `SetRx` left chipmode at 5 - both consistent with a
+  deaf radio, and both explained afterwards by the same masked status word.
+* the *C* driver that "proved" 31/31 packets carries the identical bug (`0x0201`): it was transmit-only by
+  construction, which is why it never noticed. Corrected in `probe/lora/main/ulp/sx126x_min.c`, and
+  `tests/lora_spi.py` - which compares the Forth driver's wire bytes against that reference - updated in the same
+  commit, with the reason recorded there rather than the expectation quietly relaxed.
+
+Two smaller measurement traps, both gated now:
+* a **250 ms windowed** listen (`RX1` per host command) missed four frames sent 400 ms apart, because each attempt
+  cost a host round trip; **continuous** receive (`RC SR` once, then poll `IQ`) caught the first frame. A listener
+  must stay listening (`tests/lora_two_board.py` now does).
+* the payload print interferes with console parsing: ask the board **one** question per attempt and read the
+  trailing integer, or a decoded frame's own bytes look like an answer.
 
 **Memory, measured, because it decided this test:** fresh dictionary `HERE 786 LATEST 2114` = **1 328 B free**;
-driver alone leaves `HERE 1814 LATEST 2033` = **219 B** (283 B after dropping constants used zero or once);
-after `SEAL` the phase window measured `LATEST - bh @` = **219 B**. Phases do not add memory - they are the same
-space, sealed - so the roomiest place for this driver is the plain prompt, and the only lever is a smaller driver.
+driver alone leaves `HERE 1814 LATEST 2033` = **219 B** (283 B after dropping constants used zero or once - a
+CONSTANT only pays from ~7 uses); after `SEAL` the phase window measured `LATEST - bh @` = **219 B**. **Phases do not
+expand memory**: they are the same space, sealed, and the prompt is the roomiest place to load a driver. The only
+lever is a smaller driver. With driver + receive words loaded, `HERE 1 972 LATEST 2 033` = **61 B spare**.
