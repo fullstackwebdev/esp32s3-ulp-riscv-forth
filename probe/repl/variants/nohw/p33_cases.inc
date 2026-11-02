@@ -1,0 +1,40 @@
+/* P33: P31's generated case bodies, unchanged, plus BLKXFER behind -DP33_BLOCK.
+ * GUARDRAIL: ( n op -- addr st ) pushes the buffer address *and* the status, so the Forth layer
+ * never spells the buffer's address as a literal. A hard-coded 908 in blocks.fs would be a budget
+ * line that moves whenever MEMSZ moves and would silently point into the dictionary instead. */
+#include "p31_cases.inc"
+#if defined(P33_BLOCK)
+        L_P_BLKXFER:
+            b = POP(); a = POP();
+            PUSH(BLKADR); PUSH((u32)blk_xfer(a, b));
+            goto tail;
+#endif
+
+#if defined(BLKPRIM)
+/* R5: BLOCK / UPDATE / SAVE. GUARDRAIL: the X entries in p33_prims.inc and these cases are two halves of
+ * one primitive — with only the header, the token dispatches to `default: err()`, which prints the word in
+ * PAD and is indistinguishable from "unknown word" (F-107's shape again). Measured: BLOCK existed in the
+ * dictionary at xt=184 with cf=67 and still answered `BLOCK?`. */
+        L_P_BLOCK:  p_blk_block();  goto tail;
+        L_P_UPDATE: p_blk_update(); goto tail;
+        L_P_SAVE:   p_blk_save();   goto tail;
+#endif
+
+#if defined(P54_BINOPS)
+/* P54: the labels and the shared body for the same-shape binary ops (ADD…ULT). GUARDRAIL: the include
+ * goes LAST so the hand-written BLKXFER/BLOCK/SPAWN cases above keep their positions and a P54 build still
+ * reads as `p31 bodies (subset) + this engine's additions + the P54 table`. */
+#include "p54_cases.inc"
+#endif
+
+#if defined(P43_TASKS)
+        L_P_SPAWN: vm_spawn_name(); goto tail;
+#endif
+
+#if defined(OVL_LOAD)
+/* GUARDRAIL: LOAD runs the OUTER interpreter from inside a primitive, so it must not fall through to tail
+ * with a half-finished tib: interpret() consumes tib/ti/tl completely and leaves them at tl, which is the
+ * same state forth_quit() leaves behind. `goto tail` after it is correct; returning early would resume the
+ * caller with ti/tl pointing into a buffer it does not own. */
+        L_P_LOAD:   p_load();       goto tail;
+#endif

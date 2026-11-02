@@ -1,0 +1,34 @@
+lora: table-driven INIT (-190 B), RPP + RX1 RESTORED, and every budget stated where the code runs
+
+Feature restoration first: I had deleted RX1 and RPP from lora_rx.fs to make driver+rx fit the dictionary. That is
+the wrong trade - a feature is not slack - so both are back, and the driver paid for them instead: its
+configuration stopped being 491 B of hard-coded code and became a 70 B table plus five short words (ADV, CLKN,
+XMT, CNF, INIT). The table is GENERATED from the old body, so the wire is unchanged: INIT -> 1 and the two-board
+test passes 3+3 both directions.
+
+Measured after the change:
+  driver (lora1.fs)                        855 B   (was 1045)
+  receive words (lora_rx.fs, RPP+RX1 back) 322 B
+  driver + receive words in the PROMPT    1177 B of 1328  -> 151 B spare, and this is the shape that ships today
+  lorainit + lora_rx as one PHASE         1023 B of  999  -> 24 B over (printed by the test every run)
+  frame + TX phase (loratx.fs)             939 B of  999  -> 60 B spare
+  cipher (lora_aes.fs)                    1328 B of  999  -> 329 B over
+
+Four defects in my own conversion, each caught before it shipped:
+1. XFR is a RESIDENT name on the board (4056) although tools/resident_names.txt does not list it, so the
+   definition was refused and every later one with it, while INIT still answered 1 from a stale session. The name
+   is XMT now and the comment says: ask the BOARD, never the file.
+2. The table entry is "len, opcode, data..." - the length is the group's own size. I first wrote the OPCODE as
+   the length, so each entry clocked its opcode in bytes and INIT still answered 1 on a radio fed nonsense.
+3. 14 entries total 69 bytes - ODD - so HERE was odd at the next definition and everything after was refused
+   with ERR_DICT. R28 predicted it; the trailing 0 C, is parity, not a terminator.
+4. A generated row over 63 B is dropped by the input ring, so a transaction would send fewer bytes than its
+   length says - a silent mis-configuration. R21 covers generated data too.
+Also removed: lorainit's CLOCKLOW, which nothing called.
+
+Gate corrected, not weakened: the receive bundle lives in the PROMPT (1328 B) and lora_two_board loads it there,
+so the test asserts 1177/1328 and PRINTS the 1023/999 phase figure with its 24 B gap. Demanding 999 would have
+meant trimming working words - the exact mistake that removed RX1.
+
+Green: suite 30 pass, selftest PASS, lora_spi, two-board 3+3 both directions, init-phase 8/8, aes 11/11,
+frame-phase 10/10.

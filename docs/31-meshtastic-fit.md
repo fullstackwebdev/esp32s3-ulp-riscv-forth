@@ -462,3 +462,67 @@ can still be emitted by the compiler, which is why this is a candidate list and 
 * **computed S-box**: correct for all 256 values, 644 B and 22.7 s per block against a 256 B table. Appendix E.
 * **registry for round keys**: cells are RESIDENT (`cli.py:registry_cells`, "every cell costs 4 B of the
   window"), so moving 176 B of `W` there shrinks the window by as much as it saves. Appendix F.
+
+## Appendix H — full-size packets work; the chain needs one premise that is not yet proven
+
+**221 bytes on the air, byte-exact.** `tests/lora_fullsize.py`, 9/9:
+
+```
+PASS  peer radio configures
+PASS  peer is in RX                                chipmode 5
+PASS  sender radio configures
+PASS  TxDone after a full-size frame               IRQ 0x0001 (221 B)
+PASS  peer reports RxDone                          IRQ 0x0016
+PASS  full-size frame length                       221 B, expected 221
+PASS  header intact                                ff ff ff ff 0a 0a 0a 0a ca fe 01 00 00 00 00 00
+PASS  protobuf prefix intact                       08 80 02 12 c8
+PASS  protobuf prefix + 200-byte payload           every byte matched
+```
+
+`SETLEN` in `loratx.fs` takes the payload length at run time, so the frame is no longer fixed at 26 B: 221 B =
+16 B header + 5 B protobuf prefix (`08 80 02 12 c8`) + a 200-byte body. LoRa's absolute ceiling is 255 B and
+the only thing between here and it is however many bytes the caller clocks into the buffer — the length field,
+not the code, is the limit.
+
+### The phase-chain premise, measured as far as a reset can take it
+
+The chain design needs memory that survives a phase switch, because a phase's dictionary is **replaced** on
+every adopt. The registry is resident and costs window bytes; the image has 1 B spare, so it cannot grow. The
+candidate is the SX1262's own **256-byte buffer**, which belongs to the radio, not to the coprocessor.
+
+`tests/lora_scratch.py` measures the two halves:
+
+```
+PASS  radio configures
+PASS  pattern reads back in the SAME dictionary     11 22 33 44 55 66 77 88 99 aa bb cc dd ee f0 0f
+PASS  dictionary really was replaced                HERE 786
+FAIL  16 bytes survive a full dictionary reset      17 5c 36 1d 79 62 67 28 99 c3 72 d8 97 b4 c7 09
+```
+
+So: **writing and reading the scratch area works, and an ESP32 reset destroys it** (the reset drives the pads,
+which is harsher than an adopt — and it is the only dictionary swap this harness can perform without the store).
+The adopt case is therefore *unproven*, not disproven: proving it needs two real phases adopted through the
+store (`#d` descriptor -> `#b` blocks -> adopt), which is the next piece of work rather than a measurement away.
+
+### What the chain will cost, in sizes already measured
+
+Both halves of the cipher fit a phase if its state lives in the radio buffer instead of its dictionary:
+
+| phase | contents | measured basis |
+|---|---|---|
+| key schedule | `lora_keysched.fs` (S-box + RCON + `W` + expansion) | **825 B** of 999 B |
+| SubBytes + ShiftRows | S-box 256 B + 32 B of state/temp + ~200 B of code | ~490 B, derived |
+| MixColumns + AddRoundKey | `W` 176 B + ~250 B of code | ~430 B, derived |
+
+At 4.5 ms per adopt, one 16-byte block costs 22 hops (11 rounds x 2 phases) ~= 100 ms, and a 221-byte frame
+(14 blocks) ~= 1.4 s against ~2.5 s of air time at SF9 — the hops are affordable, which is the only reason this
+design is worth building.
+
+### Two levers priced and rejected, so nobody re-measures them
+
+* **`-Os` on the ULP build**: the build was ALREADY `-Os` (IDF's own ULP flags carry it). Appending another
+  `-Os` changed nothing — same `.text`, same `vm_enter` 2 104 B, same pool span **7 937 B**. Reverted.
+* **removing unused primitives**: eight of the 27 never named by the corpus (`GPIO@ GPIO! ADC@ WAKE PUMP EV@
+  BRT U/MOD`) were removed in a twin tree and the pool span went **7 937 -> 7 865 B, i.e. -72 B for eight**, about
+  9 B each. The cipher needs 329 B, so this lever would need ~37 primitives that do not exist. Kept in the tree
+  (`variants/nohw`) as the measurement, not as a proposed change.
