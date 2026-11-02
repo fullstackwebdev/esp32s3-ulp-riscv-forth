@@ -2354,3 +2354,17 @@ clock and not the interpreter - which is the useful thing to know before porting
 F-145 records the fourth unit slip of this project, and the fix that finally holds: derive one named rate, convert with
 the factors written out, print both.
 
+**J-121 · Every LoRa number is now in one file, and a script checks it.**
+`docs/29-lora-measurements.md` consolidates the whole session: hardware facts established by measurement (pin map, `GetStatus`
+0x2a, the TCXO on DIO3 at 1.8 V proven by trying both), the ULP's size and speed (2 804 B, 17.550 MHz, 971 cycles/byte =
+144.6 kHz SCK), air time (33 payload symbols, 185.34 ms derived against 195.8 ms measured, 105.6 %), sleep behaviour (five
+deep-sleep cycles, 31/31 packets, `cold` frozen at 2), and the power table (~49 days at a 5 s period, ~287 days at 30 s,
+~1.5 years at 60 s, on labelled datasheet currents).
+
+The part that matters as much as the numbers: `probe/lora/verify_numbers.py` re-derives them from the datasheet formula and
+compares both against `probe/lora/results/console-2026-11-01.txt`, the verbatim capture. It caught two things while being
+written - that the capture I had saved did not actually contain `wakes 31` (a shorter run had produced it), and that my own
+"tx_ok == wakes" assertion was wrong on the warm-up sample, which is now left in the table and explained instead of
+smoothed away. A document with a wrong number is worse than no document; F-143 and F-144 both cost a session's worth of
+confusion in the same week.
+

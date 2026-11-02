@@ -1,5 +1,10 @@
 # 28 — SX126x on the ULP-RISC-V, and whether it can be Forth
 
+> **Measured numbers live in `docs/29-lora-measurements.md`** — one table per subject (hardware facts, ULP size and
+> clock, air time, sleep behaviour, power budget), each figure traceable to `probe/lora/results/console-2026-11-01.txt`
+> or to a command, and checked mechanically by `probe/lora/verify_numbers.py`. Anything in this file that disagrees with
+> `docs/29` is stale.
+
 Branch `spi-lora`. Companion to `docs/27-spi-lora.md` (external memory, energy budget, the forum-reported ULP SPI
 figures). This file holds (a) the C reference driver as supplied, reassembled, (b) a review list of what to verify in it,
 and (c) the answer to the actual question: **can we implement this in Forth, on this machine?**

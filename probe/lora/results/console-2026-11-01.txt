@@ -1,0 +1,221 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2810,len:0x15a0
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xd20
+load:0x403cb700,len:0x2ee4
+entry 0x403c8928
+I (27) boot: ESP-IDF v5.4-dirty 2nd stage bootloader
+I (27) boot: compile time Nov  1 2026 17:09:08
+I (27) boot: Multicore bootloader
+I (27) boot: chip revision: v0.2
+I (30) boot: efuse block revision: v1.3
+I (34) boot.esp32s3: Boot SPI Speed : 80MHz
+I (38) boot.esp32s3: SPI Mode       : DIO
+I (41) boot.esp32s3: SPI Flash Size : 8MB
+I (45) boot: Enabling RNG early entropy source...
+I (50) boot: Partition Table:
+I (52) boot: ## Label            Usage          Type ST Offset   Length
+I (59) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (65) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (72) boot:  2 factory          factory app      00 00 00010000 00100000
+I (78) boot: End of partition table
+I (81) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=0cd90h ( 52624) map
+I (98) esp_image: segment 1: paddr=0001cdb8 vaddr=3fc95400 size=02b18h ( 11032) load
+I (101) esp_image: segment 2: paddr=0001f8d8 vaddr=40374000 size=00740h (  1856) load
+I (104) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1d0f4h (119028) map
+I (132) esp_image: segment 4: paddr=0003d11c vaddr=40374740 size=10c48h ( 68680) load
+I (147) esp_image: segment 5: paddr=0004dd6c vaddr=600fe000 size=00120h (   288) load
+I (154) boot: Loaded app from partition at offset 0x10000
+I (154) boot: Disabling RNG early entropy source...
+bus probe @1MHz: transmit ESP_OK, GetStatus reply 0x2a (chipmode 2, status 5)
+wakes   1  tx_ok   0  tx_fail   0  err 0  cfg ?  status 0x00  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 1  cal 175503 cyc/10ms  ulp 2804 B  cause 0
+wakes   1  tx_ok   0  tx_fail   0  err 0  cfg ?  status 0x00  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 1  cal 175503 cyc/10ms  ulp 2804 B  cause 0
+deep sleep for 30 s (ULP keeps transmitting every 5 s; cold boots so far: 1)
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x5 (DSLEEP),boot:0x8 (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2810,len:0x15a0
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xd20
+load:0x403cb700,len:0x2ee4
+entry 0x403c8928
+I (26) boot: ESP-IDF v5.4-dirty 2nd stage bootloader
+I (27) boot: compile time Nov  1 2026 17:09:08
+I (27) boot: Multicore bootloader
+I (27) boot: chip revision: v0.2
+I (30) boot: efuse block revision: v1.3
+I (34) boot.esp32s3: Boot SPI Speed : 80MHz
+I (38) boot.esp32s3: SPI Mode       : DIO
+I (41) boot.esp32s3: SPI Flash Size : 8MB
+I (45) boot: Enabling RNG early entropy source...
+I (50) boot: Partition Table:
+I (52) boot: ## Label            Usage          Type ST Offset   Length
+I (58) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (65) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (71) boot:  2 factory          factory app      00 00 00010000 00100000
+I (78) boot: End of partition table
+I (81) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=0cd90h ( 52624) map
+I (98) esp_image: segment 1: paddr=0001cdb8 vaddr=3fc95400 size=02b18h ( 11032) load
+I (101) esp_image: segment 2: paddr=0001f8d8 vaddr=40374000 size=00740h (  1856) load
+I (104) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1d0f4h (119028) map
+I (132) esp_image: segment 4: paddr=0003d11c vaddr=40374740 size=10c48h ( 68680) load
+I (147) esp_image: segment 5: paddr=0004dd6c vaddr=600fe000 size=00120h (   288) 
+I (154) boot: Loaded app from partition at offset 0x10000
+I (154) boot: Disabling RNG early entropy source...
+wakes   6  tx_ok   6  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+wakes   6  tx_ok   6  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+deep sleep for 30 s (ULP keeps transmitting every 5 s; cold boots so far: 2)
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x5 (DSLEEP),boot:0x8 (SPI_FAST_FLASH_BOOT)
+pro cpu reset by JTAG
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2810,len:0x15a0
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xd20
+load:0x403cb700,len:0x2ee4
+entry 0x403c8928
+I (28) boot: ESP-IDF v5.4-dirty 2nd stage bootloader
+I (29) boot: compile time Nov  1 2026 17:09:08
+I (29) boot: Multicore bootloader
+I (29) boot: chip revision: v0.2
+I (32) boot: efuse block revision: v1.3
+I (36) boot.esp32s3: Boot SPI Speed : 80MHz
+I (40) boot.esp32s3: SPI Mode       : DIO
+I (43) boot.esp32s3: SPI Flash Size : 8MB
+I (47) boot: Enabling RNG early entropy source...
+I (52) boot: Partition Table:
+I (54) boot: ## Label            Usage          Type ST Offset   Length
+I (60) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (67) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (73) boot:  2 factory          factory app      00 00 00010000 00100000
+I (80) boot: End of partition table
+I (83) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=0cd90h ( 52624) map
+I (100) esp_image: segment 1: paddr=0001cdb8 vaddr=3fc95400 size=02b18h ( 11032) load
+I (103) esp_image: segment 2: paddr=0001f8d8 vaddr=40374000 size=00740h (  1856) load
+I (106) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1d0f4h (119028) map
+I (134) esp_image: segment 4: paddr=0003d11c vaddr=40374740 size=10c48h ( 68680) load
+I (149) esp_image: segment 5: paddr=0004dd6c vaddr=600fe000 size=00120h (   288) 
+I (156) boot: Loaded app from partition at offset 0x10000
+I (156) boot: Disabling RNG early entropy source...
+wakes  12  tx_ok  12  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+wakes  13  tx_ok  13  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+deep sleep for 30 s (ULP keeps transmitting every 5 s; cold boots so far: 2)
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x5 (DSLEEP),boot:0x8 (SPI_FAST_FLASH_BOOT)
+pro cpu reset by JTAG
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2810,len:0x15a0
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xd20
+load:0x403cb700,len:0x2ee4
+entry 0x403c8928
+I (28) boot: ESP-IDF v5.4-dirty 2nd stage bootloader
+I (29) boot: compile time Nov  1 2026 17:09:08
+I (29) boot: Multicore bootloader
+I (29) boot: chip revision: v0.2
+I (32) boot: efuse block revision: v1.3
+I (36) boot.esp32s3: Boot SPI Speed : 80MHz
+I (40) boot.esp32s3: SPI Mode       : DIO
+I (43) boot.esp32s3: SPI Flash Size : 8MB
+I (47) boot: Enabling RNG early entropy source...
+I (52) boot: Partition Table:
+I (54) boot: ## Label            Usage          Type ST Offset   Length
+I (60) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (67) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (73) boot:  2 factory          factory app      00 00 00010000 00100000
+I (80) boot: End of partition table
+I (83) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=0cd90h ( 52624) map
+I (100) esp_image: segment 1: paddr=0001cdb8 vaddr=3fc95400 size=02b18h ( 11032) load
+I (103) esp_image: segment 2: paddr=0001f8d8 vaddr=40374000 size=00740h (  1856) load
+I (106) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1d0f4h (119028) map
+I (134) esp_image: segment 4: paddr=0003d11c vaddr=40374740 size=10c48h ( 68680) load
+I (149) esp_image: segment 5: paddr=0004dd6c vaddr=600fe000 size=00120h (   288) 
+I (156) boot: Loaded app from partition at offset 0x10000
+I (156) boot: Disabling RNG early entropy source...
+wakes  19  tx_ok  19  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+wakes  19  tx_ok  19  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+deep sleep for 30 s (ULP keeps transmitting every 5 s; cold boots so far: 2)
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x5 (DSLEEP),boot:0x8 (SPI_FAST_FLASH_BOOT)
+pro cpu reset by JTAG
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2810,len:0x15a0
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xd20
+load:0x403cb700,len:0x2ee4
+entry 0x403c8928
+I (28) boot: ESP-IDF v5.4-dirty 2nd stage bootloader
+I (29) boot: compile time Nov  1 2026 17:09:08
+I (29) boot: Multicore bootloader
+I (29) boot: chip revision: v0.2
+I (32) boot: efuse block revision: v1.3
+I (36) boot.esp32s3: Boot SPI Speed : 80MHz
+I (40) boot.esp32s3: SPI Mode       : DIO
+I (43) boot.esp32s3: SPI Flash Size : 8MB
+I (47) boot: Enabling RNG early entropy source...
+I (52) boot: Partition Table:
+I (54) boot: ## Label            Usage          Type ST Offset   Length
+I (60) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (67) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (73) boot:  2 factory          factory app      00 00 00010000 00100000
+I (80) boot: End of partition table
+I (83) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=0cd90h ( 52624) map
+I (100) esp_image: segment 1: paddr=0001cdb8 vaddr=3fc95400 size=02b18h ( 11032) load
+I (103) esp_image: segment 2: paddr=0001f8d8 vaddr=40374000 size=00740h (  1856) load
+I (106) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1d0f4h (119028) map
+I (134) esp_image: segment 4: paddr=0003d11c vaddr=40374740 size=10c48h ( 68680) load
+I (149) esp_image: segment 5: paddr=0004dd6c vaddr=600fe000 size=00120h (   288) 
+I (156) boot: Loaded app from partition at offset 0x10000
+I (156) boot: Disabling RNG early entropy source...
+wakes  25  tx_ok  25  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+wakes  25  tx_ok  25  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+deep sleep for 30 s (ULP keeps transmitting every 5 s; cold boots so far: 2)
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x5 (DSLEEP),boot:0x8 (SPI_FAST_FLASH_BOOT)
+pro cpu reset by JTAG
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2810,len:0x15a0
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xd20
+load:0x403cb700,len:0x2ee4
+entry 0x403c8928
+I (28) boot: ESP-IDF v5.4-dirty 2nd stage bootloader
+I (29) boot: compile time Nov  1 2026 17:09:08
+I (29) boot: Multicore bootloader
+I (29) boot: chip revision: v0.2
+I (32) boot: efuse block revision: v1.3
+I (36) boot.esp32s3: Boot SPI Speed : 80MHz
+I (40) boot.esp32s3: SPI Mode       : DIO
+I (43) boot.esp32s3: SPI Flash Size : 8MB
+I (47) boot: Enabling RNG early entropy source...
+I (52) boot: Partition Table:
+I (54) boot: ## Label            Usage          Type ST Offset   Length
+I (60) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (67) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (73) boot:  2 factory          factory app      00 00 00010000 00100000
+I (80) boot: End of partition table
+I (83) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=0cd90h ( 52624) map
+I (100) esp_image: segment 1: paddr=0001cdb8 vaddr=3fc95400 size=02b18h ( 11032) load
+I (103) esp_image: segment 2: paddr=0001f8d8 vaddr=40374000 size=00740h (  1856) load
+I (106) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1d0f4h (119028) map
+I (134) esp_image: segment 4: paddr=0003d11c vaddr=40374740 size=10c48h ( 68680) load
+I (149) esp_image: segment 5: paddr=0004dd6c vaddr=600fe000 size=00120h (   288) 
+I (156) boot: Loaded app from partition at offset 0x10000
+I (156) boot: Disabling RNG early entropy source...
+wakes  31  tx_ok  31  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+wakes  31  tx_ok  31  tx_fail   0  err 0  cfg tcxo  status 0x2c  spi 971 cyc/B (144 kHz SCK)  pads 1  cold 2  cal 175503 cyc/10ms  ulp 2804 B  cause 4
+deep sleep for 30 s (ULP keeps transmitting every 5 s; cold boots so far: 2)

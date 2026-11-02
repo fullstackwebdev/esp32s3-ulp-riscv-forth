@@ -1,5 +1,9 @@
 # 27 — External SPI memory and LoRa on the ULP-RISC-V: research notes
 
+> The estimates in §4 and §5 have since been **measured**: `docs/29-lora-measurements.md` carries the real SPI clock
+> (144.6 kHz), the ULP's awake window (195.8 ms), and the power table that follows from them. The forum figures quoted
+> below were not reproduced — see docs/29 §2.
+
 **Status: notes, not findings.** Nothing in this file was measured on our boards. It is the record of a research
 conversation (2026-11-01, at the point the ESP32-S3 was swapped for the LoRa board) and is kept so the reasoning and the
 open questions survive. Every number here is either the datasheet-recalled order of magnitude or a forum-reported figure —
