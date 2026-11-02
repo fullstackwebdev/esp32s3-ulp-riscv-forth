@@ -41,7 +41,20 @@
 \
 : PIN! ( level pin -- )
   10 + 1 SWAP LSHIFT SWAP IF PADSETW ELSE PADCLRW THEN ! ;
-: PIN@ ( pin -- level ) 10 + 1 SWAP LSHIFT PADINRD AND 0= 0= ;
+\ GUARDRAIL: the register must be READ. `PADINRD AND` (no
+\ `@`) ANDs the bit
+\ mask with the ADDRESS 0xA424, which is nonzero only for
+\ the very bits the
+\ address happens to set - so pad 11 always read 0, pad 9
+\ always read 0, and
+\ BUSYOK/RADIORESET "passed" on garbage while MISO was never
+\ sampled at all.
+\ Caught by asking both cores the same question with the
+\ clock held high: HP
+\ IN = 0x80400 and a bare `42020 @` = 0x80400 agreed, while
+\ PIN@ said 0.
+: PIN@ ( pin -- level )
+  10 + 1 SWAP LSHIFT PADINRD @ AND 0= 0= ;
 \
 \
 \
@@ -53,14 +66,26 @@
   BITOUT BITOUT BITOUT BITOUT DROP ;
 \ GUARDRAIL: the C HAL calls hal_wait_busy() BEFORE every
 \ transfer, and this
-\ settle is the cheapest honest copy of it: after a
-\ calibration the chip holds
-\ the command interface busy for milliseconds, and a command
-\ issued into that
-\ window is simply lost - silently, because GetStatus
-\ answers 0 for a chip that
-\ has not finished what it was told to do.
-: NSSLO 0 NSSPAD PIN! 2 MS ;
+\ is that wait, not a sleep. After a calibration the SX1262
+\ holds RBUSY high
+\ for milliseconds, and during that window it ignores the
+\ SPI entirely: a
+\ command issued there is lost with no answer and no error,
+\ and GetStatus
+\ reading 0x00 on a wired, awake chip is what that looks
+\ like. The old word
+\ slept 2 ms AFTER NSS had already dropped, which freed
+\ nothing.
+\ The loop is bounded (200 polls, ~200 ms worst case,
+\ derived from MS being
+\ one millisecond) so a radio that never frees the bus
+\ cannot hang the
+\ coprocessor. One line because BEGIN/UNTIL cannot straddle
+\ a typed line
+\ boundary: run_line zeroes the return stack per line.
+: BUSY-LOW ( -- )
+  200 BEGIN 1- 1 MS DUP 0= BUSYPAD PIN@ 0= OR UNTIL DROP ;
+: NSSLO BUSY-LOW 0 NSSPAD PIN! ;
 : NSSHI 1 NSSPAD PIN! ;
 : BITREAD ( b -- b' )
   2 * 1 SCKPAD PIN! MISOPAD PIN@ 0 SCKPAD PIN! IF 1 + THEN ;
