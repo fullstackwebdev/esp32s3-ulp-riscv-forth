@@ -245,3 +245,49 @@ this one.
 passes on a dead bus. The next probe must be one that *cannot* pass vacuously: drive a pad high from the main core and
 require the ULP to read 1. Until that passes, Forth SPI is unproven in either direction — 6b proves the store is right,
 not that the pads are muxed.
+
+## 7. Width is a contract: reads too (F-153), and where the pads stop answering (F-154)
+
+### F-153 — `rd32` needed the same 32-bit path as `wr32`
+
+Fixing `wr32` (§6b) made register *writes* land, and register *reads* still returned 0 — because `rd32` is
+`rd16(a) | rd16(a+2)<<16` and every `rd16` is two `rd8` loads, i.e. **four byte loads**. RTCIO does not answer byte
+accesses. After giving `rd32` a real 32-bit load inside the gate, `1610646544 @ .` returned `14642` where it had returned
+`0`, and `532480 1610646712 ! 1610646712 @ .` round-trips the pad-13 mux register exactly. Cost: **+24 B**
+(7 907 → 7 931). Store and load must agree on width, or half the bus is invisible and the failure looks like a dead chip.
+
+### F-154 — `RTC_GPIO_IN` is not usable from the ULP yet (open)
+
+Measured, in this order, all with the pad mux registers holding `MUX_SEL|FUN_IE`:
+
+| probe | result |
+|---|---|
+| `#h` (HP core drives pin 13 high) then `13 @P .` | `0` |
+| `#l` (HP core drives it low) then `13 @P .` | `0` |
+| `RTC_GPIO_IN` raw, before/after driving | `33620481` (= `0x02010201`, **unchanged**) |
+| ULP drives pin 8 via `W1TS` bit 18, reads `IN` | `33620481` (unchanged) |
+| ULP drives pin 11 via `W1TS` bit 21, reads `IN` | `33620481` (unchanged) |
+
+A register that returns one constant for every input state is not tracking the pads: either the pads are not in RTC-IO
+mode at read time (the HP core's `rtc_gpio_init` claims them, but something re-muxes them afterwards), or the ULP's APB
+read of this offset is answered by something other than the pad inputs. The earlier `#h` probe also had a genuine flaw
+of its own (recorded in the code GUARDRAIL): `OUTPUT_ONLY` clears `FUN_IE`, so it switched off the buffer it meant to
+read; it now uses `INPUT_OUTPUT`, and the answer is still 0, so that flaw was not the whole story.
+
+Note the contradiction this leaves: the C driver **did** read MISO from the ULP (chip status `0x2c` from the ULP,
+`ReadBuffer` matching the transmitted payload, `TxDone` on 4/4 wakes). So the ULP input path works **when the pad
+configuration is the C driver's**. The difference is configuration, not silicon — which is exactly why the next probe
+must be the C driver's own pad sequence translated to Forth, not another guess.
+
+### Budget, as of this run
+
+| | |
+|---|---|
+| image | **7 931 B / 7 932 B** (1 B free — the wall again) |
+| stack | 240 B used, 261 B available (reserve 260) |
+| `MEMSZ` | 2 550 |
+| host suite | 30 PASS |
+
+The gate now costs +76 B in total over the ungated 7 891 B build (32-bit store + 32-bit load + the range tests). That is
+what the 12 B "cheap" shape in §5c was hiding: it bought bytes by paying in `rd32`/`wr32` correctness, and the hardware
+charge for that was two silent, total failures of the bus.

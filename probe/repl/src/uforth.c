@@ -244,7 +244,18 @@ static void __attribute__((noinline)) wr16(u32 a, u16 v)
 #endif
     wr8(a, v); wr8(a + 1, v >> 8);
 }
-static u32 rd32(u32 a)           { return rd16(a) | (u32)rd16(a + 2) << 16; }
+static u32 rd32(u32 a)
+{
+#if defined(HW_GATE) && !defined(HOST)
+    /* GUARDRAIL: a register inside the gate gets a REAL 32-bit load, mirroring wr32. rd32 is two rd16s and each rd16 is
+     * two rd8s, i.e. four BYTE loads - and the RTCIO file does not answer byte accesses: every `@` of a register read
+     * 0x00000000 while a byte-sized `!` of the same address worked, which made the gate look broken when the address
+     * arithmetic and the write path were both correct. Measured on the board: the pin-read probe returned 0 for a pad the
+     * HP core was driving high until this path was added. Reads and writes must agree on width. */
+    if ((u32)(a - HW_GATE_LO) < HW_GATE_SPAN) return *(volatile u32 *)(uintptr_t)a;
+#endif
+    return rd16(a) | (u32)rd16(a + 2) << 16;
+}
 static void wr32(u32 a, u32 v)
 {
 #if defined(HW_GATE) && !defined(HOST)

@@ -578,6 +578,29 @@ static void seed_poll(void)
                 n = 0;
                 continue;
             }
+            /* GUARDRAIL: `#h` / `#l` / `#r` drive the LoRa BUSY pad (pin 13) from the HP core so the ULP's input path can
+             * be tested with a value it cannot produce itself. `LORA_INIT` returning 1 is VACUOUS on a dead bus - BUSY
+             * reads 0 for every pin, so "BUSY low, so ready" passes with nothing connected. A read that must return 1 when
+             * the pad is driven high is the only version of this test that can fail. `#r` returns the pad to INPUT_ONLY
+             * because leaving it driven would fake a busy radio for every later probe. */
+            if (n >= 2 && ln[0] == '#' && ln[1] >= 'h' && ln[1] <= 'r' && ln[1] != 'k' &&
+                ln[1] != 'u' && ln[1] != 'b' && ln[1] != 'c' && ln[1] != 'x' && (ln[2] == 0 || ln[2] == ' ')) {
+                if (ln[1] == 'r') {
+                    rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_INPUT_ONLY);
+                    printf("pad13: input (released)\n");
+                } else {
+                    /* GUARDRAIL: INPUT_OUTPUT, not OUTPUT_ONLY. OUTPUT_ONLY clears FUN_IE, and RTC_GPIO_IN only latches
+                     * a pad whose input buffer is on - so the first version drove the pad high and read 0, which looked
+                     * exactly like a dead ULP input path while it was the probe switching off the buffer it meant to
+                     * read. (rtc_gpio_input_enable does not exist in this IDF; the mode bit is the supported route.) */
+                    rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_INPUT_OUTPUT);
+                    rtc_gpio_set_level((gpio_num_t)13, ln[1] == 'h' ? 1 : 0);
+                    printf("pad13: %s\n", ln[1] == 'h' ? "driven high" : "driven low");
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             /* GUARDRAIL: `#c <desc_blk>` compares the image IN THE STORE against what is pasted in mem[], byte for byte.
              * The loader's own checks bracket the copy; this one is for AFTER the machine has run (or wedged), where the
              * question is "is the code executing the code that was compiled". It reads mem[] only, so it answers while
