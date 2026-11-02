@@ -727,3 +727,34 @@ The next question is specific and cheap: why does a store from the interpreter's
 store-buffer drain at the end of the interpreter's turn (`ulp_riscv_halt()` immediately after), the width/alignment the
 two compilers choose, and the possibility that the engine's write is followed by reads of other addresses which force
 the write out. The cheap discriminator is to make Forth's `!` followed by an engine read of the same register.
+
+## 13. Two build steps added, and what they found (F-176k, F-176l)
+
+**`tools/hashcheck.py` is now a lint-stage gate (R25).** The dictionary stores no names: a header is
+`imm(1) | xt(11) | hash(12)`, so a 12-bit djb2 hash is a word's entire identity, and the chip refuses a
+definition whose hash already belongs to a resident name - answering `SCK?` from the chip's `err()`. For
+months that refusal read as "the coprocessor cannot drive the pads", which sent the whole investigation into
+hardware. The tool replicates the engine's hash from the source (verified against the collision the code
+guarantees: `SAVE`/`THEN` collide at 11 bits, not at 12) and reads the resident vocabulary out of the engine
+itself (`-DP54_NAMES` dump - two GUARDRAIL comments in `uforth.c` refer to a `tools/hashsearch.py` that did
+not exist; this is that tool). It immediately found live collisions in code that "loaded fine": `BITIN` vs
+`SCKPAD`, and `>BYT` vs `MOSIPAD`.
+
+The driver was rewritten with long names throughout (`PADSETW`, `SCKPAD`, `PIN!`, `OCTETOUT`, `BITREAD`),
+which the linter and hashcheck both accept, and it now loads with **zero refusals** where before five of its
+constants were silently refused.
+
+**The dictionary headroom rule, learned the hard way:** at `MEMSZ` 2 540 the last two words of the driver
+(`INIT`, `SEND`) fall off the end - code area and header area meet in the middle and whichever name is
+furthest down disappears - and nothing reports it. `#k` shows nothing, the load shows no error, and only
+asking for the last word exposes it. Recorded in the driver header: **this driver needs `MEMSZ` >= 2 550.**
+
+**What still does not work, stated plainly:** on a fully valid image (`MEMSZ` 2 550, driver loaded clean,
+`INIT` -> 1, `SEND` -> 0), the HP-core pin witness says a store from the coprocessor to
+`RTC_GPIO_OUT_W1TS` still leaves `OUT` unchanged - `1 MOSIPAD PIN!` does not set bit 20. A drain read
+(8 B) and a post-store `rdcycle` delay (26 B) were built and measured: **neither changed the witness**, so
+both are out and the interpreter is back at exactly 4 850 B / image 7 931. The one configuration known to
+land is the reference engine's own `hal_init()`, which returns `GetStatus 0x2A` from inside this image;
+a hand-replication of its register writes in Forth does not. So the ingredient is in that function, not in
+the addresses and not in the timing - and `#p <pad>` (HP reading `RTC_GPIO_IN`, the pin, with the input
+path enabled) is now the witness that can tell, one experiment at a time, which line it is.

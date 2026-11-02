@@ -638,6 +638,25 @@ static void seed_poll(void)
                 n = 0;
                 continue;
             }
+            /* GUARDRAIL: `#p <pad>` answers the question the ULP's own register reads cannot (F-158) and the
+             * echo test cannot either: it asks the HP core, the only honest reader, for the PHYSICAL level of a pad
+             * the coprocessor has just been asked to drive. RTC_GPIO_IN reflects the pin, not a register latch and
+             * not a store buffer, so it is the one witness that separates "the write reached the pad" from
+             * "the write updated the register". The input path must be enabled for the pad first
+             * (RTC_GPIO_MODE_INPUT_OUTPUT keeps the output driver on and turns the input on too), which is why this
+             * sets the direction rather than trusting whatever the caller left. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'p' && ln[2] == ' ') {
+                int pad = (int)strtol(ln + 3, NULL, 10);
+                rtc_gpio_set_direction((gpio_num_t)pad, RTC_GPIO_MODE_INPUT_OUTPUT);
+                uint32_t in = REG_READ(RTC_GPIO_IN_REG);
+                uint32_t out = REG_READ(RTC_GPIO_OUT_REG);
+                printf("pad %d: IN bit %u = %u (OUT bit %u = %u, IN 0x%08X)\n", pad, (unsigned)(pad + 10),
+                       (unsigned)((in >> (pad + 10)) & 1u), (unsigned)(pad + 10),
+                       (unsigned)((out >> (pad + 10)) & 1u), (unsigned)in);
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             if (n >= 2 && ln[0] == '#' && ln[1] == 'z' && (ln[2] == 0 || ln[2] == ' ')) {
                 /* GUARDRAIL: F-176, TWO witness bits. Every previous `#z` watched only bit 18 (pad 8 / NSS), the pad the
                  * HP core itself configures and drives - so "LOST" there cannot tell "the coprocessor's store was

@@ -66,6 +66,7 @@
  * fragments outside any comment, which the compiler reported as "expected identifier before numeric constant" plus a
  * cascade of nonsense from _stdint.h. When a probe changes MEMSZ, change the value, not the line the comment sits on. */
 #define MEMSZ    2550
+
 /* GUARDRAIL: SD stays 16. Raising it to 24 was rejected by the engine's own static assertions - dispatch.S hard-codes
  * the VM layout and assumes SD=16 for the stack wrap check - so deeper stacks would mean rewriting the asm dispatch.
  * An app that overflows therefore has to nest less, not ask for a bigger stack. */
@@ -204,8 +205,46 @@ volatile u32 repl_out_tail;      /* written by the HP */
 volatile u32 repl_wake_count;
 #if defined(ENGINE_TEST) && !defined(HOST)
 volatile u32 eng_status;      /* published: only the HP core reads registers honestly (F-158) */
-volatile u32 eng_status_addr, eng_self_addr, eng_dio1_addr;
-volatile u32 eng_selftest;
+volatile u32 eng_rb;          /* the byte the C engine reads back out of the radio's own RAM */
+/* GUARDRAIL: bit-banged with raw set/clear words, deliberately NOT calling the engine's spi_xfer()/hal_read(): that
+ * chain costs ~500 B of text and the 7 932 B budget has no room at MEMSZ 2 180 (the link said so with "region ram
+ * overflowed"), while MEMSZ cannot drop either because the baked prelude needs 2 052 B. Register writes only, one pad
+ * bit per word, which is also the lesson F-176 measured: a word ORed from several pads is discarded whole.
+ * Pads per docs/29: NSS 8 (bit 18), SCK 9 (bit 19), MOSI 10 (bit 20), MISO 11 (bit 21 in RTC_GPIO_IN). */
+/* GUARDRAIL: bit-banged with raw set/clear words, deliberately NOT calling the engine's spi_xfer()/hal_read(): that
+ * chain costs ~500 B of text and the 7 932 B budget has no room (the link said so with "region ram overflowed" at
+ * every MEMSZ that still fitted the baked prelude and a loaded driver). Two things brought it down from 468 B to
+ * ~180: ONE shared 8-bit helper instead of three inline loops, and hoisting the three register addresses into
+ * pointer locals instead of letting each ENG_SET/ENG_CLR expansion materialise its own 32-bit literal pool.
+ * GUARDRAIL: one pad bit per set/clear word - a word ORed from several pads is discarded whole (F-176 measured it).
+ * Pads per docs/29: NSS 8, SCK 9, MOSI 10, MISO 11; OUT data starts at bit 10, so these are bits 18/19/20/21. */
+#define ENG_W1TS ((volatile u32 *)0x60008404u)
+#define ENG_W1TC ((volatile u32 *)0x60008408u)
+#define ENG_IN   (*(volatile u32 *)0x60008424u)
+static u32 eng_x8(u32 out)                 /* one byte out, one byte in, MSB first, mode 0 */
+{
+    u32 v = 0u;
+    for (int b = 7; b >= 0; b--) {
+        if ((out >> b) & 1u) { *ENG_W1TS = (1u << (10 + 10)); }
+        else                 { *ENG_W1TC = (1u << (10 + 10)); }
+        *ENG_W1TS = (1u << (9 + 10));      /* SCK rises with data valid */
+        v <<= 1;
+        if (ENG_IN & (1u << (11 + 10))) { v |= 1u; }
+        *ENG_W1TC = (1u << (9 + 10));
+    }
+    return v;
+}
+static u32 eng_rb_read(void)
+{
+    u32 v;
+    *ENG_W1TC = (1u << (8 + 10));          /* NSS low */
+    (void)eng_x8(0x1Eu);                   /* ReadBuffer */
+    (void)eng_x8(0u);                      /* offset 0 */
+    (void)eng_x8(0u);                      /* dummy */
+    v = eng_x8(0u);                        /* the radio's own byte */
+    *ENG_W1TS = (1u << (8 + 10));          /* NSS high */
+    return v;
+}
 volatile u32 eng_dio1;
 #endif
 /* GUARDRAIL: see the probe in main(). `go` is written by the HP core, `res` by the ULP; neither is read by the
@@ -566,15 +605,7 @@ int main(void)
      * never move the pins, or they do and MISO cannot be read back. Running the reference engine's OWN C code -
      * hal_reset() then GetStatus over hal_read() - inside this image answers that with a number rather than a guess,
      * and it is published to the HP core because only the HP core reads registers honestly (F-158). */
-    hal_reset();
-    eng_selftest = hal_pad_selftest();
-    {
-        u8 op = 0xC0u;                      /* GetStatus */
-        u8 b = 0u;
-        hal_read(&op, 1u, &b, 1u);
-        eng_status = b;
-        eng_dio1 = (u32)hal_dio1();
-    }
+    eng_rb = eng_rb_read();
     /* GUARDRAIL: report through the coprocessor's OWN console path (echo + saynum, the same pair the bench uses). The
      * alternative - referencing ulp_repl_eng_* from the app - fails at the HP build, because ulp_embed_binary publishes
      * a fixed symbol set and silently omits anything new, so the app just does not compile. */
@@ -585,18 +616,20 @@ int main(void)
         /* GUARDRAIL: print ONCE and print it right. An unguarded per-wake report floods the console at 24 groups a
          * second, and every Forth reply then reads as garbage (measured: `IN after` returned the middle of another
          * wake's digits). One line, one prefix, eight digits per value. */
+        /* GUARDRAIL: one byte per wake, two hex digits, prefixed. The previous version printed 24 groups per wake and
+         * flooded the console so every Forth reply came back as another wake's digits; a report that destroys the
+         * transcript is not a report. One line per wake, and wakes happen once per console line. */
         const char hx[] = "0123456789ABCDEF";
-        u32 vals[3] = { eng_status, eng_selftest, eng_dio1 };
-        static u32 once;
-        if (once == 0u) {
-            once = 1u;
-            pl_emit('\n'); pl_emit('E'); pl_emit('=');
-            for (int v = 0; v < 3; v++) {
-                pl_emit(' '); pl_emit('0'); pl_emit('x');
-                for (int sh = 28; sh >= 0; sh -= 4) pl_emit(hx[(vals[v] >> sh) & 0xFu]);
-            }
-            pl_emit('\n');
-        }    }
+        /* GUARDRAIL: one report per wake, two digits, nothing else - the earlier version printed three 32-bit
+         * values per wake, which both flooded the console and cost ~200 B of text that the 7 932 budget does not
+         * have. The only number this probe needs is the byte the engine read back out of the radio. */
+        pl_emit('\n'); pl_emit('R'); pl_emit('=');
+        pl_emit(hx[(eng_rb >> 4) & 0xFu]);
+        pl_emit(hx[eng_rb & 0xFu]);
+        pl_emit('\n');
+        (void)eng_status;   /* retired with hal_reset(): the readback alone answers the question */
+        (void)eng_dio1;
+    }
 #endif
 
 #if defined(ULP_PAD_OWNERSHIP) && !defined(HOST)
@@ -654,8 +687,15 @@ int main(void)
      * output-enabled) is the control that must stay clear. If bit 19 comes back SET, our stores reach RTCIO after all
      * and every earlier "lost" was about the pad or the value, not about the coprocessor being unable to write. */
     *(volatile u32 *)0x60008404u = (1u << (9 + 10));   /* SCK high - the engine leaves it low */
-    *(volatile u32 *)0x60008404u = (1u << (8 + 10));
-    /* GUARDRAIL: F-166 - hold the coprocessor awake for ~1 ms AFTER the store. The hypothesis: a ULP peripheral write
+    /* GUARDRAIL: witness on MOSI (pad 10, bit 20), not NSS: the HP core idles NSS and NRST HIGH at boot, so a SET
+     * observed on those pads cannot be told apart from the boot value. MOSI and SCK are idled low, so a single store
+     * from the coprocessor either moves the register or it does not, with no ambiguity. One pad per word (F-176). */
+    *(volatile u32 *)0x60008404u = (1u << (10 + 10));
+    *(volatile u32 *)0x60008404u = (1u << (9 + 10));
+    /* GUARDRAIL: a replacement that starts mid-line must end mid-line: gluing this comment onto the store turned every
+     * following line into a comment continuation and the build failed on "unterminated comment" - check the tail of a
+     * generated edit, not just its head (same family as the glued `#else` and the swallowed newline).
+     * F-166: hold the coprocessor awake for ~1 ms AFTER the store. A ULP peripheral write
      * is posted, and `ulp_riscv_halt()` right after it gates the ULP's bus before the write reaches the APB - which is
      * exactly why the reference image (whose wake lasts 195 ms of SPI after the same store) lands and our probe (which
      * stores and returns within microseconds) does not, and why every content bisect - size, .data, preamble, flags,
