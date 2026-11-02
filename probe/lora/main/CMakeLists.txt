@@ -1,4 +1,9 @@
 # Legacy component style on purpose: it is what the installed IDF 5.4 ULP-RISC-V examples use (ulp_embed_binary).
+# GUARDRAIL: legacy component style - use add_definitions(), not target_compile_definitions(${COMPONENT_LIB}).
+if(LORA_STAY_AWAKE)
+    add_definitions(-DCONFIG_LORA_STAY_AWAKE=1)
+endif()
+
 set(COMPONENT_SRCS "lora_main.c")
 set(COMPONENT_ADD_INCLUDEDIRS "")
 set(COMPONENT_REQUIRES soc ulp driver esp_timer)

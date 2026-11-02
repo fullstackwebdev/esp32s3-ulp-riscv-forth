@@ -15,6 +15,9 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+/* GUARDRAIL: RTC_GPIO_* / SENS_* live in soc/rtc_io_reg.h and soc/sens_reg.h - soc.h does not pull them in. */
+#include "soc/rtc_io_reg.h"
+#include "soc/sens_reg.h"
 #include "ulp_riscv.h"
 #include "ulp_lora.h"
 
@@ -146,6 +149,10 @@ void app_main(void)
      * build is the part where it is NOT up. */
     for (int i = 0; i < 2; i++) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+        /* GUARDRAIL: the only trustworthy reader here is THIS core (the ULP's own register reads are garbage in every
+         * firmware, including the working one). Clear bit 18 at t+1 and read it back from t+2 on: if it comes back, the
+         * ULP's store lands; if it stays clear, the ULP cannot write RTCIO - which is the difference under test. */
+        if (s == 1) REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
         printf("wakes %3" PRIu32 "  tx_ok %3" PRIu32 "  tx_fail %3" PRIu32 "  err %" PRId32
                "  cfg %s  status 0x%02" PRIx32 "  spi %" PRIu32 " cyc/B (%" PRIu32 " kHz SCK)  pads %" PRIu32
                "  cold %" PRIu32 "  cal %" PRIu32 " cyc/10ms  ulp %u B  cause %d\n",
@@ -177,5 +184,30 @@ void app_main(void)
      * compile, which is the good outcome; on a target where it does exist, leaving it OFF would silently blank the
      * ULP's state and look like "the ULP stopped running". RTC_PERIPH is the domain the ULP itself lives in: keep it on. */
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+    /* GUARDRAIL: STAY_AWAKE is a measurement, not a configuration. The Forth firmware cannot move a peripheral register
+     * from the ULP while this core is awake, and the only remaining structural difference with this working build was
+     * that here the CPU is DEEP ASLEEP while the ULP transmits. Keeping the CPU awake and letting the ULP run for 20 s
+     * decides it: if tx_ok keeps climbing, sleep is irrelevant and the fault is a config difference; if it freezes, the
+     * radio belongs to the CPU's sleep window and the Forth driver has to live there too. */
+#if CONFIG_LORA_STAY_AWAKE
+    printf("stay-awake: 20 s with the HP core running\n");
+    fflush(stdout);
+    for (int s = 0; s < 20; s++) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        /* GUARDRAIL: the only trustworthy reader here is THIS core (the ULP's own register reads are garbage in every
+         * firmware, including the working one). Clear bit 18 at t+1 and read it back from t+2 on: if it comes back, the
+         * ULP's store lands; if it stays clear, the ULP cannot write RTCIO - which is the difference under test. */
+        if (s == 1) REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+        /* GUARDRAIL: use the counters this firmware actually exports (ulp_run_count / ulp_tx_ok_count). The first version
+         * named them from the console line instead of the symbol table and did not compile - the exported names are the
+         * contract, so read them off ulp_lora.h. */
+        printf("  t+%d s  runs %" PRIu32 "  tx_ok %" PRIu32 "  status 0x%02X | ULP probe_out 0x%08X  probe_sens 0x%08X | HP OUT 0x%08X  SENS 0x%08X\n",
+               s + 1, (uint32_t)ulp_run_count, (uint32_t)ulp_tx_ok_count, (unsigned)ulp_status_byte,
+               (unsigned)ulp_probe_out, (unsigned)ulp_probe_sens,
+               (unsigned)REG_READ(RTC_GPIO_OUT_REG), (unsigned)REG_READ(SENS_SAR_PERI_CLK_GATE_CONF_REG));
+        fflush(stdout);
+    }
+    esp_restart();
+#endif
     esp_deep_sleep_start();
 }

@@ -133,7 +133,7 @@ def main():
         ser.close()
         return 1
 
-    for step in ("HERE .", "INIT .", "SEND .", "#k"):
+    for step in ("HERE .", "INIT .", "SEND ."):
         out, ok = send_line(ser, step, timeout=20.0)
         print("%-16s -> %s" % (step, out.decode("latin-1").strip().replace("\r\n", " | ")[-120:]))
         if not ok:

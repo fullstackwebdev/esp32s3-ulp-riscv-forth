@@ -22,6 +22,11 @@
 /* GUARDRAIL: RTC_GPIO_* and RTC_IO_TOUCH_PAD0_* live in soc/rtc_io_reg.h, not in soc.h - the pad driver pulls it in
  * transitively for its own translation units, so #g failed to compile the first time with "undeclared". */
 #include "soc/rtc_io_reg.h"
+/* GUARDRAIL: SENS holds the RTC IO MUX clock gate (SENS_SAR_PERI_CLK_GATE_CONF_REG bit 31). The C driver's ULP enables
+ * it from the ULP via ulp_riscv_gpio_init; our ULP cannot write any peripheral (F-157), so it has to be done HERE. */
+#include "soc/sens_reg.h"
+/* GUARDRAIL: gpio_reset_pin() needs driver/gpio.h; rtc_gpio_* comes from driver/rtc_io.h. */
+#include "driver/gpio.h"
 /* The ULP writes ONE byte per message into repl_out[] (0x81..) and msg_expand.h turns it back into text
  * here. Every other byte in that ring is ASCII (echoed input, digits, the offending word, '?', '\n'), so a
  * byte >= 0x80 is unambiguously a code, and the expansion is a substitution at the same position in the
@@ -1297,6 +1302,14 @@ static void lora_pads_setup(void)
 {
     const int outs[4] = { 8, 9, 10, 12 };
     const int ins[3]  = { 11, 13, 14 };
+    /* GUARDRAIL: detach every pad from the GPIO matrix BEFORE rtc_gpio_init(). This is the one call the working driver
+     * (probe/lora start_ulp) makes and this firmware did not, and it is what the reference build's own comment says:
+     * "gpio_reset_pin(): detach from the GPIO matrix before handing to RTC". With the pads still claimed by the digital
+     * side, MUX_SEL says RTC while the pad is not actually under RTC control - so the ULP's RTCIO accesses are accepted
+     * and discarded (measured: an unconditional C store to OUT_W1TS lost on every wake, res=0, while the same store
+     * transmits on the reference firmware). */
+    for (int i = 0; i < 4; i++) gpio_reset_pin((gpio_num_t)outs[i]);
+    for (int i = 0; i < 3; i++) gpio_reset_pin((gpio_num_t)ins[i]);
     for (int i = 0; i < 4; i++) {
         rtc_gpio_init((gpio_num_t)outs[i]);
         rtc_gpio_set_direction((gpio_num_t)outs[i], RTC_GPIO_MODE_OUTPUT_ONLY);

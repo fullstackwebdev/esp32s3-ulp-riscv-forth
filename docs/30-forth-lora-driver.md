@@ -399,3 +399,51 @@ called `run_line` whose body ate the real `: WB … ;`), the same class of bug t
 
 `tools/lora_device.py` now **requires a clean `--repl` lint** before typing a single line, and `tests/run.sh` lints the
 driver on the host. The driver lints clean, and the suite is 30 PASS.
+
+## 8. The probe was wrong, not the bus (F-158)
+
+Everything in §7 rested on a probe that reads a register back **from the ULP**. That probe is invalid, and the way it
+failed is worth more than the conclusion it produced.
+
+The same three lines were added to the *working* firmware (`probe/lora`), whose ULP demonstrably transmits
+(`tx_ok` 4/4 in a 20 s stay-awake run, `status 0x2C`):
+
+| reader | `RTC_GPIO_OUT` | `SENS_SAR_PERI_CLK_GATE_CONF` |
+|---|---|---|
+| HP core (trustworthy) | `0x00440000` | `0xC0000000` |
+| ULP, in the **working** firmware | `0x1C008000` | `0x090A0811` |
+| ULP, in the Forth firmware | `0x1C008000` | `0x090FC811` |
+
+**The ULP's register reads are garbage in both firmwares**, including the one where every write works. So:
+
+* every conclusion drawn from "the ULP read back 0x…" was worthless, including the `0x02010201` that looked like a
+  dead bus and the "two identical halves = 16-bit fallback" reasoning;
+* the only trustworthy reader is the **HP core**, which is also why `#g` exists;
+* and the C driver never cared, because `pin_read()` samples `RTC_GPIO_IN` for a *bit* and the garbage happens to carry
+  usable pad bits - the reference's `hal_pad_selftest` passes with the same reads that misled this investigation.
+
+What survives, all measured with the HP core as the reader:
+
+1. **The board's ULP can drive RTCIO with the HP core awake.** The reference firmware was rebuilt with `STAY_AWAKE`
+   (`-DLORA_STAY_AWAKE=1`) and transmitted 4 packets in 20 s with the CPU running; `wakes 13 tx_ok 12` follows in deep
+   sleep. So "the radio belongs to the CPU's sleep window" is **false**, and F-157's retirement of the contention theory
+   was right for the wrong reason.
+2. Config is not the difference: the two `sdkconfig`s differ only in flash size, log level and partition table; the ULP
+   RAM reserve was tested on the reference at both 4096 and 8176 with no effect.
+3. Pad ownership is not the difference: `gpio_reset_pin()` before `rtc_gpio_init()` (the reference's own step) was
+   added and changed nothing; the SENS clock gate is already open (`0xC0000000`) before anything runs.
+4. Placing the store at the **first instructions of `main`**, before the interpreter, changes nothing.
+5. What is still true: a store to `RTC_GPIO_OUT_W1TS` from the Forth firmware's ULP does not appear in the HP core's
+   view of `RTC_GPIO_OUT`, while the same store in the reference firmware does.
+
+So the remaining difference is the **image itself** (7 831 B with a 4.9 KB interpreter vs 2 904 B) or something the
+engineer has not looked at yet. The next experiment is a bisect, not a theory: build this ULP with the interpreter
+compiled out (`P42_ONLY`, the existing bench main) plus the three-line store, and see whether that image can move the
+pad. That splits "this image" from "this hardware" in one flash, and it is cheap because the bench main already exists.
+
+### The rule this earns (docs/14 R20)
+
+**Validate the instrument on a known-good system before believing a single number from it.** Three hypotheses died
+because a probe was trusted in the firmware where everything fails, without ever running the same probe in the firmware
+where everything works - where it would have been caught in one flash. The reference build was sitting in the tree the
+whole time.

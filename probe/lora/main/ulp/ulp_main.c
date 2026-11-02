@@ -22,7 +22,13 @@ volatile uint32_t pad_selftest;           /* 0 = every driven pad followed; else
 volatile uint32_t tx_cycles;              /* SET_TX -> TxDone, in 17.5 MHz cycles: the measured air time */
 volatile uint32_t buf_verify;             /* 0 = the radio's TX buffer matched what we wrote */
 volatile uint32_t ccount_cal;             /* cycles measured across a known 10 ms delay: calibrates the counter */
-volatile uint32_t awake;                  /* 1 while the ULP is running: the main core times this window */
+volatile uint32_t awake;
+/* GUARDRAIL: exported for the cross-firmware probe. The Forth firmware's ULP reads RTCIO as 0x1C008000 while its HP core
+ * reads 0x00400000, and writes land nowhere - the same three lines added HERE answer whether that is this board's
+ * behaviour or that firmware's: if probe_out comes back with bit 18 set, the probe logic is sound and the fault is
+ * environmental to the other image. */
+volatile uint32_t probe_out;
+volatile uint32_t probe_sens;                  /* 1 while the ULP is running: the main core times this window */
 volatile uint32_t cold_count;             /* cold inits performed: if this tracks run_count, warm start is NOT working */
 
 /* Heltec V3: the SX1262's TCXO is powered from DIO3 at 1.8 V, and DIO2 drives the antenna switch. Both are facts about
@@ -69,6 +75,12 @@ int main(void)
 
     run_count++;
     awake = 1;
+
+    /* GUARDRAIL: the cross-firmware probe, three lines, identical to the one in probe/repl's ULP. Here it is known-good
+     * (this image transmits), so its answer separates "the board cannot do this" from "that image cannot". */
+    *(volatile uint32_t *)0x60008404u = (1u << 18);        /* RTC_GPIO_OUT_W1TS: set pad 8 (NSS) */
+    probe_out = *(volatile uint32_t *)0x60008400u;         /* read OUT back            */
+    probe_sens = *(volatile uint32_t *)0x60008904u;        /* read SENS clk gate       */
 
     hal_init();
 

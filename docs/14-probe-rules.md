@@ -255,3 +255,23 @@ was correct, and the board behaved as if none of it existed. The cause was a `fl
 `idf.py flash` prints `Hash of data verified` **once per staged image** (bootloader, partition table, app). Grep for that
 count and require it, or let the full transcript through. A flash is a measurement: treat its output like any other
 measurement, and never pipe it somewhere that cannot show you a failure.
+
+## R20 — Validate the instrument on a known-good system first
+
+A probe that reports "the hardware is broken" must itself be proven on hardware that works. On 2026-11-01 a three-line
+probe read `RTC_GPIO_OUT` from the ULP and got `0x1C008000`; the HP core read `0x00440000` for the same register at the
+same moment. That disagreement was treated as evidence about the *bus* for several flash cycles. The same probe, added
+to a firmware that was demonstrably transmitting, produced **the same garbage** — so the probe could only ever say
+"garbage", and every conclusion drawn from it was noise.
+
+Two concrete habits follow:
+
+* **Run the probe against two firmwares: one known-bad and one known-good.** The known-good build usually already exists
+  in the tree (`probe/lora` here, with `tx_ok` counters and a `-D..._STAY_AWAKE` switch). One flash to the good build
+  costs minutes; the wrong conclusion cost an afternoon.
+* **Prefer a reader with a different implementation.** The HP core's `REG_READ` and the ULP's `lw` are the same
+  instruction on paper and behaved completely differently in practice; the *core* was the variable that mattered. When
+  two readers disagree, find out which one is lying before believing either.
+
+Corollary: when a counter or readback is your only witness, check it can produce a *positive* result somewhere. A probe
+that has never returned "good" in any firmware is not a measurement.

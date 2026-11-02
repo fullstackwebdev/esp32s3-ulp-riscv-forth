@@ -187,6 +187,11 @@ volatile u32 repl_out_drop;      /* bytes dropped because the ring was full; zer
 volatile u32 repl_out_head;      /* written by the ULP */
 volatile u32 repl_out_tail;      /* written by the HP */
 volatile u32 repl_wake_count;
+/* GUARDRAIL: see the probe in main(). `go` is written by the HP core, `res` by the ULP; neither is read by the
+ * same side that writes it, which is what makes this a two-reader measurement rather than an echo. */
+volatile u32 pl_hwgo;      /* the SENS value the ULP read */
+volatile u32 pl_hwres;     /* the RTCIO OUT value the ULP read */
+volatile u32 pl_hwcnt;     /* wakes since load */
 /* GUARDRAIL: KEY needs its OWN queue. It used to read the interpreter's command ring, so a program that called KEY
  * consumed the text of the very line that started it - measured: `KEY .` answered 75, the 'K' of "KEY", and a
  * full-screen app could never receive a keystroke. This cell is written by the main core in raw mode and drained by
@@ -512,6 +517,7 @@ static void drain_cmd(void)
 
 int main(void)
 {
+                                       /* wakes since load: proof the probe ran */
     /* GUARDRAIL: no rdcycle at wake entry. It fed `repl_cyc_start`, which was written on EVERY wake and
      * read by nothing in this tree (the only similar reader is p39_main.c, which reads a different variable
      * in the P39 probe). An rdcycle plus a store per 6.46 ms wake for a value nobody reads is pure cost —
@@ -599,6 +605,18 @@ int main(void)
     }
 #endif
 
+    /* GUARDRAIL: F-157's decisive experiment - one C store to RTCIO, no interpreter, no P(). The Forth `!` reaches a real
+     * 32-bit store at exactly this address (verified in the disassembly) and the HP core still sees the register unchanged,
+     * so the question is whether ANY code in this ULP image can write a peripheral. If pl_hwres comes back 1 the fault is
+     * in the access path the interpreter uses; if it comes back 0 the fault is in this image's environment, and the next
+     * suspect is how the ULP was started. Costs 3 stores and two exported cells; the value is read by `#t` on the HP side,
+     * which is also the second reader (F-156 rule). */
+    /* GUARDRAIL: UNCONDITIONAL, and that is the lesson. The first version ran only when a flag written by the HP core was
+     * set, and the flag never arrived - so the probe could not tell "the ULP never ran" from "the flag was never seen", and
+     * it reported the wrong one ("ran=NO") for 200 ms at a time. A probe that depends on a cross-core handshake measures
+     * the handshake first. Here every wake does the store and records what it read, so `#t` only has to clear the bit and
+     * look: if the bit comes back and pl_hwres is 1, the C store lands; if the bit stays clear and pl_hwres went to 1, the
+     * store was accepted and discarded (the echo signature). Either way the answer is a fact about the write. */
     repl_wake_count = repl_wake_count + 1u;
 #endif
     return 0;                            /* -> ulp_riscv_halt(): DONE, timer re-arms */
