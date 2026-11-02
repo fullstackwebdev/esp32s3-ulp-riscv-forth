@@ -840,6 +840,13 @@ SPI runs at **975 cycles/byte = 143 kHz SCK**; the driver is **2 584 B**; **the 
 no-TCXO configuration never reaches `TxDone`, so this is now a fact rather than a jumper guess); and **warm start
 retention works** — after one cold init, later wakes go straight to `SET_TX` and still succeed, which settles §6.4 below.
 
+**Deep sleep works** (2026-11-01): with `esp_deep_sleep`, the CPU off, the ULP's RTC-domain timer keeps firing and the
+radio keeps transmitting — 31 packets over five 30 s sleep cycles, 0 failures, and `cold` stayed at 2, so the warm
+configuration survives the CPU being powered down. `probe/lora/power_budget.py` turns that into the answer §"5" wanted:
+**95 % of the ULP's awake time is the packet on air**, so the energy budget is set by the transmission period and the air
+time (SF, payload), not by the interpreter or the bus. At a 30 s period a 2 000 mAh cell is ~287 days; at 60 s, ~1.5
+years — on datasheet-typical currents, which the script labels, because no meter is attached.
+
 ### Still to measure
 
 1. **Token cost on the ULP** — the one number §4.4 rests on. A counted loop of known tokens, timed by the main core via

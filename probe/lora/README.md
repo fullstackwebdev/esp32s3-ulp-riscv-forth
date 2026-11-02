@@ -74,6 +74,44 @@ cd backup && sha256sum -c *.sha256
 python -m esptool --port /dev/ttyUSB0 --baud 460800 write_flash 0x0 heltec-v3-meshtastic-xxxxxxxxxxxx-8MB-20261101-1653.bin
 ```
 
+## Deep sleep: the CPU off, the ULP still transmitting (measured)
+
+```
+POWERON          wakes   1  tx_ok   0   cold 1
++30 s (DSLEEP)   wakes   6  tx_ok   6   cold 2   cause 4
++60 s            wakes  13  tx_ok  13   cold 2
++90 s            wakes  19  tx_ok  19   cold 2
++120 s           wakes  25  tx_ok  25   cold 2
++150 s           wakes  31  tx_ok  31   cold 2
+```
+
+Five deep-sleep cycles: **31 packets, 0 failures, and `cold` frozen at 2** - the warm configuration survives the CPU
+being powered down, and the ULP's own RTC-domain timer keeps firing at 5 s while `esp_deep_sleep` has the core off. The
+CPU timer here exists only so the counters can be read; the radio does not need it.
+
+`ESP_PD_DOMAIN_RTC_SLOW_MEM` does not exist on the S3 (`SOC_PM_SUPPORT_RTC_SLOW_MEM_PD` is 0): RTC slow memory cannot be
+powered down at all, which is what the ULP's variables live in. `RTC_PERIPH` is kept on explicitly, because that is where
+the ULP itself lives.
+
+## Power: what the numbers say about months (`power_budget.py`)
+
+```
+measured : ULP awake 195.8 ms per transmit, of which 185.3 ms is the packet on air (95 %)
+measured : SPI 971 cycles/byte at 17.55 MHz -> 18.1 kB/s -> 144.6 kHz SCK, 55.3 us/byte
+
+  period   packets/day   average draw    2000 mAh cell lasts
+      5 s         17280        1.689 mA   49.3 days
+     30 s          2880        0.290 mA   287.1 days
+     60 s          1440        0.150 mA   1.5 years
+    300 s           288        0.039 mA   5.9 years
+```
+
+**95 % of the ULP's awake time is the packet on air.** The interpreter's speed, the SPI clock, the driver's bytes - none of
+them show up in the energy budget at this duty cycle. Months come from the **period** (and, second, from air time via
+spreading factor and payload), not from making the bus faster. Currents other than the measured timings are
+datasheet-typical and labelled as such in the script: there is no current meter on this bench, and a power budget built
+from unlabelled numbers is how "months on a battery" turns into a marketing sentence.
+
 ## Air time, derived (and why the first number was wrong)
 
 Tsym = 2^9 / 125 kHz = 4.096 ms · preamble (8 + 4.25)·Tsym = 50.18 ms · payload symbols

@@ -848,3 +848,13 @@ prediction is **185.3 ms** and the measurement is **105.6 %** of it.
 you can print, in the open, before you believe either. The units error in `token_rate.py` (1000× low SCK) and this one
 (the missing CR+4 factor) are the same failure: arithmetic done in a comment instead of by a program that shows its work.
 
+### F-145 — The same unit slip, four times: derive a rate once and convert it out loud
+
+This project has now printed a wrong unit four separate times: the app-store hop timing, the ULP SCK column in
+`token_rate.py` (1000× low), the console line in `probe/lora` (kHZ from cycles/byte), and `power_budget.py`, where
+`ULP_CLOCK_HZ / cycles_per_byte / 1000` — which is **kB/s** — was labelled "kHz SCK" and read 18 kHz for a 145 kHz bus.
+
+Each time the arithmetic was checked and the *label* was not. The fix that has held is structural: compute one named
+value (`bytes_per_s`), then convert with the factors written out (`sck_hz = bytes_per_s * 8`), and print both. A ratio of
+two rates written inline is where the factor goes missing.
+

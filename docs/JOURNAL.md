@@ -2338,3 +2338,19 @@ rejected because a bad derivation sat next to it.
 Also now proven with a counter instead of an assumption: **warm start**. `cold 2` against `wakes 6`/`tx_ok 6` - exactly two
 cold inits ever, every later wake going straight to SET_TX. docs/28 §6 and probe/lora/README.md carry the measured table.
 
+**J-120 · Deep sleep: the CPU off, the ULP still transmitting, 31 packets and no failures.**
+Five 30 s deep-sleep cycles on the Heltec V3: the ULP's RTC-domain timer keeps firing every 5 s with `esp_deep_sleep` in
+force, `tx_ok` climbs 6, 13, 19, 25, 31 with `tx_fail` at zero, and `cold` stays at 2 - so the warm radio configuration
+survives the CPU being powered down, and the mechanism docs/27 described as plausible is now demonstrated.
+
+`ESP_PD_DOMAIN_RTC_SLOW_MEM` does not exist on the S3: RTC slow memory cannot be powered down, which is exactly where the
+ULP's variables live. `RTC_PERIPH` is held on explicitly, since that is where the ULP lives.
+
+The energy answer, from `probe/lora/power_budget.py` (measured timings, labelled datasheet currents): **95 % of the ULP's
+awake window is the packet on air**. 195.8 ms per transmit, 185.3 of them on air; at a 5 s period a 2000 mAh cell is ~49
+days, at 30 s ~287 days, at 60 s ~1.5 years. The levers that buy months are the period and the air time, not the SPI
+clock and not the interpreter - which is the useful thing to know before porting anything to Forth.
+
+F-145 records the fourth unit slip of this project, and the fix that finally holds: derive one named rate, convert with
+the factors written out, print both.
+

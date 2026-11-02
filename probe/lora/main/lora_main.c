@@ -37,6 +37,9 @@ extern const uint8_t ulp_lora_bin_end[]   asm("_binary_ulp_lora_bin_end");
 
 #define ULP_WAKE_PERIOD_US (5ULL * 1000000ULL)
 
+/* How long the CPU stays down between counter reports. The ULP does not care: its timer is in the RTC domain. */
+#define LORA_SLEEP_SECONDS 30
+
 /* GUARDRAIL: do NOT call rtc_gpio_hold_en() on any pin the ULP drives. Hold freezes the pad, and the ULP then cannot
  * move it - the ULP would look like it is running while the SCK line stays dead (docs/28 §2.6, and the reference
  * driver's own comment). Hold is for pins nobody drives. */
@@ -139,28 +142,13 @@ void app_main(void)
         start_ulp();
     }
 
-    for (int i = 0; i < 20; i++) {
-        /* Time the ULP's awake window from here, with this core's clock: the ULP cannot be trusted to time itself until
-         * ccount_cal says its counter is sane (measured: it is not, see ulp_ccount_cal). 200 us sampling resolves the
-         * ~108 ms expected air time to ~0.2 %. */
-        int64_t t_start = 0;
-        int64_t t_end = 0;
-        int64_t deadline = esp_timer_get_time() + 4500000;
-        bool seen = false;
-        while (esp_timer_get_time() < deadline) {
-            uint32_t a = (uint32_t)ulp_awake;
-            int64_t now = esp_timer_get_time();
-            if (a && !seen) { seen = true; t_start = now; }
-            else if (!a && seen) { t_end = now; break; }
-            esp_rom_delay_us(200);
-        }
-        if (seen && t_end > t_start) {
-            ulp_busy_us = (uint32_t)(t_end - t_start);
-        }
-        vTaskDelay(pdMS_TO_TICKS(900));
+    /* Report, then sleep. Two lines 1 s apart is enough to see the counters move while the core is up; the point of this
+     * build is the part where it is NOT up. */
+    for (int i = 0; i < 2; i++) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
         printf("wakes %3" PRIu32 "  tx_ok %3" PRIu32 "  tx_fail %3" PRIu32 "  err %" PRId32
                "  cfg %s  status 0x%02" PRIx32 "  spi %" PRIu32 " cyc/B (%" PRIu32 " kHz SCK)  pads %" PRIu32
-               "  cold %" PRIu32 "  cal %" PRIu32 " cyc/10ms  busy %" PRIu32 " us  buf %" PRIu32 "  ulp %u B\n",
+               "  cold %" PRIu32 "  cal %" PRIu32 " cyc/10ms  ulp %u B  cause %d\n",
                (uint32_t)ulp_run_count, (uint32_t)ulp_tx_ok_count, (uint32_t)ulp_tx_fail_count,
                (int32_t)ulp_last_error,
                ulp_cfg_used == 0 ? "no-tcxo" : (ulp_cfg_used == 1 ? "tcxo" : "?"),
@@ -170,10 +158,24 @@ void app_main(void)
                (uint32_t)ulp_pad_selftest,
                (uint32_t)ulp_cold_count,
                (uint32_t)ulp_ccount_cal,
-               (uint32_t)ulp_busy_us,
-               (uint32_t)ulp_buf_verify,
-               (unsigned)(ulp_lora_bin_end - ulp_lora_bin_start));
+               (unsigned)(ulp_lora_bin_end - ulp_lora_bin_start),
+               (int)esp_sleep_get_wakeup_cause());
         fflush(stdout);
     }
-    printf("done: leaving the ULP running and idling here (no deep sleep in bring-up)\n");
+
+    /* GUARDRAIL: deep sleep must keep RTC slow memory (the ULP's variables) and the RTC peripherals powered, and it must
+     * NOT reconfigure the radio's pins on the way in. The ULP keeps its own timer; the CPU timer here exists only so the
+     * counters can be read. Enabling esp_sleep_enable_ulp_wakeup() would be wrong: nothing calls
+     * ulp_riscv_wakeup_main_processor(), and a ULP wakeup that never comes is a silent no-op setting that reads like a
+     * feature. */
+    printf("deep sleep for %d s (ULP keeps transmitting every 5 s; cold boots so far: %" PRIu32 ")\n",
+           (int)LORA_SLEEP_SECONDS, (uint32_t)ulp_cold_count);
+    fflush(stdout);
+    esp_sleep_enable_timer_wakeup((uint64_t)LORA_SLEEP_SECONDS * 1000000ULL);
+    /* GUARDRAIL: there is no ESP_PD_DOMAIN_RTC_SLOW_MEM on the S3 - SOC_PM_SUPPORT_RTC_SLOW_MEM_PD is 0, so RTC slow
+     * memory (the ULP's variables and this app's counters) cannot be powered down here at all. Asking for it does not
+     * compile, which is the good outcome; on a target where it does exist, leaving it OFF would silently blank the
+     * ULP's state and look like "the ULP stopped running". RTC_PERIPH is the domain the ULP itself lives in: keep it on. */
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+    esp_deep_sleep_start();
 }
