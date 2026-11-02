@@ -124,7 +124,36 @@ So option 2 does not work as written, and the reason is not the driver: **Forth 
 this machine. The repair is a primitive pair that bypasses `P()` on purpose (`HW@` / `HW!` taking an absolute address),
 which is a `.c` change and therefore pool bytes — the same wall as option 1, one level down.
 
-## 6. What is NOT done, precisely
+## 5c. The repair, measured: `HW@` / `HW!` cost 62 B
+
+A primitive pair that bypasses `P()` on purpose — `HW@ ( addr -- v )`, `HW! ( v addr -- )` on absolute 32-bit addresses
+— is implemented behind `-DHWPRIMS` and **measures 62 B**: the image goes 7 891 → **7 953** against a `POOL` of 7 892.
+
+| funding source | bytes | result |
+|---|---|---|
+| free pool | 1 | 61 short |
+| stack reserve slack (300 B reserved, **240 B measured high-water**) | 60 | **1 short** |
+
+So it is parked off, with the number recorded next to the flag. One byte is the entire gap, which is a much better problem
+than "we do not know how big it is" — but it still has to come from somewhere honest (a real reclaim, then a re-measurement
+of the stack high-water), not from shaving a word the interpreter needs.
+
+### Why not relax `P()` instead?
+
+Because `P()` is the single reason a wild pointer in **any** Forth word is harmless: `@`, `!`, `C@`, `C!`, `W@`, `W!`, the
+dictionary, the compiler and the block copies all go through it. Relaxing it to let peripheral addresses through would be
+cheaper in bytes (a range test, a few bytes) and far more expensive in everything else:
+
+* **A Forth bug becomes a hardware write.** A stray `-1 !`, an underflowed address or a miscalculated offset would reach
+  a timer, the RTC, the brownout detector or the flash controller instead of a one-byte `junk` cell. That is the opposite
+  of this project's "fail loudly, and never silently".
+* **It changes the meaning of every memory access at run time.** Below `MEMSZ` an address is memory, above it a register;
+  the same opcode then has a silent behavioural cliff.
+* **It spreads the exception over five accessors** (`rd8/wr8/rd16/wr16/rd32/wr32`) instead of owning it in one word pair
+  that is named for what it does.
+
+One narrow, auditable door beats a memory model with a hole in it.
+
 
 * **It is not yet a device phase.** `probe/repl/tools/lint_forth.py` refuses it as phase source: a block has no line
   boundaries, so `\` comments compile as words (R1 — 40-odd of them here), and R11 refuses a definition that does not fit

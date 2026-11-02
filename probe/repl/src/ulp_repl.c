@@ -129,6 +129,12 @@
  * at all contradicted the file's own rules. Commented out; re-enable only together with the root cause. */
 /* #define P43_TASKS 1 */
 #define IMAGE
+/* HW@ / HW! : absolute RTC-domain register access for Forth (F-149, docs/30 5b).
+ * GUARDRAIL: measured at 62 B (image 7 891 -> 7 953) against a POOL of 7 892, so it is OFF. Funding it from the
+ * stack reserve's measured slack (300 B reserved, 240 B high-water = 60 B) still leaves it 1 B short - the number is
+ * recorded here so the next attempt starts from it instead of re-measuring. Turn it on only together with the bytes
+ * that pay for it, and re-measure the high-water when the reserve drops. */
+/* #define HWPRIMS 1 */
 
 #include "uforth.c"
 

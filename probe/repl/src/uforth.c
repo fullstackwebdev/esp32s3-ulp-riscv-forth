@@ -1677,6 +1677,10 @@ static void vm_enter(void)
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_WSTORE)
         [P_WSTORE] = DISP_ENT(L_P_WSTORE),
+#if defined(HWPRIMS)
+        [P_HWFETCH] = DISP_ENT(L_P_HWFETCH),
+        [P_HWSTORE] = DISP_ENT(L_P_HWSTORE),
+#endif
 #endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_XOR)
         [P_XOR] = DISP_ENT(L_P_XOR),

@@ -106,6 +106,14 @@
         L_P_WSTORE: a = POP(); b = POP(); wr16(a, b); goto tail;
 
 #endif
+#if defined(HWPRIMS)
+        /* GUARDRAIL: 32-bit, unguarded, on purpose - and it is the ONLY place in the machine that is. A Forth bug
+         * reaching these words writes to a register instead of `junk`, so they are named for what they are (hardware)
+         * and kept out of the general vocabulary unless -DHWPRIMS is on. */
+        L_P_HWFETCH: TOS = *(volatile u32 *)TOS; goto tail;
+        L_P_HWSTORE: a = POP(); b = POP(); *(volatile u32 *)a = b; goto tail;
+
+#endif
 #if !defined(P31_SUBSET) || defined(P_HAVE_ADD)
         L_P_ADD: b = POP(); TOS += b; goto tail;
 #endif

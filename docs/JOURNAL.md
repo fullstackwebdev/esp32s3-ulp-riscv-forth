@@ -2421,3 +2421,14 @@ line never runs (so a definition silently does not exist and the failure surface
 BEGIN/WHILE keep their compile-time markers on the data stack, which the chip zeroes per line, so a loop can never span
 lines — the driver was rewritten loop-free (unrolled payload, fixed measured waits, single status check).
 
+**J-125 · The repair is 62 bytes, and the gap is 1.**
+`HW@` / `HW!` — a primitive pair that bypasses the `P()` guard on purpose, for absolute RTC-domain registers — are
+implemented behind `-DHWPRIMS` and measured: the ULP image goes 7 891 -> **7 953**, and `POOL` is 7 892. The only funding
+source with evidence behind it is the stack reserve's slack: 300 B reserved against a **240 B measured high-water**, i.e.
+60 B. That leaves the pair **1 byte short**, so it is parked off with the number written next to the flag.
+
+Relaxing `P()` instead would be cheaper in bytes and much more expensive everywhere else: it is the single reason a wild
+pointer in any Forth word is harmless (every accessor goes through it), and letting peripheral addresses through turns a
+Forth typo into a write to a timer, the RTC, the brownout detector or the flash controller. One narrow door, named for
+what it does, beats a memory model with a hole in it.
+
