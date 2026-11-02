@@ -116,6 +116,9 @@ def main():
     check("radio reports packet type LoRa", t_ == 1, f"GetPacketType -> {t_} (1 = LoRa)")
 
     load(B, RX_WORDS, "rx-words")
+    h2, l2 = B.num("HERE .", 20.0), B.num("LATEST .", 20.0)
+    bundle = h2 - h0 + l0 - l2
+    check("receive bundle fits the store window", bundle <= 999, f"{bundle} B of 999 B")
     B.cmd("RC SR", timeout=8.0, allow_error=True)
     st = B.num("STAT .", timeout=8.0)
     check("SR puts the chip in RX", ((st >> 4) & 7) == 5, f"status 0x{st:02X}")

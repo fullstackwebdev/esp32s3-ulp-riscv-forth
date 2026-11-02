@@ -392,3 +392,46 @@ solution shape, not an unknown.
 
    So the receive length must name the frame, the params belong to the *scenario* rather than to `SR`, and a
    length change must be paired with a transmitter that waits for TxDone instead of sleeping.
+
+## Appendix G — the radio fits two phases; the cipher is the only thing that does not
+
+Both halves of the radio link now fit the store's **999 B** window, measured on the board:
+
+| phase | contents | measured | spare |
+|---|---|---:|---:|
+| **receive** | `lorainit.fs` + `lora_rx.fs` (primitives, config table, `SR`/`RC`/`IQ`/`RL`/`RBUMP`/`RXTAKE`) | **992 B** | 7 B |
+| **frame + transmit** | `loratx.fs` (primitives, config table, 26-byte frame, `WriteBuffer`, `SetTx`, polled TxDone) | **939 B** | 60 B |
+| cipher | `lora_aes.fs` | **1 328 B** | **−329 B** |
+
+So a chained device that *speaks LoRa in both directions and builds a Meshtastic-shaped packet* needs no app
+dictionary at all — and the cipher is the single item that cannot be a phase. Both numbers are now gates:
+`tests/lora_init_phase.py` asserts the receive bundle against 999 B, `tests/lora_frame_phase.py` asserts the
+transmit phase. It was 1 020 B an hour earlier with a packet-params word in the receive file, so the check is
+not decoration.
+
+### Where the app-space gap could actually come from
+
+Read out of the built ULP binary (`riscv32-esp-elf-size` and `nm` on `build/esp-idf/main/ulp_main/ulp_main.elf`):
+
+```
+   text    data     bss     dec
+   4834    2584     513    7931          budget 7932, so 1 B free
+
+   2104 t vm_enter        <- 26% of the image, the outer interpreter loop
+    534 T main
+    314 t word
+    302 t interpret
+    210 t mkhdr
+    142 t blk_xfer
+    142 r disp_tbl
+    116 t find
+   2566 d mem            <- the dictionary itself (MEMSZ)
+```
+
+`mem` is `.data`, so **+1 B of app space costs exactly 1 B of image**. The 329 B the cipher is short by is
+therefore a 329 B question about `vm_enter`, not about the cipher: nothing in the cipher is redundant. The S-box
+table is 256 B and the computed replacement was measured at 644 B and 22.7 s per block (Appendix E); the round
+keys are 176 B and the registry cannot hold them (Appendix F).
+
+That is the honest state: **the radio is done in both directions and in both directions as phases; Meshtastic
+interoperability now depends on shrinking the interpreter or raising `MEMSZ` with bytes that do not exist yet.**
