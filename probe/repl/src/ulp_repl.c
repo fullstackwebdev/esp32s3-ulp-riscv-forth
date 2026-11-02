@@ -65,7 +65,17 @@
  * GUARDRAIL: this block was once orphaned - a probe edit replaced the `#define` line and left these two comment
  * fragments outside any comment, which the compiler reported as "expected identifier before numeric constant" plus a
  * cascade of nonsense from _stdint.h. When a probe changes MEMSZ, change the value, not the line the comment sits on. */
-#define MEMSZ    2550
+/* GUARDRAIL: 2540, and this byte-count is the App Store's, not the LoRa
+ * driver's. At 2550 the sealed phase window was 983 B and calc1.fs is 995 B,
+ * so the store refused to build, seeded nothing, and its 16 device checks all
+ * failed on an empty shelf - a failure that looked like a dispatcher bug.
+ * The driver used to need 2550 only because it carried the coprocessor's own
+ * pad bring-up; that 200 B went away once the main core was shown to
+ * configure the pads, and 2540 was MEASURED on the board: the driver loads
+ * with zero refusals and its LAST words INIT/SEND exist and run, which is the
+ * only probe that tells the truth about a dictionary overflow (docs/30). If
+ * either file grows, raise this and the mismatch check names image.h. */
+#define MEMSZ    2540
 
 /* GUARDRAIL: SD stays 16. Raising it to 24 was rejected by the engine's own static assertions - dispatch.S hard-codes
  * the VM layout and assumes SD=16 for the stack wrap check - so deeper stacks would mean rewriting the asm dispatch.
