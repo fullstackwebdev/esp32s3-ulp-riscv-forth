@@ -2249,3 +2249,16 @@ drops, so the reader's unpaced loss is downstream of `pl_emit`; the pacing stays
 
 Not in this version, and the cards refuse rather than pretend: **sheet** (1 371 B against a 1 037 B window - needs a
 two-phase split) and **gopher** (never written). Both are wave 3.
+
+**J-115 · Branch `spi-lora`: the low-power / external-memory research is written down, labelled as unmeasured.**
+The ESP32-S3 went back in its box with an 8 MB flash backup (sha256-verified, `backup/README.md`), and the next era opens
+with a different question: could an ultra-low-power SPI memory let the ULP alone keep this machine alive for months, with
+more RAM than the 8 KB it has? The research conversation is now `docs/27-spi-lora.md`, and its most important property is
+that it says which numbers are guesses: the ULP's bit-banged SPI figure (235 kHz first try, 350 kHz with direct register
+writes, ~417 kHz estimated ceiling, 1.1 MHz measured for clock-only toggling) is forum-reported, the FRAM/MRAM clock maxima
+are datasheet-recalled, and the deep-sleep µA floor is recalled too. Not one of them was measured here.
+
+The hard constraint that did come out of it, and it is ours: the ULP image is **7 891 of 7 892 B**. A LoRa driver and an
+external-memory path both have to buy their bytes from the interpreter, so the first real question is the byte budget, not
+the driver.
+
