@@ -1,4 +1,32 @@
-# Flash backup — Heltec V3 (LoRa board), **not** the App Store board
+# Flash backups
+
+Two boards, two dumps, both verified by hash. Restore with the line in each `*.restore.md`; check with
+`tools/backup_compare.py` (below) before you trust one.
+
+## `esp32s3-xxxxxxxxxxxx-8MB-20261102-0837.bin` — a second ESP32-S3 (8 MB GD flash)
+
+Captured by `tools/backup_board.sh /dev/ttyUSB1 esp32s3 0x800000` on request, before anything is flashed onto it.
+Measured: three reads of the whole flash agreed (`sha256 1ac78214…7ea0884`), the dump has the same structure as the
+known-good Heltec dump (`0xE9` image magic at 0x0, valid partition table at 0x8000, populated NVS), and its layout is
+
+| partition | type | offset | size |
+|---|---|---|---|
+| nvs | data | 0x009000 | 20 KB |
+| otadata | data | 0x00E000 | 8 KB |
+| app0 | app | 0x010000 | 3 264 KB |
+| app1 | app | 0x340000 | 3 264 KB |
+| spiffs | data | 0x670000 | 1 536 KB |
+| coredump | data | 0x7F0000 | 64 KB |
+
+An independent re-read a few minutes later differed by **463 B (0.006 %)**, entirely inside `nvs` and `spiffs`;
+`app0`, `app1`, `otadata` and `coredump` were byte-identical. So the board's own firmware writes NVS/SPIFFS while it
+runs, and **a raw sha256 compared across sessions is the wrong test** — it flags a perfect backup. Use
+`tools/backup_compare.py`, which decides by partition TYPE: every `app` partition must match, `data` drift is
+reported and is not an error. Verified both ways: one flipped byte in `app0` exits 1, `spiffs`-only drift exits 0.
+
+    tools/backup_board.sh verify /dev/ttyUSB1 backup/esp32s3-xxxxxxxxxxxx-8MB-20261102-0837.bin
+
+## Heltec V3 (LoRa board), **not** the App Store board
 
 > **Correction, same day.** This backup was first recorded as the ESP32-S3 that runs the App Store firmware. It is not.
 > The board that answered on `/dev/ttyUSB0` is a **Heltec V3 (ESP32-S3 + SX1262)** running **Meshtastic**, built with
