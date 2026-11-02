@@ -290,3 +290,18 @@ binary left on disk by the *previous* build. `riscv32-esp-elf-size build/.../ulp
 
 The related trap in the same class: `-Werror=comment` killed a build because a guardrail comment quoted a shell glob — the
 compiler takes `/*` inside a block comment as a nested open. Comments quoting commands must avoid that sequence.
+
+## R22 — Diffing dynamic registers is not evidence; write the bit and read it back
+
+A one-shot dump of two machines that "differ" in a control register is a hypothesis, not a finding: many RTC/ANALOG block
+registers are counters, sample-and-hold values, or W1TS aliases whose contents depend on *when* they were read. On
+2026-11-01 a 544-word diff found `RTC_CNTL_ULP_CP_CTRL_REG = 0x60` here and `0x62` there; the tempting conclusion was a
+coprocessor enable bit. One write of that bit and one read-back later it was `0x0010023F` — the register is a snapshot of
+the ULP timer sequencer, and setting the bit changed nothing.
+
+Two habits:
+
+* **Before chasing a differing bit, write it and read it back.** If the value does not hold, the register is dynamic and
+  the diff was noise.
+* **Classify each differing register before interpreting it** (`*_STATE`, `*_INT_`, ADC/ATTN, W1TS/W1TC aliases are all
+  dynamic by construction). A diff that survives classification is worth a flash; one that doesn't is worth a comment.

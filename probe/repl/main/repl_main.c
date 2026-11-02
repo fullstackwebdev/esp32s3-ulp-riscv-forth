@@ -22,6 +22,8 @@
 /* GUARDRAIL: RTC_GPIO_* and RTC_IO_TOUCH_PAD0_* live in soc/rtc_io_reg.h, not in soc.h - the pad driver pulls it in
  * transitively for its own translation units, so #g failed to compile the first time with "undeclared". */
 #include "soc/rtc_io_reg.h"
+/* GUARDRAIL: F-163: the 544-word register diff found it in RTC_CNTL_ULP_CP_CTRL_REG, so that block is included. */
+#include "soc/rtc_cntl_reg.h"
 /* GUARDRAIL: SENS holds the RTC IO MUX clock gate (SENS_SAR_PERI_CLK_GATE_CONF_REG bit 31). The C driver's ULP enables
  * it from the ULP via ulp_riscv_gpio_init; our ULP cannot write any peripheral (F-157), so it has to be done HERE. */
 #include "soc/sens_reg.h"
@@ -604,6 +606,26 @@ static void seed_poll(void)
              * Confirm with strings on the elf (search for the HWPROBE probe string) before trusting either answer.
              * GUARDRAIL: never write a glob-plus-star inside a block comment - the compiler takes it as a nested comment
              * open and -Werror=comment fails the build, which is how this line changed. */
+            /* GUARDRAIL: `#d` dumps the register blocks the ULP's peripheral access depends on, one word per line, in a
+             * fixed order so two firmwares' output can be diffed literally. The disassembly of the working and broken
+             * ULP images is instruction-for-instruction the same store to the same address, so the difference HAS to be
+             * some enable bit - and the only way to find an unknown bit is to ask two machines the same question and
+             * compare their answers. Read from the HP core, which is the trustworthy reader (F-158).
+             * GUARDRAIL: read-only. Writing RTC_GPIO_OUT with arbitrary bits reboots the S3 (F-152); these are reads of
+             * read-mostly config registers, plus RTC_GPIO_IN, which is an input. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'd' && (ln[2] == 0 || ln[2] == ' ')) {
+                static const uint32_t blocks[4] = { 0x60008400u, 0x60008800u, 0x60010000u, 0x600C0000u };  /* RTCIO SENS RTC_CNTL SYSTEM */
+                static const uint32_t lens[4]   = { 0x400u, 0x100u, 0x300u, 0x80u };
+                for (int b = 0; b < 4; b++)
+                    for (uint32_t o = 0; o < lens[b]; o += 4) {
+                        printf("REG 0x%08X = 0x%08X\n", (unsigned)(blocks[b] + o),
+                               (unsigned)REG_READ(blocks[b] + o));
+                        vTaskDelay(1);      /* GUARDRAIL: see the reference build's note: a partial dump beats a full diff */
+                    }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
             if (n >= 2 && ln[0] == '#' && ln[1] == 'z' && (ln[2] == 0 || ln[2] == ' ')) {
                 REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
                 uint32_t w0 = ulp_repl_wake_count;
@@ -1367,6 +1389,11 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON));
     ESP_ERROR_CHECK(ulp_riscv_load_binary(bin_start, (size_t)(bin_end - bin_start)));
     ESP_ERROR_CHECK(ulp_set_wakeup_period(0, 6460));
+    /* GUARDRAIL: F-163 was tested and REJECTED here, and the rejection is the finding: setting
+     * RTC_CNTL_COCPU_START_2_RESET_DIS (the one bit that differed in the 544-word register dump) both before and after
+     * ulp_riscv_run() left the store LOST, and the read-back proved the register is a dynamic snapshot - it read
+     * 0x0010023F microseconds after the set, so 0x60-vs-0x62 was two machines sampled at different points in the ULP
+     * timer sequence, not a configuration difference. Do not re-pursue this bit. */
     ESP_ERROR_CHECK(ulp_riscv_run());
 #if defined(ULP_EARLY)
     /* GUARDRAIL: clear pad 8's data bit AFTER arming the coprocessor, then sample on the ULP's own cadence (it wakes

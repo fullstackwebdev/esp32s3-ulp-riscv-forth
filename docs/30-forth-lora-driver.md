@@ -597,3 +597,34 @@ this investigation has already been paid for with a flash cycle that produced a 
 | `probe/lora` (C bit-bang ULP driver) | **transmits** — `tx_ok` rising, `status 0x2C`, 12/12 packets, including with the HP core awake |
 | `examples/apps/lora/lora1.fs` (Forth driver) | **does not transmit.** Wire-identical to the C driver on the host (14 transactions / 55 bytes, suite 30 PASS); refused by the board only by the peripheral access above |
 | App Store (the original goal) | done, merged to `main`, 16/16 through a pty |
+
+## 10. The decompile and the register diff (F-163, negative — and that is the answer)
+
+Two machines, both sides read by the HP core, one command.
+
+**Disassembly.** `reset_vector`, `__start` (`auipc sp` / `addi sp` / `jal ulp_riscv_rescue_from_monitor` / `jal main` /
+`jal ulp_riscv_halt`), and the store itself are the same instructions in both images:
+
+```
+reference:  17e: lui  a5,0x60008   182: lui a4,0x40    186: sw a4,1028(a5)   # 60008404  (OUT_W1TS, bit18)
+ours:       138: sw a3,1028(a5)    # 60008404          (same encoding, same value, reached from main's first block)
+```
+
+**Register diff.** `#d` (probe/repl) and the stay-awake build (probe/lora) print the *same* 544 words — RTCIO
+`0x60008400..0x60008800`, SENS `0x60008800..0x60008900`, RTC_CNTL `0x60010000..0x60010300`, SYSTEM
+`0x600C0000..0x600C0080`. Four differences, all explained:
+
+| register | ours | ref | explanation |
+|---|---|---|---|
+| `0x600088A8..0x600088D8` (10 words) | various | various | SAR/ADC analog block — reads change with every sample |
+| `0x60010100 RTC_CNTL_ULP_CP_CTRL` | `0x60` | `0x62` | **dynamic**: writing bit 1 (`COCPU_START_2_RESET_DIS`) and reading it back 1 µs later gave `0x0010023F` — the two machines were sampled at different points in the ULP timer sequence. Setting the bit (before *and* after `ulp_riscv_run()`) left the store LOST. |
+| `0x60010200` | `0x13` | `0x91` | RTC_CNTL status register — by definition a snapshot |
+| `0x600C0020 SYSTEM_PERIP_RST_EN0` | `0x9EFF1FF8` | `0x9EFF1FB8` | bit 6 = `SPI2`; the reference's `bus_probe()` initialises and releases hardware SPI2, this app never uses it. Nothing to do with RTCIO. |
+
+So there is **no enable bit difference**, which is itself the strongest evidence yet that the difference is not in
+configuration at all. Combined with §8–§9 (flags, sdkconfig, footprint, HP ordering, the ULP's own `gpio_init`, this
+bit) the eliminated list is now: everything the register-level view can see.
+
+**What that leaves**, and it is the §9 matrix's blank cell, unchanged: the reference ULP source, built and booted by this
+app. It needs a bridge shim (the exported variables), and it is the only remaining experiment that can separate "this
+app's HP side" from "this app's ULP build". Every other shape of that question has now been asked and answered.
