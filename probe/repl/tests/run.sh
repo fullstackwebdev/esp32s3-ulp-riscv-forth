@@ -204,6 +204,17 @@ case "$unk" in
     *) echo "FAIL  unknown code printed '$unk'" >&2; fail=1 ;;
 esac
 
+# --- the Forth SX1262 driver: decodes its bit-banged SPI from the host's own pin trace -----------------
+# GUARDRAIL: this runs on the host with NO simulated radio. It asserts the wire bytes only, and it names the one thing it
+# cannot know (DIO1 never rises), rather than asserting a success the harness cannot produce.
+echo
+if python3 tests/lora_spi.py; then
+    echo "PASS  the Forth LoRa driver puts the C driver's byte stream on the wire"
+else
+    echo "FAIL  the Forth LoRa driver's wire bytes differ" >&2
+    fail=1
+fi
+
 # GUARDRAIL: the suite reports BEHAVIOUR only. It used to end with `./countdown.sh`, a third reporter of the
 # image budget: after the app-space re-bake it printed "app space 354 B, 131 B free pool" for a lever — two
 # different headroom figures in one line, neither of them earned. Pool is owned by flash_safe.sh (which

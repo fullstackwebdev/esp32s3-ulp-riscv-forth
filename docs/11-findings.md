@@ -858,3 +858,32 @@ Each time the arithmetic was checked and the *label* was not. The fix that has h
 value (`bytes_per_s`), then convert with the factors written out (`sck_hz = bytes_per_s * 8`), and print both. A ratio of
 two rates written inline is where the factor goes missing.
 
+### F-146 — This dialect's return stack leaks: `>R` / `R>` in a called word leave extra cells
+
+A bit-banged SPI byte loop was written the natural Forth way, holding the accumulating byte on the return stack
+(`0 >R`, `R> 2 * ... + >R`, `R>` at the end). On the host engine it appeared to work — and then every *second* byte of a
+command came out as `0x00`. Measured directly:
+
+```
+7 9 LORA_SPIX . . .   ->  0 2304 7        (three numbers where one was expected)
+```
+
+so each call left **two extra cells** on the data stack, which silently shifted every later argument by two positions. A
+single byte in isolation works, which is what makes this hide: the first call after a clean stack looks perfect.
+
+**Fix / rule.** No `>R`/`R>` inside words that call other words in this machine. The driver was rewritten with an
+**unrolled** shift (`LORA_SHIFT ( b -- b*2 )`, eight times), which is stack-neutral, needs no index, and is the faster
+shape anyway. When a dialect's stack words behave unexpectedly, do not build the fix on the same word: change the shape of
+the code so it cannot matter.
+
+### F-147 — A 16-bit field will accept your 8 bits without complaint
+
+`SetPacketParams` begins with a 16-bit preamble length. The Forth driver sent only the low byte, so every subsequent field
+moved up one position: the payload length was interpreted as the header type, the CRC type as the payload length. The
+radio would have been configured, would have transmitted, and would have sent something that was not what the code said.
+
+**What caught it** was comparing the byte stream to the proven C driver's, transaction by transaction. No amount of
+re-reading the Forth would have: `02 08 00 14 01` looks like a perfectly reasonable payload until it is aligned against
+`00 08 00 14 01 00`. Opcode-argument alignment is exactly what a golden byte stream tests and what a "it runs" test does
+not.
+

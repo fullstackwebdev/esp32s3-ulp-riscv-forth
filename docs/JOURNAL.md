@@ -2368,3 +2368,23 @@ written - that the capture I had saved did not actually contain `wakes 31` (a sh
 smoothed away. A document with a wrong number is worse than no document; F-143 and F-144 both cost a session's worth of
 confusion in the same week.
 
+**J-122 · The SX1262 driver, in Forth, verified byte-for-byte without a radio.**
+`examples/apps/lora/lora1.fs` bit-bangs SPI on GPIO!/GPIO@ alone - **zero new primitives** - and compiles to **958 B**
+(HERE 786 -> 1744), which fits the 1 037 B phase window with 79 B to spare. Against the C driver's 2 804 B that is a third
+of the size, and the wire is identical: `probe/repl/tests/lora_spi.py` reconstructs the SPI byte stream from the host
+engine's own pin trace and compares **transaction by transaction** against the 14-command cold-init sequence the C driver
+runs on real hardware (55 bytes), plus the transmit path through SetTx (WriteBuffer with the 20 payload bytes,
+ClearIrqStatus, SetTx). Wired into run.sh: the host suite is 30 PASS.
+
+Three bugs fell out before any hardware was touched, and two are general lessons. **F-146**: this dialect's >R / R> leave
+TWO extra cells per call when used inside a word that calls other words (`7 9 LORA_SPIX . . .` printed three numbers), so
+every second command byte arrived as 0x00 - fixed by unrolling the bit loop into eight stack-neutral shifts, which is
+faster as well. **F-147**: SetPacketParams starts with a 16-bit preamble and the driver sent only its low byte, shifting
+every following field by one; only the golden byte stream could see that. Plus R15 in person: a pin constant named
+LORA_RESET collided with a word of the same name, so `1 LORA_RESET LORA!` called the reset word recursively and the machine
+said only "error".
+
+Not done, and named in docs/30 §5: the file is not yet packaged as a device phase (block source has no line boundaries, so
+its `\` comments are refused by R1 and LORA_INIT does not fit one 92 B block - R11), it has never run on a radio, and the
+~30-40 kHz bus estimate is still an estimate because measuring it needs our interpreter on this board.
+
