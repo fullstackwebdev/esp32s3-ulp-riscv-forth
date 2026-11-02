@@ -343,3 +343,37 @@ The experiment that settles it does not need a guess: have the HP core queue a F
 and read `#g` after waking. If the register changed, the contention hypothesis is right and the Forth driver needs the
 same shape as the C driver — ULP owns the radio *while the CPU sleeps*, which is also what the power budget in `docs/29`
 assumes anyway.
+
+### F-157 — the contention hypothesis is dead; the write is swallowed even with the HP core asleep
+
+`#n` clears `OUT` bit 18 (`100` = pin 8) **from the HP core** — a baseline that cannot already satisfy the test — queues
+`262144 1610646532 !` (a `W1TS` set of that same bit) into the ring, enters light sleep for 1 s so the ULP owns the bus,
+and then reads the register:
+
+```
+gpio: cleared bit18 (HP), OUT now 0x00400000
+gpio: queued '262144 1610646532 !', sleeping 1 s
+gpio: after sleep OUT 0x00400000 (bit18 clear)
+262144 1610646532 !   ok
+```
+
+The ULP ran the command (`ok`) and the register did not move. So F-156's hypothesis — "RTCIO is only reachable from the
+ULP while the HP core is asleep" — is **wrong**, and it is retired rather than left standing.
+
+What is left, and what it is now measured against:
+
+* The gate is **active**: `wr32`/`rd32` contain the real `sw`/`lw` behind the `0x60008400…+0x5FF` compare (verified in
+  the disassembly of the flashed blob, which is fresh: `ulp_main.bin` rewritten at flash time), and an address above
+  `MEMSZ` behaves differently from a register address — `532480 → pad13 → 532480` round-trips exactly, while `5000`
+  does not round-trip at all, because `junk` is one byte and all four byte writes alias onto it.
+* The store reaches *something* that echoes it back on read, while the HP core sees no change, in both directions.
+* The C driver's `REG_WRITE(RTC_GPIO_OUT_W1TS_REG, …)` from the same core at the same address works — the radio answered.
+
+The next experiment is a **minimal C function in this same ULP binary** — five lines that do one `REG_WRITE` to
+`RTC_GPIO_OUT_W1TS_REG` and return — invoked from the HP core. That separates "this ULP program cannot reach a
+peripheral" from "this interpreter's access path cannot", which no Forth-level probe can distinguish. It needs ULP
+bytes, so it waits for the budget: the image is at **7 931 / 7 932 B**, one byte free, and the honest place to find them
+is the driver's own dictionary (`MEMSZ`), not another squeeze of the engine.
+
+`docs/30` §6e's table still stands, with one line changed: `INIT .` → `1` is not merely vacuous, it is **known** to be
+vacuous, because the pad read that would make it real returns 0 for every input state.

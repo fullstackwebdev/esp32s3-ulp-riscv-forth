@@ -32,6 +32,7 @@
 #include "../src/msg_expand.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_sleep.h"
 #include "ulp_riscv.h"
 #include "ulp_main.h"
 #include "flash_store.h"
@@ -586,8 +587,11 @@ static void seed_poll(void)
              * reads 0 for every pin, so "BUSY low, so ready" passes with nothing connected. A read that must return 1 when
              * the pad is driven high is the only version of this test that can fail. `#r` returns the pad to INPUT_ONLY
              * because leaving it driven would fake a busy radio for every later probe. */
-            if (n >= 2 && ln[0] == '#' && ln[1] >= 'h' && ln[1] <= 'r' && ln[1] != 'k' &&
-                ln[1] != 'u' && ln[1] != 'b' && ln[1] != 'c' && ln[1] != 'x' && (ln[2] == 0 || ln[2] == ' ')) {
+            /* GUARDRAIL: name the three letters, never a range. `ln[1] >= 'h' && ln[1] <= 'r'` silently swallowed
+             * `#n` (the light-sleep probe) and drove the pad low instead - an untyped range over a CLI alphabet is a
+             * trap that grows every time a command is added inside it. */
+            if (n >= 2 && ln[0] == '#' && (ln[1] == 'h' || ln[1] == 'l' || ln[1] == 'r') &&
+                (ln[2] == 0 || ln[2] == ' ')) {
                 if (ln[1] == 'r') {
                     rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_INPUT_ONLY);
                     printf("pad13: input (released)\n");
@@ -599,6 +603,39 @@ static void seed_poll(void)
                     rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_INPUT_OUTPUT);
                     rtc_gpio_set_level((gpio_num_t)13, ln[1] == 'h' ? 1 : 0);
                     printf("pad13: %s\n", ln[1] == 'h' ? "driven high" : "driven low");
+                }
+                fflush(stdout);
+                n = 0;
+                continue;
+            }
+            /* GUARDRAIL: `#n` settles F-156 - does the ULP's RTCIO access reach the hardware at all when the HP core is
+             * asleep? It queues a single-bit W1TS write (pin 8 = NSS, never an arbitrary OUT value: F-152 showed 12345
+             * rebooting the S3 because those bits are flash/brownout pads), enters light sleep for 1 s so the ULP runs
+             * with the bus to itself, then prints the register as this core sees it. If OUT gains bit 18, the contention
+             * hypothesis is right and the driver must own the radio only while the CPU sleeps - which is the shape
+             * docs/29's power budget already assumes. */
+            if (n >= 2 && ln[0] == '#' && ln[1] == 'n' && (ln[2] == 0 || ln[2] == ' ')) {
+                static const char *probe_cmd = "262144 1610646532 !";
+                uint32_t h = ulp_repl_cmd_head, tl = ulp_repl_cmd_tail, i, L = (uint32_t)strlen(probe_cmd);
+                if (CMD_SIZE - (h - tl) < L + 1u) {
+                    printf("gpio: ring full - probe NOT queued\n");
+                } else {
+                    for (i = 0; i < L; i++) CMD_BYTES[(h + i) & CMD_MASK] = (uint8_t)probe_cmd[i];
+                    CMD_BYTES[(h + L) & CMD_MASK] = '\r';
+                    ulp_repl_cmd_head = h + L + 1u;
+                    /* GUARDRAIL: clear the bit from the HP core FIRST. The first version queued only the ULP's set and
+                     * read back "bit18 SET" - but NSS is idled high by lora_pads_setup, so the bit was already set and
+                     * the probe could not fail. A test whose baseline already satisfies it proves nothing; and the ULP
+                     * cannot clear it either, because a ULP W1TC is swallowed exactly like W1TS (that is the question
+                     * being asked, so it cannot be part of the question's setup). */
+                    REG_WRITE(RTC_GPIO_OUT_W1TC_REG, 1u << (8 + 10));
+                    printf("gpio: cleared bit18 (HP), OUT now 0x%08X\n", (unsigned)REG_READ(RTC_GPIO_OUT_REG));
+                    printf("gpio: queued '%s', sleeping 1 s\n", probe_cmd);
+                    fflush(stdout);
+                    esp_sleep_enable_timer_wakeup(1000000ULL);
+                    esp_light_sleep_start();
+                    printf("gpio: after sleep OUT 0x%08X (bit18 %s)\n", (unsigned)REG_READ(RTC_GPIO_OUT_REG),
+                           (REG_READ(RTC_GPIO_OUT_REG) & (1u << (8 + 10))) ? "SET" : "clear");
                 }
                 fflush(stdout);
                 n = 0;
