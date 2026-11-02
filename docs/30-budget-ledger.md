@@ -175,3 +175,14 @@ already lean enough that remaining savings would change what it draws, and share
   window grows (the window is `MEMSZ` minus resident text, and resident text is where
   `msg_*`/error strings live: `msg_load` 176 B, `msg_bad` and `msg_badblock` 81 B each - but
   `LOAD?` and `BAD+` are load-bearing for tests and `docs/26`, so only some of that is free.)
+* Correction to the bullet above, from reading the source rather than the map: there is **no resident string fat
+  to trim**. Messages are one byte (`msg(MSG_BANNER)`, `msg(MSG_LINE_TOO_LONG)`, `MSG_OK`, `MSG_UNDERFLOW` -
+  `msg_codes.h`); the human text lives on the host. The `msg_*` arrays that show up in the map belong to the
+  host-side tables, so a plan of "share the FATAL / BAD prefixes" would have optimised bytes that are not in
+  the pool. The resident 2 438 B is primitives and console code, which is why every size lever so far has been
+  a compiler flag and not a source edit.
+* Therefore the remaining honest routes for the ~100 B, in the order they should be tried: (1) split the shelf
+  into a drawing phase and a dispatch phase - the open-path split measured a real -55 B, and a second split of
+  the grid/card words should get under 999 B even after duplicating the handful of primitives a phase needs
+  on its own; (2) shorten the card label strings, which changes what the shelf draws and so is the user's call,
+  not mine; (3) buy ~100 B of coprocessor text, which the flag sweep says is not available.
