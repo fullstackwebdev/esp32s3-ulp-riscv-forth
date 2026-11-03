@@ -1,30 +1,35 @@
-# An interpreted, multi-tasking, block-storage Forth in eight kilobytes, with 3 bytes to spare.
+# An interpreted, block-storage, phase-chaining Forth in eight kilobytes, with 11 bytes to spare.
 
 **What it is.** A Forth machine that lives entirely inside the ESP32-S3's 8 KB coprocessor. You type
-Forth at a serial console; the ULP interprets and compiles it on-chip, runs it, multi-tasks it, and reads
-and writes durable blocks through the main core — which never executes a single token of Forth.
+Forth at a serial console; the ULP interprets and compiles it on-chip, runs it, loads and chains built
+program *phases* through a flash-backed store, and reads and writes durable blocks — the main core is a byte
+pump that never executes a single token of Forth.
 
-The whole machine — interpreter, dictionary, two task slots, console ring, block client, error paths —
-is **7 853 of 7 856 bytes**.
+The whole machine — interpreter, dictionary, console ring, block client, phase dispatcher, error paths —
+is **7 845 of 7 856 bytes**. It also *had* multi-tasking; that is what the reclaim spent (below).
 
 ## What it does
 
+Measured on the flashed board, this build (`' X .` prints the word's xt or names the miss):
+
 ```
-0 BLOCK .            -> 1072 ok          (address of the 128 B window)
+0 BLOCK .            -> 2438 ok          (address of the 128 B block window)
 65 0 BLOCK C!        -> ok
-UPDATE               -> ok
-SAVE .               -> 0 ok             (checksummed write to the main core's store)
+SAVE .               -> 0 ok             (checksummed write, through the main core, into a flash partition)
 0 BLOCK C@ .         -> 65 ok            (read back, checksummed the other way)
 
 : FIB DUP 2 < IF ELSE DUP 1- FIB SWAP 2 - FIB + THEN ;
 10 FIB .             -> 55 ok
 15 FIB .             -> ERR_STACK        (too deep for 16 cells - named, not wrong)
 
-1 BLOCK .            -> ERR_DIRTY -7     (refuses to clobber unsaved edits)
-
-SPAWN TA SPAWN TB    -> 1324             (two compiled words interleaving)
-SPAWN TA SPAWN TB SPAWN TC -> ERR_TASKS  (only two slots, and it says so)
+' SEAL .             -> 446 ok           (the store's seal is resident)
+' BLOCK .            -> 3962 ok          ' LOAD . -> 3954 ok
+' SPAWN .            -> SPAWN?           (tasks are NOT in this image - see "the memory we reclaimed")
 ```
+
+A **program**, on the other hand, is not typed in: it is a chain of phases built through the store by
+`./cli.py` (see "Programs are chains of phases"), which is how a 999 B window runs a 1 328 B cipher and a
+radio stack that would never fit the dictionary.
 
 Compiled words, recursion, `DO..LOOP`, `IF/ELSE/THEN`, `CREATE`/`CONSTANT`, case-insensitive lookup,
 backspace, `ok`, named errors - a real Forth REPL, on a coprocessor.
@@ -47,11 +52,11 @@ server**. Then it does nothing else.
 **Memory layout** - three regions that grow toward each other, checked before every write:
 
 ```
-0        code area (code field + 2-byte tokens + 4-byte literals)       -> 578
-         ...154 B of free program space...
-904      header area, 85 words x 4 B, growing DOWN                      -> 1244
-         BLKADR = 1072: the 128 B block window sits below the headers
-1200     end of mem[]  (MEMSZ)
+DICT 56  code area (code field + 2-byte tokens + 4-byte literals)   -> grows up
+         ...app space: 1 453 B after the reclaim, 786 B used at boot...
+HDRTOP   header table growing DOWN from BLKADR (BLKADR = MEMSZ - 128)
+BLKADR   the 128 B block window sits between the headers and the end of mem[]
+MEMSZ 2 566 = end of mem[]
 ```
 
 **Blocks.** `BLOCK` writes 4 words into a mailbox (block, op, checksum), rings a doorbell, and polls for
@@ -59,8 +64,10 @@ status. The main core copies **128 B** between its store and the ULP's window, s
 writes the status **last** so the ULP can never read a half-copied buffer. The ULP never touches flash or
 PSRAM - it cannot.
 
-**Tasks.** Two VM snapshots of 136 B each (`DS[16]`, `RS[16]`, `SP`, `RSP`, `W`, `IP`). `SPAWN` takes a
-word by name, the scheduler steps one task per wake after the drain finishes, `PAUSE` rotates.
+**Tasks (source only, not resident).** Two VM snapshots of 136 B each (`DS[16]`, `RS[16]`, `SP`, `RSP`, `W`,
+`IP`). `SPAWN` takes a word by name, the scheduler steps one task per wake after the drain finishes, `PAUSE`
+rotates. The shipping image leaves this out (`' SPAWN .` -> `SPAWN?`) because those bytes buy app space instead -
+docs/23 prices both sides of that trade.
 
 **Messages.** The ULP emits **one byte** per message (`0x81`-`0x90`); the host expands it from a table
 both cores generate from one X-macro. Zero message strings exist in the ULP image, and the operator's
@@ -70,11 +77,14 @@ transcript is byte-identical to when it did.
 
 | | |
 | --- | --- |
-| pool used | **7 853 / 7 856** |
-| ULP image | 6 780 B |
-| rodata | 308 B - **only** the dispatch jump table (67 x 4) |
-| mem[] | 1 200 B: 578 code + 340 dictionary + 154 free + 128 block window |
-| dictionary | **340 B for 85 words** (730 B with names and links) |
+| ELF sections | text **4 834** + data **2 584** + bss **513** = **7 931 B** (`riscv32-esp-elf-size`) |
+| ULP binary on the wire | **7 424 B** (boot banner; `ulp_main.bin`) |
+| pool used | **7 845 / 7 856** - the pool is the budget authority (`flash_safe.sh`), 11 B spare |
+| `MEMSZ` | **2 566** (the resident dictionary + block window live in `.data`) |
+| resident, sealed | **2 438 B** |
+| phase window | **999 B** in this budget; **1 193 B** with the dispatcher-only launcher (`./cli.py --library`) |
+| block store | flash partition, 128 B blocks, `BLK1` superblock, 32 blocks per sector - no longer the HP core's RAM |
+| image wall | an 8 027 B build **does not boot**; every byte of `.text`/`.bss` saved becomes app space 1:1 |
 
 That came from four measured levers: hash headers **-406 B**, `-msave-restore` **-224 B**, one-byte
 messages **-104 B of rodata**, `NTSK 3->2` **-152 B** - plus earlier work (`lhu` fetch, number-first
@@ -89,23 +99,31 @@ parse, hand-written copies).
   rejected with a number (`-Oz` is byte-identical to `-Os`; `-fno-jump-tables` costs +88 B net).
 - **Failures are named**: `ERR_STACK`, `ERR_DIRTY`, `ERR_TASKS`, `ERR_CRC`, `ERR_RANGE`, `ERR_BUFOVER`,
   `ERR_DICT`, and an unknown message code names itself. No silent defaults.
-- **Nine host tests**, one of which is documented as decorative because its bug is target-only (see
+- **A host suite plus board gates**, one of which is documented as decorative because its bug is target-only (see
   `probe/EVIDENCE.md` E-080): a test that cannot fail is not coverage, and the record says which.
 
 ## Honest limits
 
-154 B of program space (a few small definitions). 128 B blocks, 8 of them, **in the main core's RAM - no
-flash, no PSRAM** (R7 unwritten). Recursion depth **15** (a 1-cell-per-level word; 16 is refused with `ERR_STACK`). One block request in flight, and
-a timeout wedges the layer until reset. No names in the dictionary, so no `WORDS` or `SEE`.
+A **typed-in** program has the resident dictionary to grow in (1 453 B of app space, was 690 B), and a **built**
+program gets one phase window at a time (999 B here, 1 193 B with the dispatcher-only launcher) - it must be chained to
+exceed that. Recursion depth **15** (1 cell per level; 16 is refused with `ERR_STACK`). One block request in flight, and a
+timeout wedges the layer until reset. Tasks (`SPAWN`) are implemented but **not resident** in the shipping image - they
+are what paid for the reclaim. No names in the dictionary, so no `WORDS` or `SEE`.
 
 ## What is left
 
-**R7 - persistence**: replace the RAM store with a flash partition (4 KB erase vs 128 B blocks is the open
-design question), which turns 8 blocks into megabytes without touching the protocol. Then `SD 32` when
-bytes allow, and program space beyond 154 B.
+**R7 - persistence: done.** The store is a raw `esp_partition` with a `BLK1` superblock and 128 B blocks, so a chained
+program survives reset and the bound is the partition, not RAM (docs/22). What that unlocked is the phase model above.
 
-The single sentence version: **the constraint was the architecture, and the architecture now holds - an
-interpreted, multi-tasking, block-storage Forth in eight kilobytes, with 3 bytes to spare.**
+**The open item is the radio, and it is one direction.** Our stack receives a stock Meshtastic node and its own frames are
+byte-identical to Meshtastic's encoding, but no stock node has ever decoded our transmission. `docs/32-handoff-meshtastic-interop.md`
+is the complete state: every experiment, every result, the instrumentation traps, and the ranked hypotheses.
+
+Beyond that: more app space (the asm dispatcher is priced at 400-700 B), and the display leg stays cancelled (J-54).
+
+The single sentence version: **the constraint was the architecture, and the architecture now holds - an interpreted,
+block-storage, phase-chaining Forth in eight kilobytes, with 11 bytes to spare, and multi-tasking spent on purpose to
+make room for programs bigger than the dictionary.**
 
 ---
 
@@ -145,13 +163,72 @@ ulp forth
 BOGUS          →  BOGUS?
 ```
 
-**Current, measured:** image **6 888 B** on the wire; pool **7 852 / 7 856** (`.text`+`.rodata` 5 168, `.data` 1 720,
-`.bss` 964); `MEMSZ` 1 704 with `V_HERE` 1 146 at boot → **558 B of app space**; C-stack reserve 340 B.
-**Multi-tasking (R4) is live**: `SPAWN TA SPAWN TB` with `PAUSE` bodies prints `1324`, three tasks `131242`.
-Dispatch is **1 139 cycles**/token (was 1 758), a typed literal **1 623** (was ~28 000). Blocks are **not** in this
-image: 456 B of words + a 512 B buffer + ~500 B of plumbing against 558 B of app space (E-062).
-rodata **4 818 B**, baked dictionary **1 280 B**. Not yet in the image: blocks (`BLOCK`/`SAVE`) and tasks.
-There is no display work: that leg was cancelled (J-54).
+**Current, measured (shipping build, this branch):** ULP image **7 424 B** (boot banner), pool **7 845 / 7 856**
+(`flash_safe.sh` is the budget authority; an 8 027 B image does not boot - docs/30), sealed resident **2 438 B** with a
+**1 193 B phase window** for the dispatcher-only launcher (`./cli.py --library` on a fresh board). `HERE` reads **786**
+at the prompt. Blocks are in: `' BLOCK .` → `3962`, `' LOAD .` → `3954`, `0 BLOCK .` → `2438`.
+Dispatch is **1 139 cycles**/token (was 1 758), a typed literal **1 623** (was ~28 000). There is no display work: that
+leg was cancelled (J-54).
+
+**Multi-tasking was live and was then spent.** `SPAWN TA SPAWN TB` printed `1324` (three tasks `131242`) in the era
+measured at `MEMSZ` 1 704 with 558 B of app space. The shipping image **trades it for app space**: `' SPAWN .` answers
+`SPAWN?` today. The machinery is still in the source behind `P43_TASKS`, and docs/23 prices it: removing it is what paid
+for the first big reclaim.
+
+## Programs are chains of phases
+
+This is the design that made everything after it possible, and it is worth stating plainly because it inverts the usual
+"one program fits in memory" assumption.
+
+* A **phase** is one *built image*, laid out through the store at a descriptor, and sized to fit the **window above the
+  seal** - never larger than the window, so it always fits.
+* A **program** is a **chain** of phases. The launcher is handed the first phase's descriptor; every later phase is
+  reached by that phase itself executing `CHAIN <descriptor>`. **Descriptor 0 is the end of the chain** (it is also the
+  dispatcher's STOP value, so a chain cannot accidentally run past its end).
+* **Phases reuse memory; they do not add it.** A chain gives sequence, not space: a phase is swapped in over the
+  previous one. Consequence, measured: a phase cannot call another phase's words, so the primitive set must be resident
+  and each phase re-declares what it needs (and declares its scratch with `\ SCRATCH: NAME`, one per line, which is what
+  the linter checks).
+* The resident side stays **thin**: a dispatcher and a registry, nothing else. That is what leaves room for a phase.
+
+Measured: a **24-hop chain** proven end to end, hops at **~2.1 ms**, a **1 193 B window** per phase (dispatcher-only
+launcher) versus **254 B** left by the menu launcher *on purpose*, and 15 phases driven from images in the capability
+suite. The descriptor map lives in `cli.py`'s `LIBRARY` together with a check that every phase's `CHAIN` literal matches
+its successor - without that check a stale chain is silent, because it jumps to a block holding a different image.
+
+This is also why the cipher is split: AES-128-CTR needs **1 328 B** of working state, the window is **999 B**, so the
+cipher is **six chained phases**, and the state is handed from one to the next in the radio's own 256-byte buffer (proven
+adoptable, docs/31):
+
+| phase | descriptor | size | what it does |
+| --- | --- | --- | --- |
+| `aesseed` | 80 | 663 B | radio config, nonce, round 0 |
+| `aessub` | 88 | 836 B | SubBytes |
+| `aessr` | 96 | 722 B | ShiftRows |
+| `aesmc` | 104 | 985 B | MixColumns |
+| `aesark` | 112 | 898 B | AddRoundKey + round counter, chains back to 76 while round < 11 |
+| `aesout` | 72 | 804 B | encrypt, frame, transmit |
+
+## The memory we reclaimed
+
+The wall is real and measured: the ULP image plus its pool is **7 856 B**, and an image of **8 027 B does not boot**.
+App space is resident dictionary space, and the image trades against it 1:1 (`.data` holds the pool).
+
+| era | resident app space | how |
+| --- | --- | --- |
+| book-era build (`MEMSZ` 1 688) | **690 B** | measured at the prompt |
+| **after the reclaim** | **1 453 B** | **+763 B, 2.1x** - remove the task machinery from the shipping image and re-bake at `MEMSZ` 2 700 |
+| dispatcher-era launcher | window **1 193 B** per phase | thin resident (dispatcher + registry only), fat phases |
+
+Two findings from that work are worth carrying forward. First, the stack high-water is **240 B** on every path exercised
+(loads, adopts, executes, 15 phases) against a 324 B painted reserve, i.e. **84 B of slack**, and nothing in the paging
+path went deeper - so the reserve is a candidate, not a mystery. Second, the tool that reported it was wrong: the canary
+kept the *highest* changed byte instead of the lowest, which reported **1 B** of use for a machine using 240, and sent two
+earlier attempts hunting a wrong base. The base was always right.
+
+The reclaim is why the radio fits at all: the LoRa driver and receive path fit in **two phases** (992 B receive, 939 B
+transmit), and only the cipher needs the six-phase split above.
+
 
 **The split is asserted, not assumed.** `probe/repl/tools/assert_ulp_only.py` fails if the main-core executable
 contains an evaluator or a copy of the dictionary outside the embedded ULP image, and P41 is the counterfactual:
@@ -241,7 +318,7 @@ probed; the protocol facts come from a stock node's own over-the-air emissions a
 
 | path | what it holds |
 | --- | --- |
-| `probe/repl/` | the shipping image: `src/` (engine + ULP harness), `main/`, `tests/` (13 checks), `bench/` (5 workloads), `tools/` (`bake.sh`, `device_bench.py`, `disasm.sh`) |
+| `probe/repl/` | the shipping image: `src/` (engine + ULP harness), `main/`, `tests/` (host suite, board gates, the linter's mutation tests), `bench/`, `tools/` (`bake.sh`, `device_bench.py`, `lintgate.py`) |
 | `probe/repl/probe-results/` | per-probe artifacts: `RESULT.md`, the flashed `ulp_main.bin` + `flash_args`, disassembly |
 | `probe/results/` | every probe's `RESULT.md` and kept images, P01 … P52 |
 | `probe/research/P54-*` | the five lever probes: `FINDINGS.md` (measured), `TASK.md` (the brief), diffs and tools |
