@@ -86,7 +86,7 @@ CREATE TBL
   3 C, 142 C, 22 C, 4 C,
   3 C, 143 C, 0 C, 0 C,
   5 C, 139 C, 11 C, 5 C, 1 C, 0 C,
-  5 C, 13 C, 7 C, 64 C, 43 C, 36 C,
+  5 C, 13 C, 7 C, 64 C, 20 C, 36 C,
   4 C, 13 C, 8 C, 216 C, 94 C,
   0 C, 0 C,
   7 C, 140 C, 0 C, 16 C, 0 C, 26 C, 1 C, 0 C,
@@ -120,11 +120,11 @@ CREATE CFGPTR 0 ,
 \ here refuses every definition after it.
 CREATE FRM
   255 C, 255 C, 255 C, 255 C, 24 C, 44 C,
-  236 C, 2 C, 113 C, 154 C, 46 C, 77 C,
-  99 C, 8 C, 0 C, 0 C, 211 C, 130 C,
-  218 C, 149 C, 148 C, 136 C, 82 C, 36 C,
-  184 C, 211 C, 53 C, 53 C, 47 C, 84 C,
-  162 C, 253 C,
+  236 C, 2 C, 201 C, 129 C, 42 C, 95 C,
+  99 C, 8 C, 0 C, 0 C, 149 C, 222 C,
+  165 C, 18 C, 37 C, 234 C, 244 C, 9 C,
+  191 C, 127 C, 206 C, 201 C, 52 C, 74 C,
+  77 C, 53 C,
 : TXBUF ( -- ) FRM CFGPTR ! NSSLO 14 >BYTE 0 >BYTE ;
 : TX ( -- ) NSSLO 131 >BYTE 0 >BYTE 0 >BYTE 0 >BYTE NSSHI ;
 : SETLEN ( n -- )
