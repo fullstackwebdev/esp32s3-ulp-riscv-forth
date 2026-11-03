@@ -41,16 +41,23 @@ without the tree.
 
 `gh` is authenticated on this machine as `fullstackwebdev`. From the repo root:
 
+The repository is **`fullstackwebdev/esp32s3-ulp-riscv-forth`** (created private; the old `esp32-rv32` URL redirects).
+To publish a change:
+
 ```sh
-# 1. everything is committed on the work branch; bring main up to date, non-destructively
-git checkout main && git merge --no-ff ulp-meshtastic -m "merge ulp-meshtastic: LoRa + Meshtastic research"
+# 1. bring main up to date, non-destructively
+git checkout main && git merge --no-ff ulp-meshtastic -m "merge ulp-meshtastic"
 git checkout ulp-meshtastic
 
-# 2. create the remote and push both branches
-gh repo create esp32-rv32 --public --source=. --remote=origin \\
-   --description "An interpreted, multi-tasking, block-storage Forth in 8 KB on the ESP32-S3 ULP — plus a LoRa/Meshtastic stack in Forth"
-git push -u origin main
-git push origin ulp-meshtastic
+# 2. push both branches
+git push origin main ulp-meshtastic
+```
+
+Recreating the remote, if it ever has to be recreated, is a separate step from making it public:
+
+```sh
+gh repo create esp32s3-ulp-riscv-forth --private --source=. --remote=origin \
+   --description "Forth on the ESP32-S3 ULP-RISC-V coprocessor (RV32IMC, 8 KB RTC RAM)"
 ```
 
 Choose `--private` instead of `--public` if the write-up should stay closed for now; nothing in the tree assumes
