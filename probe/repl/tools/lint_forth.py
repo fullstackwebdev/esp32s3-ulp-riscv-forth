@@ -601,6 +601,10 @@ def check_source_shape(src, phase=False, repl=False, limit=63, source_path=None)
     # `1 ;` later made the linter read a count of 1 and report a working driver as broken - a false positive that would
     # have had us "fixing" a correct table.
     walks |= {int(m.group(1)) for m in re.finditer(r"NCMDS[^\n;]*?(-?\d+)\s*;", text_all)}
+    # GUARDRAIL: a table can also be walked with `TBL TP ! 15 BEGIN ... REPEAT`, an idiom R31 did not recognise - so
+    # lora1.fs silently skipped SetPacketParams and SetDioIrqParams for months while every gate stayed green. Accept the
+    # `TBL <ptr> ! <n> BEGIN` form as a count too.
+    walks |= {int(m.group(1)) for m in re.finditer(r"TBL\s+\w+\s*!\s*(\d+)\s+BEGIN", text_all)}
     for name, (blk_line, data) in blocks.items():
         if not data or len(data) < 3:
             continue

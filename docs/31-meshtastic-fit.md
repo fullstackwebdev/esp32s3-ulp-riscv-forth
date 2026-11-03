@@ -941,3 +941,41 @@ TX → named verdict) so a dead link can never again be recorded as a transmitte
 measurement; at BW250 the LoRa CFO tolerance is far wider (≈±62 kHz), so this is recorded as an observation, not yet a
 correction. A transmit-carrier sweep across 869.400…869.480 MHz (5 kHz steps, 3 frames each) was inconclusive because it
 was run while the link was already dead (N.11).
+
+### N.13 What is measured about the transmit direction, and what is not
+
+With the stock node's own device log flowing (`security.debug_log_api_enabled`), every claim below is its verdict, not our
+inference. Parameters swept, each with `TxDone` confirmed on our side:
+
+| dimension | values tried | stock-node reaction |
+|---|---|---|
+| transmit power | −9, −5, 0, 5, 10, 14, 17, 22 dBm | none |
+| preamble | 16, 32, 64, 128, 255, 1024 symbols | preamble-only detections at background rate |
+| carrier | 869.380 … 869.600 MHz in 10 kHz steps | none |
+| PA config | 0x02/0x02, 0x04/0x07, deviceSel 0/1, hpMax 7, duty 5,7 | none |
+| LDRO | off, `0x08` (SX127x form), `0x01` (SX126x form) | none |
+| IQ | standard, inverted | none |
+| sync word | 0x14/0x24 (measured), 0x2B/0x24 | none |
+| frame content | our frame, the stock node's own frame replayed, 17-byte minimal frame | none |
+| board roles | our stack on ec:2c:18; our stack on be:24 | identical result |
+
+Controls that make those negatives meaningful:
+
+* Our **receive** path decodes the stock node 2–3 of 4 frames, `IRQ 0x0016`, RSSI −18 dBm, using the same table family.
+* Our **transmit** is decoded by our own second board 4 of 4 at −19…−22 dBm, and the frame is byte-identical to what the
+  stock node's own library builds from the same text.
+* On-chip registers read back as intended after our init: sync `0x14/0x24`, clamp `0x08D8 = 0x5E`, `RxGain 0x08AC = 0x96`
+  (receive table), `OCP 0x08E7 = 0x38` (≈162 mA), `0x08B5 = 0x04` (the stock node patches bit 0 of this to 0x05 for RX
+  sensitivity; that is a receive-only difference).
+* Their router logs `No suitable channel found for decoding, hash was 0x%x!` for any frame it receives and cannot match.
+  Across every run above that line never appears, so the frames are not reaching the router at all.
+
+One quantitative asymmetry remains, and it is a transmit-output observation, not a protocol one: at the *same* receiver,
+the stock node's 14 dBm arrives at −18 dBm while our 14 dBm arrives at −23 dBm, and our 22 dBm only reaches −22 dBm —
+i.e. our PA delivers about 5 dB less at equal settings and stops scaling above ~15 dBm, even though `SetTxParams`,
+`SetPaConfig`, OCP and ramp all read back as expected. `R35` now guards the one configuration error that produced this
+shape before (power band vs PA pair).
+
+A measurement trap worth recording: a variant that **failed to load** still produced two "preamble detected" lines in the
+stock node's log, which is the same count we had been reading as evidence of our own signal. Detection counts are only
+evidence when compared against a no-transmission baseline.

@@ -90,7 +90,12 @@ EXPECTED_INIT = [
     [0x8E, 0x0E, 0x04],                    # SetTxParams 14 dBm, 200 us
     [0x8F, 0x00, 0x00],                    # SetBufferBaseAddress
     [0x8B, 0x09, 0x04, 0x01, 0x00],        # SetModulationParams SF9 BW125 CR4/5
-    [0x74, 0x2B],                                   # SetLoRaSyncWord: Meshtastic's 0x2B
+    # GUARDRAIL: 0x74 is not an SX126x command - this expectation used to encode that bug, so the suite demanded a
+    # sync write the chip ignored. The real form is WriteRegister(0x0740) with the pair measured in sync.conf.
+    [0x0D, 0x07, 0x40, 0x14, 0x24],                # WriteRegister 0x0740 = 0x14/0x24 (sync.conf, MEASURED)
+    # GUARDRAIL: the antenna-mismatch workaround is a real write the driver performs (0x08D8 |= 0x1E, read back
+    # 0x48 -> 0x5E). Omitting it from the expectation made the suite fail on correct behaviour.
+    [0x0D, 0x08, 0xD8, 0x5E],                      # WriteRegister 0x08D8 = 0x5E (tx clamp)
     [0x8C, 0x00, 0x08, 0x00, 0x04, 0x01, 0x00],   # SetPacketParams, payload 4
     [0x08, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],   # SetDioIrqParams (all sources; see sx126x_min.c)
 ]

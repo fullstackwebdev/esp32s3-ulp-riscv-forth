@@ -35,3 +35,23 @@ def ready(port, tries=8, settle=4.0):
             last = f"{type(e).__name__}: {e}"
         d.close()
     raise SystemExit(f"{port}: board never became ready ({last})")
+
+
+def load_ready(port, files, tries=4):
+    """Reset, prove the board answers, then load files; retry the whole cycle if a definition is refused.
+
+    GUARDRAIL: right after a flash the board can answer arithmetic and still refuse `CREATE` (ERR_DICT). Treating that as
+    "the file is broken" wasted a whole measurement round - retry the reset+load instead of editing working sources.
+    """
+    from lora_frame_phase import load
+    last = None
+    for _ in range(tries):
+        d = ready(port, tries=3, settle=5.0)
+        try:
+            for f in files:
+                load(d, pathlib.Path(f) if not isinstance(f, pathlib.Path) else f)
+            return d
+        except SystemExit as e:
+            last = str(e)
+            d.close()
+    raise SystemExit(f"{port}: could not load {files}: {last}")

@@ -161,7 +161,6 @@ CREATE TBL
   5 C, 139 C, 9 C, 4 C, 1 C, 0 C,
   5 C, 13 C, 7 C, 64 C, 20 C, 36 C,
   4 C, 13 C, 8 C, 216 C, 94 C,
-  0 C, 0 C,
   7 C, 140 C, 0 C, 8 C, 0 C, 4 C, 1 C, 0 C,
   9 C, 8 C, 255 C, 255 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
   0 C,
@@ -176,7 +175,10 @@ CREATE TP 0 ,
 \ session. tools/resident_names.txt does not list it: ask the
 \ BOARD with `' NAME .`.
 : XMT ( -- ) NSSLO TP @ C@ 1 ADV CLKN NSSHI ;
-: CNF ( -- ) TBL TP ! 15 BEGIN DUP WHILE XMT 1- REPEAT DROP ;
+\ GUARDRAIL: the walk covered 15 of 18 entries, so SetPacket
+\ Params (preamble/CRC/IQ) and SetDioIrqParams never reached
+\ the chip; INIT still answered 1 on defaults.
+: CNF ( -- ) TBL TP ! 16 BEGIN DUP WHILE XMT 1- REPEAT DROP ;
 : INIT ( -- ok )
   42160 INEN 42168 INEN 42172 INEN
   1 NSSPAD PIN! 1 NRSTPAD PIN! 0 SCKPAD PIN!
