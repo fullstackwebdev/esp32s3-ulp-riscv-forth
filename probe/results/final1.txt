@@ -1,0 +1,1961 @@
+DEBUG file:__main__.py common line:1629 Not logging serial output
+DEBUG file:serial_interface.py connect line:58 Connecting to /dev/ttyUSB1
+DEBUG file:stream_interface.py __reader line:177 in __reader()
+DEBUG file:stream_interface.py _sendToRadioImpl line:131 Sending: want_config_id: 1372103712
+DEBUG file:stream_interface.py _sendToRadioImpl line:136 sending header:b'\x94\xc3\x00\x06' b:b'\x18\xa0\xc8\xa2\x8e\x05'
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%Client wants config, nonce=1372103712\x1a\rSerialConsole \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Client wants config, nonce=1372103712"
+  source: "SerialConsole"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2+\n\x18Got zu files in manifest\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Got zu files in manifest"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%Start API client config millis=500975\x1a\rSerialConsole \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Start API client config millis=500975"
+  source: "SerialConsole"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n\x1cFromRadio=STATE_SEND_MY_INFO\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_MY_INFO"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'\x1a*\x08\x98\xd8\xb0\x17@\x02X\xf8\xeb\x01b\x10\x00\xe1\x16\x954?g\xc4"\xa1\x81\xb94If j\theltec-v3x\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: my_info {
+  my_node_num: 45857723
+  reboot_count: 2
+  min_app_version: 30200
+  device_id: "\000\341\026\2254?g\304\"\241\201\2714If "
+  pio_env: "heltec-v3"
+  nodedb_count: 1
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1337 Received myinfo: my_node_num: 45857723 reboot_count: 2 min_app_version: 30200 device_id: "\000\341\026\2254?g\304\"\241\201\2714If " pio_env: "heltec-v3" nodedb_count: 1
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'21\n\x1egetFromRadio=STATE_SEND_UIDATA\x1a\rSerialConsole \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "getFromRadio=STATE_SEND_UIDATA"
+  source: "SerialConsole"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'\x8a\x01\x05\x10\x99\x01\x18\x1e'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: deviceuiConfig {
+  screen_brightness: 153
+  screen_timeout: 30
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2#\n\x10Send My NodeInfo\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send My NodeInfo"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'"q\x08\x98\xd8\xb0\x17\x12P\n\t!02BBBBBB\x12\x0fMeshtastic 2c18\x1a\x042c18"\x06<\x0f\x02\xec,\x18(+B acmO\xf8\xc0MQ}L${\xc0H\x19f\xfc*\x9an\xd7\xee\x10\x08d=\xea\xc6\xbc\xb6&8H\x00\x1a\x002\x14\x08e\x15\xcb\xa1\x89@\x1d\x00\x00\x00\x00%\x00\x00\x00\x00(\xe2\x03P\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: node_info {
+  num: 45857723
+  user {
+    id: "!02BBBBBB"
+    long_name: "Meshtastic 2c18"
+    short_name: "2c18"
+    macaddr: "<\017\002\354,\030"
+    hw_model: HELTEC_V3
+    public_key: "acmO\370\300MQ}L${\300H\031f\374*\232n\327\356\020\010d=\352\306\274\266&8"
+    is_unmessagable: false
+  }
+  position {
+  }
+  device_metrics {
+    battery_level: 101
+    voltage: 4.301
+    channel_utilization: 0
+    air_util_tx: 0
+    uptime_seconds: 482
+  }
+  is_favorite: true
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1344 Received nodeinfo: {'num': 45857723, 'user': {'id': '!02BBBBBB', 'longName': 'Meshtastic 2c18', 'shortName': '2c18', 'macaddr': 'PA8C7CwY', 'hwModel': 'HELTEC_V3', 'publicKey': 'YWNtT/jATVF9TCR7wEgZZvwqmm7X7hAIZD3qxry2Jjg=', 'isUnmessagable': False}, 'position': {}, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.301, 'channelUtilization': 0.0, 'airUtilTx': 0.0, 'uptimeSeconds': 482}, 'isFavorite': True}
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Send device metadata\x1a\rSerialConsole \n"
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send device metadata"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'j"\n\x0e2.7.26.54e0d8d\x10\x18\x18\x01 \x01(\x01@\xab\x06H+X\x01`\x80\n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: metadata {
+  firmware_version: "2.7.26.54e0d8d"
+  device_state_version: 24
+  canShutdown: true
+  hasWifi: true
+  hasBluetooth: true
+  position_flags: 811
+  hw_model: HELTEC_V3
+  hasPKC: true
+  excluded_modules: 1280
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1341 Received device metadata: firmware_version: "2.7.26.54e0d8d" device_state_version: 24 canShutdown: true hasWifi: true hasBluetooth: true position_flags: 811 hw_model: HELTEC_V3 hasPKC: true excluded_modules: 1280
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x0b\x12\x07\x12\x01\x01:\x02\x08\r\x18\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  settings {
+    psk: "\001"
+    module_settings {
+      position_precision: 13
+    }
+  }
+  role: PRIMARY
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x01\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 1
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x02\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 2
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x03\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 3
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x04\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 4
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x05\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 5
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x06\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 6
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2"\n\x0fSend channels 8\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send channels 8"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x07\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 7
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2&\n\x13Send config: device\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: device"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x05\n\x038\xb0T'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  device {
+    node_info_broadcast_secs: 10800
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2(\n\x15Send config: position\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: position"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x13\x12\x11\x08\x90\x1c\x10\x01(x8\xab\x06PdX\xac\x02h\x02'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  position {
+    position_broadcast_secs: 3600
+    position_broadcast_smart_enabled: true
+    gps_update_interval: 120
+    position_flags: 811
+    broadcast_smart_minimum_distance: 100
+    broadcast_smart_minimum_interval_secs: 300
+    gps_mode: NOT_PRESENT
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2%\n\x12Send config: power\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: power"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x0f\x1a\r <0\xff\xff\xff\xff\x0f8\xac\x02@\n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  power {
+    wait_bluetooth_secs: 60
+    sds_secs: 4294967295
+    ls_secs: 300
+    min_wake_secs: 10
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Send config: network\x1a\rSerialConsole \n"
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: network"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x1b"\x19*\x17meshtastic.pool.ntp.org'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  network {
+    ntp_server: "meshtastic.pool.ntp.org"
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Send config: display\x1a\rSerialConsole \n"
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: display"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x05*\x03\x08\xd8\x04'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  display {
+    screen_on_secs: 600
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2$\n\x11Send config: lora\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: lora"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x1b2\x19\x08\x01\x18\xfa\x01 \x0b(\x058\x03@\x03H\x01P\x0eh\x01\xc0\x06\x01\xd0\x06\x02'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  lora {
+    use_preset: true
+    bandwidth: 250
+    spread_factor: 11
+    coding_rate: 5
+    region: EU_868
+    hop_limit: 3
+    tx_enabled: true
+    tx_power: 14
+    sx126x_rx_boosted_gain: true
+    ignore_mqtt: true
+    fem_lna_mode: NOT_PRESENT
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2)\n\x16Send config: bluetooth\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: bluetooth"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x08:\x06\x08\x01\x18\xc0\xc4\x07'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  bluetooth {
+    enabled: true
+    fixed_pin: 123456
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2(\n\x15Send config: security\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: security"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*JBH\n acmO\xf8\xc0MQ}L${\xc0H\x19f\xfc*\x9an\xd7\xee\x10\x08d=\xea\xc6\xbc\xb6&8\x12 \xc8\xfa\xeav\xc7\xe0\xef\r.0n\x8b\x97|fY\xaf\x90\xebG\xcd+\t}\xc6I\xc1\x87\x10\x1d\x87d(\x010\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  security {
+    public_key: "acmO\370\300MQ}L${\300H\031f\374*\232n\327\356\020\010d=\352\306\274\266&8"
+    private_key: "\310\372\352v\307\340\357\r.0n\213\227|fY\257\220\353G\315+\t}\306I\301\207\020\035\207d"
+    serial_enabled: true
+    debug_log_api_enabled: true
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2*\n\x17Send config: sessionkey\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: sessionkey"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x02J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  sessionkey {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x02R\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  device_ui {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2+\n\x18Send module config: mqtt\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: mqtt"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J:\n8\x12\x13mqtt.meshtastic.org\x1a\x07meshdev"\nlarge4cats(\x01B\nmsh/EU_868'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  mqtt {
+    address: "mqtt.meshtastic.org"
+    username: "meshdev"
+    password: "large4cats"
+    encryption_enabled: true
+    root: "msh/EU_868"
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2-\n\x1aSend module config: serial\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: serial"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  serial {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n$Send module config: ext notification\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: ext notification"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02\x1a\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  external_notification {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!Send module config: store forward\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: store forward"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02"\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  store_forward {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'21\n\x1eSend module config: range test\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: range test"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02*\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  range_test {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'20\n\x1dSend module config: telemetry\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: telemetry"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x082\x06\x08\xff\xff\xff\xff\x07'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  telemetry {
+    device_update_interval: 2147483647
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'25\n"Send module config: canned message\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: canned message"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x04:\x02H\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  canned_message {
+    enabled: true
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2,\n\x19Send module config: audio\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: audio"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02B\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  audio {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'26\n#Send module config: remote hardware\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: remote hardware"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  remote_hardware {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!Send module config: neighbor info\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: neighbor info"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02R\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  neighbor_info {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n$Send module config: ambient lighting\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: ambient lighting"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x0bZ\t\x10\n\x18\xec\x01 ,(\x18'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  ambient_lighting {
+    current: 10
+    red: 236
+    green: 44
+    blue: 24
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n$Send module config: detection sensor\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: detection sensor"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x06b\x04\x10-8\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  detection_sensor {
+    minimum_broadcast_secs: 45
+    detection_trigger_type: LOGIC_HIGH
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'21\n\x1eSend module config: paxcounter\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: paxcounter"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02j\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  paxcounter {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'20\n\x1dUnknown module config type 14\x1a\rSerialConsole ('
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Unknown module config type 14"
+  source: "SerialConsole"
+  level: ERROR
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'20\n\x1dUnknown module config type 15\x1a\rSerialConsole ('
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Unknown module config type 15"
+  source: "SerialConsole"
+  level: ERROR
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'20\n\x1dUnknown module config type 16\x1a\rSerialConsole ('
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Unknown module config type 16"
+  source: "SerialConsole"
+  level: ERROR
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2>\n+Done sending 1 of 1 nodeinfos millis=501197\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Done sending 1 of 1 nodeinfos millis=501197"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'29\n&File: /prefs/channels.proto (57) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/channels.proto (57) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x19\n\x15/prefs/channels.proto\x109'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/channels.proto"
+  size_bytes: 57
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%File: /prefs/config.proto (182) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/config.proto (182) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x18\n\x13/prefs/config.proto\x10\xb6\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/config.proto"
+  size_bytes: 182
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%File: /prefs/device.proto (115) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/device.proto (115) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x17\n\x13/prefs/device.proto\x10s'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/device.proto"
+  size_bytes: 115
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%File: /prefs/module.proto (105) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/module.proto (105) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x17\n\x13/prefs/module.proto\x10i'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/module.proto"
+  size_bytes: 105
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n$File: /prefs/nodes.proto (444) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/nodes.proto (444) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x17\n\x12/prefs/nodes.proto\x10\xbc\x03'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/nodes.proto"
+  size_bytes: 444
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2?\n,File: /prefs/transmit_history.dat (13) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/transmit_history.dat (13) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x1f\n\x1b/prefs/transmit_history.dat\x10\r'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/transmit_history.dat"
+  size_bytes: 13
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'23\n File: /static/.gitkeep (0) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /static/.gitkeep (0) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x12\n\x10/static/.gitkeep'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/static/.gitkeep"
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'25\n"Config Send Complete millis=501304\x1a\rSerialConsole \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Config Send Complete millis=501304"
+  source: "SerialConsole"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'8\xa0\xc8\xa2\x8e\x05'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config_complete_id: 1372103712
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1367 Config complete ID 1372103712
+DEBUG file:mesh_interface.py callback line:1176 Sending heartbeat, interval 300 seconds
+DEBUG file:stream_interface.py _sendToRadioImpl line:131 Sending: heartbeat { }
+DEBUG file:stream_interface.py _sendToRadioImpl line:136 sending header:b'\x94\xc3\x00\x02' b:b':\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n\x1cFromRadio=STATE_SEND_PACKETS\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_PACKETS"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'Z\n\x10\x10\x18\x10 \xee\xdf\xba\xa4\t'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: queueStatus {
+  free: 16
+  maxlen: 16
+  mesh_packet_id: 2492379118
+}
+
+DEBUG file:mesh_interface.py _handleQueueStatusFromRadio line:1298 TX QUEUE free 16 of 16, res = 0, id = 948eafee 
+DEBUG file:mesh_interface.py _handleQueueStatusFromRadio line:1310 Reply for unexpected packet ID 948eafee
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n\x1cFromRadio=STATE_SEND_PACKETS\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_PACKETS"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\xb0\x01\n\x9c\x01phone downloaded packet (id=0x948eafee fr=0x02BBBBBB to=0x02BBBBBB, transport = 0, WantAck=0, HopLim=3 Ch=0x0 Portnum=5 PKI requestId=49bab607 priority=120)\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "phone downloaded packet (id=0x948eafee fr=0x02BBBBBB to=0x02BBBBBB, transport = 0, WantAck=0, HopLim=3 Ch=0x0 Portnum=5 PKI requestId=49bab607 priority=120)"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'\x12#\r\x18,\xec\x02\x15\x18,\xec\x02"\x0b\x08\x05\x12\x02\x18\x005\x07\xb6\xbaI5\xee\xaf\x8e\x94H\x03Xx\x88\x01\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: packet {
+  from: 45857723
+  to: 45857723
+  decoded {
+    portnum: ROUTING_APP
+    payload: "\030\000"
+    request_id: 1236973063
+  }
+  id: 2492379118
+  hop_limit: 3
+  priority: ACK
+  pki_encrypted: true
+}
+
+DEBUG file:mesh_interface.py _handlePacketFromRadio line:1646 Got a response for requestId 1236973063
+DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.routing: packet={'from': 45857723, 'to': 45857723, 'decoded': {'portnum': 'ROUTING_APP', 'payload': b'\x18\x00', 'requestId': 1236973063, 'routing': {'errorReason': 'NONE', 'raw': error_reason: NONE }}, 'id': 2492379118, 'hopLimit': 3, 'priority': 'ACK', 'pkiEncrypted': True, 'raw': from: 45857723 to: 45857723 decoded { portnum: ROUTING_APP payload: "\030\000" request_id: 1236973063 } id: 2492379118 hop_limit: 3 priority: ACK pki_encrypted: true , 'fromId': '!02BBBBBB', 'toId': '!02BBBBBB'} 
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Got client heartbeat\x1a\rSerialConsole \n"
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Got client heartbeat"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2@\n-FromRadio=STATE_SEND_QUEUE_STATUS, numbytes=6\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_QUEUE_STATUS, numbytes=6"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'Z\x04\x10\x10\x18\x10'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: queueStatus {
+  free: 16
+  maxlen: 16
+}
+
+DEBUG file:mesh_interface.py _handleQueueStatusFromRadio line:1298 TX QUEUE free 16 of 16, res = 0, id = 00000000 
+DEBUG file:__main__.py onReceive line:84 in onReceive() d:{'portnum': 'ROUTING_APP', 'payload': b'\x18\x00', 'requestId': 1236973063, 'routing': {'errorReason': 'NONE', 'raw': error_reason: NONE
+}}
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\r\n\tRebooting \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Rebooting"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'@\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: rebooted: true
+
+DEBUG file:stream_interface.py _sendToRadioImpl line:131 Sending: want_config_id: 2456499229
+DEBUG file:stream_interface.py _sendToRadioImpl line:136 sending header:b'\x94\xc3\x00\x06' b:b'\x18\x9d\xe8\xac\x93\t'
+DEBUG file:mesh_interface.py _sendToRadio line:1274 packet 948eafee got acked under us
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%Client wants config, nonce=2456499229\x1a\rSerialConsole \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Client wants config, nonce=2456499229"
+  source: "SerialConsole"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2+\n\x18Got zu files in manifest\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Got zu files in manifest"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'26\n#Start API client config millis=2827\x1a\rSerialConsole \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Start API client config millis=2827"
+  source: "SerialConsole"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n\x1cFromRadio=STATE_SEND_MY_INFO\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_MY_INFO"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'\x1a*\x08\x98\xd8\xb0\x17@\x03X\xf8\xeb\x01b\x10\x00\xe1\x16\x954?g\xc4"\xa1\x81\xb94If j\theltec-v3x\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: my_info {
+  my_node_num: 45857723
+  reboot_count: 3
+  min_app_version: 30200
+  device_id: "\000\341\026\2254?g\304\"\241\201\2714If "
+  pio_env: "heltec-v3"
+  nodedb_count: 1
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1337 Received myinfo: my_node_num: 45857723 reboot_count: 3 min_app_version: 30200 device_id: "\000\341\026\2254?g\304\"\241\201\2714If " pio_env: "heltec-v3" nodedb_count: 1
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'21\n\x1egetFromRadio=STATE_SEND_UIDATA\x1a\rSerialConsole \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "getFromRadio=STATE_SEND_UIDATA"
+  source: "SerialConsole"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'\x8a\x01\x05\x10\x99\x01\x18\x1e'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: deviceuiConfig {
+  screen_brightness: 153
+  screen_timeout: 30
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2#\n\x10Send My NodeInfo\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send My NodeInfo"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'"[\x08\x98\xd8\xb0\x17\x12P\n\t!02BBBBBB\x12\x0fMeshtastic 2c18\x1a\x042c18"\x06<\x0f\x02\xec,\x18(+B acmO\xf8\xc0MQ}L${\xc0H\x19f\xfc*\x9an\xd7\xee\x10\x08d=\xea\xc6\xbc\xb6&8H\x00\x1a\x00P\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: node_info {
+  num: 45857723
+  user {
+    id: "!02BBBBBB"
+    long_name: "Meshtastic 2c18"
+    short_name: "2c18"
+    macaddr: "<\017\002\354,\030"
+    hw_model: HELTEC_V3
+    public_key: "acmO\370\300MQ}L${\300H\031f\374*\232n\327\356\020\010d=\352\306\274\266&8"
+    is_unmessagable: false
+  }
+  position {
+  }
+  is_favorite: true
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1344 Received nodeinfo: {'num': 45857723, 'user': {'id': '!02BBBBBB', 'longName': 'Meshtastic 2c18', 'shortName': '2c18', 'macaddr': 'PA8C7CwY', 'hwModel': 'HELTEC_V3', 'publicKey': 'YWNtT/jATVF9TCR7wEgZZvwqmm7X7hAIZD3qxry2Jjg=', 'isUnmessagable': False}, 'position': {}, 'isFavorite': True}
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Send device metadata\x1a\rSerialConsole \n"
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send device metadata"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'j"\n\x0e2.7.26.54e0d8d\x10\x18\x18\x01 \x01(\x01@\xab\x06H+X\x01`\x80\n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: metadata {
+  firmware_version: "2.7.26.54e0d8d"
+  device_state_version: 24
+  canShutdown: true
+  hasWifi: true
+  hasBluetooth: true
+  position_flags: 811
+  hw_model: HELTEC_V3
+  hasPKC: true
+  excluded_modules: 1280
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1341 Received device metadata: firmware_version: "2.7.26.54e0d8d" device_state_version: 24 canShutdown: true hasWifi: true hasBluetooth: true position_flags: 811 hw_model: HELTEC_V3 hasPKC: true excluded_modules: 1280
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x0b\x12\x07\x12\x01\x01:\x02\x08\r\x18\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  settings {
+    psk: "\001"
+    module_settings {
+      position_precision: 13
+    }
+  }
+  role: PRIMARY
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x01\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 1
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x02\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 2
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x03\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 3
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x04\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 4
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x05\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 5
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x06\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 6
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2"\n\x0fSend channels 8\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send channels 8"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'R\x04\x08\x07\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: channel {
+  index: 7
+  settings {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2&\n\x13Send config: device\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: device"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x05\n\x038\xb0T'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  device {
+    node_info_broadcast_secs: 10800
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2(\n\x15Send config: position\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: position"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x13\x12\x11\x08\x90\x1c\x10\x01(x8\xab\x06PdX\xac\x02h\x02'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  position {
+    position_broadcast_secs: 3600
+    position_broadcast_smart_enabled: true
+    gps_update_interval: 120
+    position_flags: 811
+    broadcast_smart_minimum_distance: 100
+    broadcast_smart_minimum_interval_secs: 300
+    gps_mode: NOT_PRESENT
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2%\n\x12Send config: power\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: power"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x0f\x1a\r <0\xff\xff\xff\xff\x0f8\xac\x02@\n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  power {
+    wait_bluetooth_secs: 60
+    sds_secs: 4294967295
+    ls_secs: 300
+    min_wake_secs: 10
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Send config: network\x1a\rSerialConsole \n"
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: network"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x1b"\x19*\x17meshtastic.pool.ntp.org'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  network {
+    ntp_server: "meshtastic.pool.ntp.org"
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Send config: display\x1a\rSerialConsole \n"
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: display"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x05*\x03\x08\xd8\x04'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  display {
+    screen_on_secs: 600
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2$\n\x11Send config: lora\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: lora"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x1b2\x19\x08\x01\x18\xfa\x01 \x0b(\x058\x03@\x03H\x01P\x0eh\x01\xc0\x06\x01\xd0\x06\x02'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  lora {
+    use_preset: true
+    bandwidth: 250
+    spread_factor: 11
+    coding_rate: 5
+    region: EU_868
+    hop_limit: 3
+    tx_enabled: true
+    tx_power: 14
+    sx126x_rx_boosted_gain: true
+    ignore_mqtt: true
+    fem_lna_mode: NOT_PRESENT
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2)\n\x16Send config: bluetooth\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: bluetooth"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x08:\x06\x08\x01\x18\xc0\xc4\x07'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  bluetooth {
+    enabled: true
+    fixed_pin: 123456
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2(\n\x15Send config: security\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: security"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*JBH\n acmO\xf8\xc0MQ}L${\xc0H\x19f\xfc*\x9an\xd7\xee\x10\x08d=\xea\xc6\xbc\xb6&8\x12 \xc8\xfa\xeav\xc7\xe0\xef\r.0n\x8b\x97|fY\xaf\x90\xebG\xcd+\t}\xc6I\xc1\x87\x10\x1d\x87d(\x010\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  security {
+    public_key: "acmO\370\300MQ}L${\300H\031f\374*\232n\327\356\020\010d=\352\306\274\266&8"
+    private_key: "\310\372\352v\307\340\357\r.0n\213\227|fY\257\220\353G\315+\t}\306I\301\207\020\035\207d"
+    serial_enabled: true
+    debug_log_api_enabled: true
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2*\n\x17Send config: sessionkey\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send config: sessionkey"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x02J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  sessionkey {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'*\x02R\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config {
+  device_ui {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2+\n\x18Send module config: mqtt\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: mqtt"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J:\n8\x12\x13mqtt.meshtastic.org\x1a\x07meshdev"\nlarge4cats(\x01B\nmsh/EU_868'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  mqtt {
+    address: "mqtt.meshtastic.org"
+    username: "meshdev"
+    password: "large4cats"
+    encryption_enabled: true
+    root: "msh/EU_868"
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2-\n\x1aSend module config: serial\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: serial"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02\x12\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  serial {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n$Send module config: ext notification\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: ext notification"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02\x1a\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  external_notification {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!Send module config: store forward\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: store forward"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02"\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  store_forward {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'21\n\x1eSend module config: range test\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: range test"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02*\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  range_test {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'20\n\x1dSend module config: telemetry\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: telemetry"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x082\x06\x08\xff\xff\xff\xff\x07'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  telemetry {
+    device_update_interval: 2147483647
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'25\n"Send module config: canned message\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: canned message"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x04:\x02H\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  canned_message {
+    enabled: true
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2,\n\x19Send module config: audio\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: audio"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02B\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  audio {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'26\n#Send module config: remote hardware\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: remote hardware"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  remote_hardware {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!Send module config: neighbor info\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: neighbor info"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02R\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  neighbor_info {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n$Send module config: ambient lighting\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: ambient lighting"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x0bZ\t\x10\n\x18\xec\x01 ,(\x18'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  ambient_lighting {
+    current: 10
+    red: 236
+    green: 44
+    blue: 24
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n$Send module config: detection sensor\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: detection sensor"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x06b\x04\x10-8\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  detection_sensor {
+    minimum_broadcast_secs: 45
+    detection_trigger_type: LOGIC_HIGH
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'21\n\x1eSend module config: paxcounter\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send module config: paxcounter"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x02j\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+  paxcounter {
+  }
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'20\n\x1dUnknown module config type 14\x1a\rSerialConsole ('
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Unknown module config type 14"
+  source: "SerialConsole"
+  level: ERROR
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'20\n\x1dUnknown module config type 15\x1a\rSerialConsole ('
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Unknown module config type 15"
+  source: "SerialConsole"
+  level: ERROR
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'20\n\x1dUnknown module config type 16\x1a\rSerialConsole ('
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Unknown module config type 16"
+  source: "SerialConsole"
+  level: ERROR
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'J\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: moduleConfig {
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2<\n)Done sending 1 of 1 nodeinfos millis=3046\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Done sending 1 of 1 nodeinfos millis=3046"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'29\n&File: /prefs/channels.proto (57) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/channels.proto (57) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x19\n\x15/prefs/channels.proto\x109'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/channels.proto"
+  size_bytes: 57
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%File: /prefs/config.proto (182) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/config.proto (182) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x18\n\x13/prefs/config.proto\x10\xb6\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/config.proto"
+  size_bytes: 182
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%File: /prefs/device.proto (115) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/device.proto (115) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x17\n\x13/prefs/device.proto\x10s'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/device.proto"
+  size_bytes: 115
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'28\n%File: /prefs/module.proto (105) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/module.proto (105) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x17\n\x13/prefs/module.proto\x10i'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/module.proto"
+  size_bytes: 105
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n$File: /prefs/nodes.proto (444) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/nodes.proto (444) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x17\n\x12/prefs/nodes.proto\x10\xbc\x03'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/nodes.proto"
+  size_bytes: 444
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2?\n,File: /prefs/transmit_history.dat (13) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /prefs/transmit_history.dat (13) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x1f\n\x1b/prefs/transmit_history.dat\x10\r'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/prefs/transmit_history.dat"
+  size_bytes: 13
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'23\n File: /static/.gitkeep (0) bytes\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "File: /static/.gitkeep (0) bytes"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'z\x12\n\x10/static/.gitkeep'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: fileInfo {
+  file_name: "/static/.gitkeep"
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1486 Unexpected FromRadio payload
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n!FromRadio=STATE_SEND_FILEMANIFEST\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_FILEMANIFEST"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'23\n Config Send Complete millis=3153\x1a\rSerialConsole \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Config Send Complete millis=3153"
+  source: "SerialConsole"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'8\x9d\xe8\xac\x93\t'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: config_complete_id: 2456499229
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1367 Config complete ID 2456499229
+DEBUG file:mesh_interface.py callback line:1176 Sending heartbeat, interval 300 seconds
+DEBUG file:stream_interface.py _sendToRadioImpl line:131 Sending: heartbeat { }
+DEBUG file:stream_interface.py _sendToRadioImpl line:136 sending header:b'\x94\xc3\x00\x02' b:b':\x00'
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n\x1cFromRadio=STATE_SEND_PACKETS\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_PACKETS"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'Z\x04\x10\x10\x18\x10'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: queueStatus {
+  free: 16
+  maxlen: 16
+}
+
+DEBUG file:mesh_interface.py _handleQueueStatusFromRadio line:1298 TX QUEUE free 16 of 16, res = 0, id = 00000000 
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2+\n Power: battery hardware detected\x1a\x05Power \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Power: battery hardware detected"
+  source: "Power"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Got client heartbeat\x1a\rSerialConsole \n"
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Got client heartbeat"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2@\n-FromRadio=STATE_SEND_QUEUE_STATUS, numbytes=6\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_QUEUE_STATUS, numbytes=6"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'Z\x04\x10\x10\x18\x10'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: queueStatus {
+  free: 16
+  maxlen: 16
+}
+
+DEBUG file:mesh_interface.py _handleQueueStatusFromRadio line:1298 TX QUEUE free 16 of 16, res = 0, id = 00000000 
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2.\n Init the NimBLE bluetooth module\x1a\x08PowerFSM \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Init the NimBLE bluetooth module"
+  source: "PowerFSM"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2!\n\x15Done with boot screen\x1a\x06Screen \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Done with boot screen"
+  source: "Screen"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2 \n\x14Show standard frames\x1a\x06Screen \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Show standard frames"
+  source: "Screen"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2 \n\x14Show 8 module frames\x1a\x06Screen \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Show 8 module frames"
+  source: "Screen"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2(\n\x1cAdded modules.  numframes: 8\x1a\x06Screen \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Added modules.  numframes: 8"
+  source: "Screen"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n#Finished build frames. numframes: 8\x1a\x06Screen \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Finished build frames. numframes: 8"
+  source: "Screen"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n)Send our nodeinfo to mesh (wantReplies=0)\x1a\x08NodeInfo \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send our nodeinfo to mesh (wantReplies=0)"
+  source: "NodeInfo"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n)Send owner !02BBBBBB/Meshtastic 2c18/2c18\x1a\x08NodeInfo \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send owner !02BBBBBB/Meshtastic 2c18/2c18"
+  source: "NodeInfo"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'26\n(TransmitHistory: saved 1 entries to disk\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "TransmitHistory: saved 1 entries to disk"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2*\n\x1cInitial packet id 1144244422\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Initial packet id 1144244422"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n)Partially randomized packet id 1261014215\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Partially randomized packet id 1261014215"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2%\n\x17Ignore update from self\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Ignore update from self"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\x91\x01\n\x82\x01handleReceived(LOCAL) (id=0x4b298cc7 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x0 Portnum=4 priority=10)\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "handleReceived(LOCAL) (id=0x4b298cc7 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x0 Portnum=4 priority=10)"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2;\n-No modules interested in portnum=4, src=LOCAL\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "No modules interested in portnum=4, src=LOCAL"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2O\nAPacket History - insert: Using new slot @uptime 32.413s TRACE NEW\x1a\x08NodeInfo \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Packet History - insert: Using new slot @uptime 32.413s TRACE NEW"
+  source: "NodeInfo"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2!\n\x13Expand short PSK #1\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Expand short PSK #1"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\x1d\n\x0fUse AES128 key!\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Use AES128 key!"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\xaa\x01\n\x9b\x01enqueue for send (id=0x4b298cc7 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x8 encrypted len=102 hopStart=3 relay=0x18 priority=10)\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "enqueue for send (id=0x4b298cc7 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x8 encrypted len=102 hopStart=3 relay=0x18 priority=10)"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'21\n#txGood=0,txRelay=0,rxGood=0,rxBad=0\x1a\x08NodeInfo \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "txGood=0,txRelay=0,rxGood=0,rxBad=0"
+  source: "NodeInfo"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2%\n!Tell client we have new packets 2 \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Tell client we have new packets 2"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n\x1cFromRadio=STATE_SEND_PACKETS\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_PACKETS"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'Z\n\x10\x0f\x18\x10 \xc7\x99\xa6\xd9\x04'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: queueStatus {
+  free: 15
+  maxlen: 16
+  mesh_packet_id: 1261014215
+}
+
+DEBUG file:mesh_interface.py _handleQueueStatusFromRadio line:1298 TX QUEUE free 15 of 16, res = 0, id = 4b298cc7 
+DEBUG file:mesh_interface.py _handleQueueStatusFromRadio line:1310 Reply for unexpected packet ID 4b298cc7
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2%\n\x18Can not send yet, busyRx\x1a\x07RadioIf \x1e'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Can not send yet, busyRx"
+  source: "RadioIf"
+  level: WARNING
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2%\n\x18Can not send yet, busyRx\x1a\x07RadioIf \x1e'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Can not send yet, busyRx"
+  source: "RadioIf"
+  level: WARNING
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2%\n\x18Can not send yet, busyRx\x1a\x07RadioIf \x1e'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Can not send yet, busyRx"
+  source: "RadioIf"
+  level: WARNING
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2,\n\x1fIgnore false preamble detection\x1a\x07RadioIf \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Ignore false preamble detection"
+  source: "RadioIf"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\xa3\x01\n\x95\x01Started Tx (id=0x4b298cc7 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x8 encrypted len=102 hopStart=3 relay=0x18 priority=10)\x1a\x07RadioIf \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Started Tx (id=0x4b298cc7 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x8 encrypted len=102 hopStart=3 relay=0x18 priority=10)"
+  source: "RadioIf"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2-\n 0 packets remain in the TX queue\x1a\x07RadioIf \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "0 packets remain in the TX queue"
+  source: "RadioIf"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\x1e\n\x11Packet TX: 1009ms\x1a\x07RadioIf \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Packet TX: 1009ms"
+  source: "RadioIf"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\xaa\x01\n\x9c\x01Completed sending (id=0x4b298cc7 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x8 encrypted len=102 hopStart=3 relay=0x18 priority=10)\x1a\x07RadioIf \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Completed sending (id=0x4b298cc7 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x8 encrypted len=102 hopStart=3 relay=0x18 priority=10)"
+  source: "RadioIf"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2}\nhSend: air_util_tx=0.028028, channel_utilization=1.681667, battery_level=101, voltage=4.299000, uptime=62\x1a\x0fDeviceTelemetry \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send: air_util_tx=0.028028, channel_utilization=1.681667, battery_level=101, voltage=4.299000, uptime=62"
+  source: "DeviceTelemetry"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2>\n)Partially randomized packet id 3640716488\x1a\x0fDeviceTelemetry \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Partially randomized packet id 3640716488"
+  source: "DeviceTelemetry"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2*\n\x15updateTelemetry LOCAL\x1a\x0fDeviceTelemetry \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "updateTelemetry LOCAL"
+  source: "DeviceTelemetry"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2:\n%Node status update: 1 online, 1 total\x1a\x0fDeviceTelemetry \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Node status update: 1 online, 1 total"
+  source: "DeviceTelemetry"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2)\n\x14Send packet to phone\x1a\x0fDeviceTelemetry \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Send packet to phone"
+  source: "DeviceTelemetry"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'24\n\x1fIgnore false preamble detection\x1a\x0fDeviceTelemetry \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Ignore false preamble detection"
+  source: "DeviceTelemetry"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\xa1\x01\n\x8b\x01Sending local stats: uptime=62, channel_utilization=1.681667, air_util_tx=0.028028, num_online_nodes=1, num_total_nodes=1, noise_floor=-120\x1a\x0fDeviceTelemetry \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Sending local stats: uptime=62, channel_utilization=1.681667, air_util_tx=0.028028, num_online_nodes=1, num_total_nodes=1, noise_floor=-120"
+  source: "DeviceTelemetry"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2M\n8num_packets_tx=1, num_packets_rx=0, num_packets_rx_bad=0\x1a\x0fDeviceTelemetry \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "num_packets_tx=1, num_packets_rx=0, num_packets_rx_bad=0"
+  source: "DeviceTelemetry"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2>\n)Partially randomized packet id 1815043273\x1a\x0fDeviceTelemetry \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Partially randomized packet id 1815043273"
+  source: "DeviceTelemetry"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2%\n!Tell client we have new packets 4 \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Tell client we have new packets 4"
+  level: INFO
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n\x1cFromRadio=STATE_SEND_PACKETS\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_PACKETS"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\x99\x01\n\x85\x01phone downloaded packet (id=0xd900ecc8 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x0 Portnum=67 priority=10)\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "phone downloaded packet (id=0xd900ecc8 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x0 Portnum=67 priority=10)"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'\x123\r\x18,\xec\x02\x15\xff\xff\xff\xff"\x1e\x08C\x12\x1a\rc\x02\x00\x00\x12\x13\x08e\x15h\x91\x89@\x1d\xda@\xd7?%\x82\x9a\xe5<(>5\xc8\xec\x00\xd9H\x03X\n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: packet {
+  from: 45857723
+  to: 4294967295
+  decoded {
+    portnum: TELEMETRY_APP
+    payload: "\rc\002\000\000\022\023\010e\025h\221\211@\035\332@\327?%\202\232\345<(>"
+  }
+  id: 3640716488
+  hop_limit: 3
+  priority: BACKGROUND
+}
+
+DEBUG file:__init__.py _onTelemetryReceive line:224 in _onTelemetryReceive() asDict:{'from': 45857723, 'to': 4294967295, 'decoded': {'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x00\x12\x13\x08e\x15h\x91\x89@\x1d\xda@\xd7?%\x82\x9a\xe5<(>', 'telemetry': {'time': 611, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.299, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'uptimeSeconds': 62}, 'raw': time: 611
+device_metrics {
+  battery_level: 101
+  voltage: 4.299
+  channel_utilization: 1.68166661
+  air_util_tx: 0.0280277766
+  uptime_seconds: 62
+}
+}}, 'id': 3640716488, 'hopLimit': 3, 'priority': 'BACKGROUND', 'raw': from: 45857723
+to: 4294967295
+decoded {
+  portnum: TELEMETRY_APP
+  payload: "\rc\002\000\000\022\023\010e\025h\221\211@\035\332@\327?%\202\232\345<(>"
+}
+id: 3640716488
+hop_limit: 3
+priority: BACKGROUND
+, 'fromId': '!02BBBBBB', 'toId': '^all'}
+DEBUG file:__init__.py _onTelemetryReceive line:248 updating deviceMetrics metrics for 45857723 to {'batteryLevel': 101, 'voltage': 4.299, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'uptimeSeconds': 62}
+DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.telemetry: packet={'from': 45857723, 'to': 4294967295, 'decoded': {'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x00\x12\x13\x08e\x15h\x91\x89@\x1d\xda@\xd7?%\x82\x9a\xe5<(>', 'telemetry': {'time': 611, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.299, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'uptimeSeconds': 62}, 'raw': time: 611 device_metrics { battery_level: 101 voltage: 4.299 channel_utilization: 1.68166661 air_util_tx: 0.0280277766 uptime_seconds: 62 } }}, 'id': 3640716488, 'hopLimit': 3, 'priority': 'BACKGROUND', 'raw': from: 45857723 to: 4294967295 decoded { portnum: TELEMETRY_APP payload: "\rc\002\000\000\022\023\010e\025h\221\211@\035\332@\327?%\202\232\345<(>" } id: 3640716488 hop_limit: 3 priority: BACKGROUND , 'fromId': '!02BBBBBB', 'toId': '^all'} 
+DEBUG file:__main__.py onReceive line:84 in onReceive() d:{'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x00\x12\x13\x08e\x15h\x91\x89@\x1d\xda@\xd7?%\x82\x9a\xe5<(>', 'telemetry': {'time': 611, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.299, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'uptimeSeconds': 62}, 'raw': time: 611
+device_metrics {
+  battery_level: 101
+  voltage: 4.299
+  channel_utilization: 1.68166661
+  air_util_tx: 0.0280277766
+  uptime_seconds: 62
+}
+}}
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2/\n\x1cFromRadio=STATE_SEND_PACKETS\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "FromRadio=STATE_SEND_PACKETS"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2\x99\x01\n\x85\x01phone downloaded packet (id=0x6c2f5cc9 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x0 Portnum=67 priority=10)\x1a\rSerialConsole \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "phone downloaded packet (id=0x6c2f5cc9 fr=0x02BBBBBB to=0xffffffff, transport = 0, WantAck=0, HopLim=3 Ch=0x0 Portnum=67 priority=10)"
+  source: "SerialConsole"
+  level: DEBUG
+}
+
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'\x12E\r\x18,\xec\x02\x15\xff\xff\xff\xff"0\x08C\x12,\rc\x02\x00\x002%\x08>\x15\xda@\xd7?\x1d\x82\x9a\xe5< \x018\x01@\x01`\xc0\x99\x0fh\xbc\xd1\x04x\x88\xff\xff\xff\xff\xff\xff\xff\xff\x015\xc9\\/lH\x03X\n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: packet {
+  from: 45857723
+  to: 4294967295
+  decoded {
+    portnum: TELEMETRY_APP
+    payload: "\rc\002\000\0002%\010>\025\332@\327?\035\202\232\345< \0018\001@\001`\300\231\017h\274\321\004x\210\377\377\377\377\377\377\377\377\001"
+  }
+  id: 1815043273
+  hop_limit: 3
+  priority: BACKGROUND
+}
+
+DEBUG file:__init__.py _onTelemetryReceive line:224 in _onTelemetryReceive() asDict:{'from': 45857723, 'to': 4294967295, 'decoded': {'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x002%\x08>\x15\xda@\xd7?\x1d\x82\x9a\xe5< \x018\x01@\x01`\xc0\x99\x0fh\xbc\xd1\x04x\x88\xff\xff\xff\xff\xff\xff\xff\xff\x01', 'telemetry': {'time': 611, 'localStats': {'uptimeSeconds': 62, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'numPacketsTx': 1, 'numOnlineNodes': 1, 'numTotalNodes': 1, 'heapTotalBytes': 249024, 'heapFreeBytes': 75964, 'noiseFloor': -120}, 'raw': time: 611
+local_stats {
+  uptime_seconds: 62
+  channel_utilization: 1.68166661
+  air_util_tx: 0.0280277766
+  num_packets_tx: 1
+  num_online_nodes: 1
+  num_total_nodes: 1
+  heap_total_bytes: 249024
+  heap_free_bytes: 75964
+  noise_floor: -120
+}
+}}, 'id': 1815043273, 'hopLimit': 3, 'priority': 'BACKGROUND', 'raw': from: 45857723
+to: 4294967295
+decoded {
+  portnum: TELEMETRY_APP
+  payload: "\rc\002\000\0002%\010>\025\332@\327?\035\202\232\345< \0018\001@\001`\300\231\017h\274\321\004x\210\377\377\377\377\377\377\377\377\001"
+}
+id: 1815043273
+hop_limit: 3
+priority: BACKGROUND
+, 'fromId': '!02BBBBBB', 'toId': '^all'}
+DEBUG file:__init__.py _onTelemetryReceive line:248 updating localStats metrics for 45857723 to {'uptimeSeconds': 62, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'numPacketsTx': 1, 'numOnlineNodes': 1, 'numTotalNodes': 1, 'heapTotalBytes': 249024, 'heapFreeBytes': 75964, 'noiseFloor': -120}
+DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.telemetry: packet={'from': 45857723, 'to': 4294967295, 'decoded': {'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x002%\x08>\x15\xda@\xd7?\x1d\x82\x9a\xe5< \x018\x01@\x01`\xc0\x99\x0fh\xbc\xd1\x04x\x88\xff\xff\xff\xff\xff\xff\xff\xff\x01', 'telemetry': {'time': 611, 'localStats': {'uptimeSeconds': 62, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'numPacketsTx': 1, 'numOnlineNodes': 1, 'numTotalNodes': 1, 'heapTotalBytes': 249024, 'heapFreeBytes': 75964, 'noiseFloor': -120}, 'raw': time: 611 local_stats { uptime_seconds: 62 channel_utilization: 1.68166661 air_util_tx: 0.0280277766 num_packets_tx: 1 num_online_nodes: 1 num_total_nodes: 1 heap_total_bytes: 249024 heap_free_bytes: 75964 noise_floor: -120 } }}, 'id': 1815043273, 'hopLimit': 3, 'priority': 'BACKGROUND', 'raw': from: 45857723 to: 4294967295 decoded { portnum: TELEMETRY_APP payload: "\rc\002\000\0002%\010>\025\332@\327?\035\202\232\345< \0018\001@\001`\300\231\017h\274\321\004x\210\377\377\377\377\377\377\377\377\001" } id: 1815043273 hop_limit: 3 priority: BACKGROUND , 'fromId': '!02BBBBBB', 'toId': '^all'} 
+DEBUG file:__main__.py onReceive line:84 in onReceive() d:{'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x002%\x08>\x15\xda@\xd7?\x1d\x82\x9a\xe5< \x018\x01@\x01`\xc0\x99\x0fh\xbc\xd1\x04x\x88\xff\xff\xff\xff\xff\xff\xff\xff\x01', 'telemetry': {'time': 611, 'localStats': {'uptimeSeconds': 62, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'numPacketsTx': 1, 'numOnlineNodes': 1, 'numTotalNodes': 1, 'heapTotalBytes': 249024, 'heapFreeBytes': 75964, 'noiseFloor': -120}, 'raw': time: 611
+local_stats {
+  uptime_seconds: 62
+  channel_utilization: 1.68166661
+  air_util_tx: 0.0280277766
+  num_packets_tx: 1
+  num_online_nodes: 1
+  num_total_nodes: 1
+  heap_total_bytes: 249024
+  heap_free_bytes: 75964
+  noise_floor: -120
+}
+}}
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'2D\n9Battery: usbPower=1, isCharging=1, batMv=4300, batPct=100\x1a\x05Power \n'
+DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
+  message: "Battery: usbPower=1, isCharging=1, batMv=4300, batPct=100"
+  source: "Power"
+  level: DEBUG
+}
+

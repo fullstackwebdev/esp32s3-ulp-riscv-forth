@@ -51,6 +51,19 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
   R24 pad register  writing 1610646528 (RTC_GPIO_OUT_REG). Measurement: `12345 1610646528 !` REBOOTS the S3
                 (`ESP-ROM:esp32s3-20210327` on the console) - bits 0..21 are RTC GPIO 0..21 including the pads tied to
                 flash, PSRAM and the brownout detector. Single pads go through OUT_W1TS 41988 / W1TC 1610646536.
+  R30 spi opcode  a `CREATE ... C,` table entry whose first byte is not an SX126x command. The chip ignores it and
+                the register keeps its default: measured, the sync word was NEVER written this way.
+  R31 table stride/count  entries that run past the block, or a `N ALL` / `NCMDS` count that does not match the number
+                of entries: a parity filler `0 C,` is an ITERATION too, so `SetDioIrqParams` was skipped and every IRQ
+                read came back 0x0000.
+  R32 frame length  the length used with SETLEN/CLKN differs from the frame block's real size: a truncated frame is
+                dropped by the receiver with no trace.
+  R35 pa config  SetPaConfig left at the <=17 dBm pair (0x02/0x02) while SetTxParams asks for more. Measured: asking
+     for 22 dBm that way radiated LESS than a stock node at 14 dBm (-35 dBm vs -33 dBm at the same receiver), so the
+     peer's receiver never even saw a preamble.
+  R33 tx clamp  a table that sets TX params without the antenna-mismatch workaround (register 0x08D8): the PA stays
+                unclamped and a foreign receiver may not demodulate us at all.
+
   R9 (RETIRED)  `MS does not sleep` was earned when the primitive returned the wake count (measured: twenty
                 `200 MS` in 0.05 s). MS now busy-waits on rdcycle (tests/ms_clock.py: 100 MS = +100 ms,
                 300 MS = +301 ms), so the rule's premise is gone and it was removed instead of left as
@@ -71,8 +84,15 @@ word that genuinely passes values must say so, and that declaration is documenta
     proves it does not fire on good code and still fires on bad code that was written before the rule existed. A rule
     that starts flagging 01_arith.fs is a false positive; a rule that stops flagging bad_r07.fs is a false negative.
 """
+import pathlib
 import re
 import sys
+
+# Words the STORE LOADER provides to a phase source but that are not resident in the dictionary, so linting a phase
+# alone reported `CHAIN is not defined before this point` on all six shipping AES phases - a false positive that pushes
+# the operator to switch the gate off. Only `--phase` sees these.
+# GUARDRAIL: CHAIN consumes its descriptor (1,0); modelling it as (0,0) also produced R4 leak reports on every return.
+PHASE_HARNESS = {"CHAIN": (1, 0), "NXT": (0, 1), "SHELF": (0, 0)}
 
 # (name, pops, pushes). Control-flow words are listed so a body can use them, handled specially below.
 PRIMS = {
@@ -200,8 +220,12 @@ def lint_phase(src):
     for m in re.finditer(r"\b(CREATE|VARIABLE|CONSTANT)\s+(\S+)", code):
         ln = code[:m.start()].count("\n") + 1
         name = m.group(2)
-        written = re.search(rf"\b{re.escape(name)}\b[^\n;]*(?:C!|W!|\+!|(?<!C)!)", code) or \
-                  re.search(rf"(?:C!|W!|\+!|(?<!C)!)[^\n;]*\b{re.escape(name)}\b", code)
+        # GUARDRAIL: a store only counts when it targets the NAME. The old pattern also matched `TBL CFGG !`, which
+        # stores TBL's ADDRESS into CFGG - so every command table in every phase was reported as state, and a gate that
+        # cries wolf on all six shipping phases is one the operator switches off. Destination is the token before the
+        # store, optionally through `+`/`@` (`RB + C!`, `ST C!`).
+        written = re.search(rf"\b{re.escape(name)}\b\s*(?:@\s*)?\+?\s*(?:C!|W!|\+!|(?<!C)!)", code) or \
+                  re.search(rf"(?:C!|W!|\+!|(?<!C)!)\s*\b{re.escape(name)}\b", code)
         if not written:
             continue                      # a read-only table: part of the image, replaced with its own code
         # GUARDRAIL: a phase needs SCRATCH. Reading 16 bytes out of the radio in one transaction and computing in RAM is
@@ -358,7 +382,7 @@ def collect_vocab(src):
     return v
 
 
-def check_source_shape(src, phase=False, repl=False, limit=63):
+def check_source_shape(src, phase=False, repl=False, limit=63, source_path=None):
     """R21-R24: rules about the FILE, not about a definition's stack effect.
 
     Every one of these is from the 2026-11-01 LoRa bring-up, and every one of them produced a failure with NO error
@@ -529,6 +553,180 @@ def check_source_shape(src, phase=False, repl=False, limit=63):
                 depth = max(0, depth - 1)
             elif tk == ";":
                 depth = 0
+    # ---- R30-R33: the SX1262 command tables. Every one of these rules is a bug that reached the board this session
+    # and cost a day of "the peer must be deaf" reasoning, because a table entry is DATA: nothing refuses a wrong byte,
+    # and the failure shows up as a radio that transmits nothing, or transmits something a foreign receiver ignores.
+    #
+    # GUARDRAIL: opcodes come from the vendor command list (RADIOLIB_SX126X_CMD_*, SX126x_commands.h). A first byte
+    # that is not on this list is not a command at all: the chip ignores it, so the register it "writes" keeps its
+    # default and everything downstream is silently wrong. Measured: `2 C, 116 C, 43 C` (opcode 0x74) meant the sync
+    # word was NEVER written - readback of 0x0740 showed 0x14 (the chip default) after "configuring" 0x2B.
+    OPCODES = {0x00, 0x02, 0x07, 0x08, 0x0D, 0x0E, 0x11, 0x12, 0x13, 0x14, 0x15, 0x17, 0x1D, 0x1E,
+               0x80, 0x82, 0x83, 0x84, 0x86, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8E, 0x8F, 0x93, 0x94,
+               0x95, 0x96, 0x97, 0x98, 0x9D, 0x9F, 0xA0, 0xC0, 0xC1, 0xC5, 0xD1, 0xD2}
+
+    def c_blocks(text_lines):
+        """{name: (first_line, [byte values])} for `CREATE name` followed by interpret-state `n C,` lines."""
+        out, cur, buf, start = {}, None, [], 0
+        for lineno, line in enumerate(text_lines, 1):
+            body = [tk for tk in line.split() if not tk.startswith("\\")]
+            if body and body[0] == "CREATE" and len(body) > 1:
+                if cur:
+                    out[cur] = (start, buf)
+                cur, buf, start = body[1], [], lineno
+                continue
+            if cur:
+                ok = bool(body)
+                vals = []
+                i = 0
+                while ok and i < len(body):
+                    if body[i].isdigit() and i + 1 < len(body) and body[i + 1] == "C,":
+                        vals.append(int(body[i]))
+                        i += 2
+                    else:
+                        ok = False
+                if ok:
+                    buf += vals
+                else:
+                    out[cur] = (start, buf)
+                    cur, buf = None, []
+        if cur:
+            out[cur] = (start, buf)
+        return out
+
+    blocks = c_blocks(scan_lines)
+    text_all = "\n".join(scan_lines)
+    walks = {int(m.group(1)) for m in re.finditer(r"(\d+)\s+ALL\b", text_all)}
+    # GUARDRAIL: the count regex must not cross a newline. `NCMDS ALL` inside RADIO-INIT followed by an unrelated
+    # `1 ;` later made the linter read a count of 1 and report a working driver as broken - a false positive that would
+    # have had us "fixing" a correct table.
+    walks |= {int(m.group(1)) for m in re.finditer(r"NCMDS[^\n;]*?(-?\d+)\s*;", text_all)}
+    # GUARDRAIL: a table can also be walked with `TBL TP ! 15 BEGIN ... REPEAT`, an idiom R31 did not recognise - so
+    # lora1.fs silently skipped SetPacketParams and SetDioIrqParams for months while every gate stayed green. Accept the
+    # `TBL <ptr> ! <n> BEGIN` form as a count too.
+    walks |= {int(m.group(1)) for m in re.finditer(r"TBL\s+\w+\s*!\s*(\d+)\s+BEGIN", text_all)}
+    for name, (blk_line, data) in blocks.items():
+        if not data or len(data) < 3:
+            continue
+        # GUARDRAIL: only a block the code WALKS is a command table - and it must be the SAME block the walker points
+        # at (`TBL CFGPTR !`). A plain byte array (the frame, FRM) has no length prefixes, so treating it as a table
+        # invents an overrun that is not there.
+        # the TABLE is the block assigned to the walker immediately before a count is run: `TBL CFGPTR ! 18 ALL`
+        # or `TBL CFGPTR ! NCMDS ALL`. `FRM CFGPTR !` (the frame copy) is followed by NSSLO instead, not a count.
+        walked_names = set(re.findall(r"(\w+)\s+CFG(?:PTR|G)\s*!\s*(?:\d+\s+ALL|NCMDS\s+ALL)", text_all))
+        if name not in walked_names:
+            if name.upper() in ("FRM", "FRAME"):
+                for m in re.finditer(r"(\d+)\s+(?:SETLEN|CLKN)", text_all):
+                    used = int(m.group(1))
+                    # GUARDRAIL: a block may carry ONE trailing zero as the R28 parity filler (an odd frame length
+                    # would otherwise leave HERE odd and refuse every later definition). That pad is not sent, so
+                    # len+0 or len+1-with-a-zero-tail is correct; anything else is a real truncation.
+                    padded = len(data) == used + 1 and data[-1] == 0
+                    if used != len(data) and not padded:
+                        findings.append((blk_line, "R32 frame length",
+                                         f"`{name}` holds {len(data)} B but the code sends {m.group(1)}: a shorter "
+                                         "length transmits a TRUNCATED frame that the receiver decrypts to rubbish and "
+                                         "drops without a trace"))
+                        break
+            continue
+        if not walks:
+            if name.upper() in ("FRM", "FRAME"):
+                for m in re.finditer(r"(\d+)\s+(?:SETLEN|CLKN)", text_all):
+                    if int(m.group(1)) != len(data):
+                        findings.append((blk_line, "R32 frame length",
+                                         f"`{name}` holds {len(data)} B but the code sends {m.group(1)}: a shorter "
+                                         "length transmits a TRUNCATED frame that the receiver decrypts to rubbish and "
+                                         "drops without a trace"))
+                        break
+            continue
+        # walk the table by its own length prefixes
+        entries, i, broken = [], 0, False
+        while i < len(data):
+            n = data[i]
+            if n == 0:
+                entries.append((i, []))
+                i += 1
+                continue
+            if i + 1 + n > len(data):
+                broken = True
+                break
+            entries.append((i, data[i + 1:i + 1 + n]))
+            i += 1 + n
+        if broken:
+            findings.append((blk_line, "R31 table stride",
+                             f"`{name}`: an entry's length prefix runs past the end of the block - the walker would "
+                             "read past the table and send garbage. Check the `n C,` prefixes against the bytes"))
+            continue
+        for off, ent in entries:
+            if ent and ent[0] not in OPCODES:
+                findings.append((blk_line, "R30 spi opcode",
+                                 f"`{name}` entry at byte {off} starts with 0x{ent[0]:02X}, which is not an SX126x "
+                                 "command: the chip ignores it and the register keeps its default (this is how the "
+                                 "sync word silently stayed at the public pair). Use the vendor opcode"))
+        # R33: a table that sets TX parameters must also apply the antenna-mismatch workaround (reg 0x08D8 |= 0x1E).
+        if any(ent and ent[0] == 0x8E for _, ent in entries):
+            has_clamp = any(len(ent) >= 3 and ent[0] == 0x0D and ent[1:3] == [0x08, 0xD8] for _, ent in entries)
+            if not has_clamp:
+                findings.append((blk_line, "R33 tx clamp",
+                                 f"`{name}` sets TX params (0x8E) but never writes register 0x08D8: the SX1262 "
+                                 "antenna-mismatch workaround (datasheet ch.15) is missing, so the PA is unclamped and "
+                                 "the transmitted spectrum can be too distorted for a foreign receiver to demodulate"))
+        # R34: the sync word pair is a MEASURED constant and lives in `sync.conf` next to the sources. Copying it into
+        # tables by hand let the four files drift (0x2B in one, 0x14 in another), so a receive test could pass while the
+        # transmitter was configured differently - and the symptom was "the peer is deaf", not "two files disagree".
+        conf = pathlib.Path(source_path).parent / "sync.conf" if source_path else None
+        sync_pairs = [(ent[3], ent[4]) for _, ent in entries
+                      if len(ent) >= 5 and ent[0] == 0x0D and ent[1] == 0x07 and ent[2] == 0x40]
+        if sync_pairs and conf and conf.exists():
+            want = dict((k.lower(), int(v, 16)) for k, v in
+                        re.findall(r"^\s*(\w+)\s*=\s*0x([0-9a-fA-F]+)", conf.read_text(), re.M))
+            msb, lsb = want.get("sync_msb"), want.get("sync_lsb")
+            if msb is None or lsb is None:
+                findings.append((blk_line, "R34 sync pair",
+                                 "sync.conf does not record both sync_msb and sync_lsb as 0x.. values"))
+            else:
+                for m, l in sync_pairs:
+                    if (m, l) != (msb, lsb):
+                        findings.append((blk_line, "R34 sync pair",
+                                         f"`{name}` writes sync 0x{m:02X}/0x{l:02X} but sync.conf records "
+                                         f"0x{msb:02X}/0x{lsb:02X} as the MEASURED pair (its comments carry the IRQ "
+                                         "evidence). One source of truth, or a receiver and a transmitter end up on "
+                                         "different sync words"))
+        elif sync_pairs and (conf is None or not conf.exists()):
+            findings.append((blk_line, "R34 sync pair",
+                             f"`{name}` writes a LoRa sync word but there is no sync.conf beside it: record the measured "
+                             "pair there instead of trusting a copied constant"))
+        # R35: SetPaConfig must match the power SetTxParams asks for. Measured on the board: a table asking for 22 dBm
+        # while keeping the <=17 dBm PA pair (paDutyCycle 0x02 / hpMax 0x02) measured -35 dBm at a receiver where the
+        # peer's own 14 dBm measured -33 dBm. We were QUIETER than the node we were trying to reach, which looks exactly
+        # like "the peer is deaf" rather than "the PA is misconfigured".
+        txp = [ent for _, ent in entries if len(ent) >= 3 and ent[0] == 0x8E]
+        pa = [ent for _, ent in entries if len(ent) >= 5 and ent[0] == 0x95]
+        if txp and pa:
+            power = txp[0][1] - 256 if txp[0][1] > 127 else txp[0][1]
+            duty, hpmax = pa[0][1], pa[0][2]
+            if power > 17 and (hpmax < 0x07 or duty < 0x04):
+                findings.append((blk_line, "R35 pa config",
+                                 f"`{name}` asks for {power} dBm but keeps the low-power PA config "
+                                 f"(paDutyCycle 0x{duty:02X} / hpMax 0x{hpmax:02X}): above 17 dBm the SX1262 needs "
+                                 "0x04/0x07, otherwise it radiates LESS than a stock node at 14 dBm and the peer "
+                                 "never detects a preamble"))
+        # R31: the count must step over every REAL entry and must not run off the end. Trailing zero-length entries
+        # may be left unrun - they command nothing.
+        last_real = 0
+        for idx, (off, ent) in enumerate(entries, 1):
+            if ent:
+                last_real = idx
+        for c in walks:
+            if c < last_real:
+                findings.append((blk_line, "R31 table count",
+                                 f"`{name}` needs {last_real} iterations to reach its last command but the code runs "
+                                 f"{c}: {last_real - c} command(s) never execute. A parity filler `0 C,` is an "
+                                 "ITERATION too, so the count has to cover it"))
+            elif c > len(entries):
+                findings.append((blk_line, "R31 table count",
+                                 f"`{name}` has {len(entries)} entries but the code runs {c}: the walker runs past the "
+                                 "table and sends whatever follows it as commands"))
     for i, ln in enumerate(lines, 1):
         toks = tokens(code_only(ln))
         if "1610646528" in toks and "!" in toks:
@@ -538,9 +736,9 @@ def check_source_shape(src, phase=False, repl=False, limit=63):
     return findings
 
 
-def lint_definitions(src, base=None, repl=False, limit=63):
+def lint_definitions(src, base=None, repl=False, limit=63, phase=False, source_path=None):
     """Yield findings for a source file. R1 runs over raw lines; R2/R3/R4 run per definition."""
-    findings = check_source_shape(src, repl=repl, limit=limit)
+    findings = check_source_shape(src, phase=phase, repl=repl, limit=limit, source_path=source_path)
     # GUARDRAIL: R1 must scan OUTSIDE parentheses and `."` strings. The earlier regex missed a comment that followed
     # code on the same line, and the app then compiled the words `poll:` and `the` - which is exactly what R1 exists for.
     i, line_no, in_str = 0, 1, False
@@ -561,7 +759,10 @@ def lint_definitions(src, base=None, repl=False, limit=63):
         # work on the chip (the LoRa driver is written with them). Leaving it on made every typed file report a finding
         # whose message - "a block has no line boundaries" - was false about the file in hand.
         if c == "\\":
-            if not repl:
+            # GUARDRAIL: a PHASE source is uploaded as LINES (the store path parses it line by line), so its `\` comments
+            # are legal - every AES phase carries GUARDRAIL comments and all six run on the board. R1 is about BLOCK
+            # sources, where a `\` line compiles as words; applying it here reported the shipping corpus as broken.
+            if not repl and not phase:
                 findings.append((line_no, "R1 comment",
                                  "`\\` comment in a block source: a block has no line boundaries, so this compiles as words"))
             # GUARDRAIL: skip the comment text in BOTH modes. Only the R1 finding is mode-specific, and the first
@@ -577,6 +778,8 @@ def lint_definitions(src, base=None, repl=False, limit=63):
             continue
         i += 1
     vocab = dict(PRIMS)
+    if phase:
+        vocab.update(PHASE_HARNESS)
     if base:
         vocab.update(base)
     # GUARDRAIL: a CREATE'd or CONSTANT word PUSHES its address/value - (0, 1), not (0, 0). Modelling it as "pushes
@@ -1106,14 +1309,15 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
             base.update(collect_vocab(open(argv[i + 1]).read())); i += 2
         else:
             rest.append(argv[i]); i += 1
-    src = open(rest[0]).read()
+    path = rest[0]
+    src = open(path).read()
     # GUARDRAIL: the block checks need the splitter, and a file that cannot be split must fail HERE rather than at the
     # first upload - the chip already has a compiled dictionary when it reports it.
     # GUARDRAIL: `--repl` skips the block checks as well as R1. `check_blocks` cuts the source into 92 B blocks, and a
     # typed load is never cut - it reported "REFUSING: no interpret-state boundary inside one 92 B block" on a driver that
     # the board accepts line by line, which is a true statement about an upload path nobody uses.
     limit = 92 if store else 63
-    findings = (lint_definitions(src, base, repl=repl, limit=limit)
+    findings = (lint_definitions(src, base, repl=repl, limit=limit, phase=phase, source_path=path)
                 + ([] if repl and not store else check_blocks(src, base))
                 + (lint_phase(src) if phase else []))
     for ln, rule, msg in findings:

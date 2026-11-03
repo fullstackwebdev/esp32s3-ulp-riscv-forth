@@ -1,0 +1,16 @@
+{
+  "plain": "0801120877616e7461636b31",
+  "nonce": "1d4a3b2c0000000024beea0200000000",
+  "ct": "c61087c0b0c0f637fdce0dff",
+  "header": "182cec0224beea021d4a3b2c6b080000",
+  "frame": "182cec0224beea021d4a3b2c6b080000c61087c0b0c0f637fdce0dff",
+  "from_": 44739242,
+  "to": 45857723,
+  "id": 742083101,
+  "psk": "d4f1bb3a20290759f0bcffabcf4e6901",
+  "text": "wantack1",
+  "channel_hash": 8,
+  "portnum": 1,
+  "flags": 107,
+  "note": "measured from a captured real packet: Data is encrypted, channel hash 0x08"
+}

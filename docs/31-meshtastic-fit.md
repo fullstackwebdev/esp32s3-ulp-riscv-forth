@@ -762,3 +762,220 @@ block read plus a ~1 KB paste, not a jump. Consequences, measured and labelled:
 
 That is the real price of phase chaining on this machine, and it is why lever 1 above (fewer hops per block) is
 worth 46 bytes of somebody's afternoon.
+
+## Appendix N — what a real Meshtastic node actually puts on the air (measured)
+
+A stock node (firmware **2.7.15.567b8ea**, HELTEC_V3, node `0x02BBBBBB`) was put on the bench next to our board and
+every claim below is a **measurement** against it, not a reading of the sources.
+
+### N.1 The carrier is not where the region definition says
+
+Tuning our receiver in 20 kHz steps around the region-derived 869.400 MHz and decoding while the peer transmitted gave:
+
+| our RX frequency | result |
+|---|---|
+| 869.320 – 869.400 MHz | `PreambleDetected` + `HeaderError` |
+| 869.480 MHz | **`RxDone` + `PreambleDetected` + `HeaderValid`** |
+
+The peer's packet decodes only at **869.480 MHz**, 80 kHz (92 ppm) from the derived value — far too large to be crystal
+error, so it is a frequency-plan/constant difference, not drift. Two boards of ours agree with each other either way, so
+this was invisible until a foreign transmitter went on the air. **Measure the peer's carrier; never derive it.**
+
+### N.2 The sync word is on the chip *default* second byte
+
+RadioLib's `setSyncWord(sw, controlBits = 0x44)` writes `{sw, 0x44}` to 0x0740. The peer's chip instead matches
+`{0x2B, 0x24}` — the MSB that Meshtastic asks for, with 0x0741 left at the chip default. Measured on a clean receiver:
+
+| our 0x0740/0x0741 | peer's frame |
+|---|---|
+| `2B 44` | `PreambleDetected` only — never reaches sync |
+| `2B 24` | `RxDone` + `PreambleDetected` + `HeaderValid` |
+
+### N.3 Channel hash comes from the *runtime* name, not the stored one
+
+The node's channel 0 reports `name: ""` and `psk: default`, which hashes to `xorHash("") ^ xorHash(psk) = 0x02`. A
+**captured** packet carries channel **0x08**, i.e. `xorHash("LongFast") ^ xorHash(psk)`: the firmware fills the name from
+the modem preset at runtime. Deriving the hash from the stored name gives a byte that makes the receiver skip the packet
+outright — the single most expensive wrong assumption of this session.
+
+### N.4 What is encrypted, and the proof that our crypto is exact
+
+The 16-byte header is clear: `to(4) from(4) id(4) flags channel next_hop relay`. The ciphertext covers the **`Data`
+message**, not a `MeshPacket` wrapper. Decrypting a captured frame with our own nonce+key construction produced:
+
+```
+header  ffffffff 182cec02 87e1b290 63 08 0000        flags 0x63 = hop_limit 3, hop_start 3
+nonce   87e1b290000000 182cec02 00000000             packetId u64 LE || from u32 LE || 4 zero bytes
+plaintext 0801120f "hello from mesh" 4800            Data{ portnum: TEXT_MESSAGE_APP(1), payload: "hello from mesh" }
+```
+
+So the AES-128-CTR nonce, the key, the CTR counter and the protobuf layout in this repository are **byte-exact**.
+
+### N.5 Bugs this session found in our own code
+
+1. **The sync write was not a command at all.** The table entry was `2 C, 116 C, 43 C` — opcode `0x74`, which does not
+   exist on the SX126x. The chip kept its default `0x14/0x24` and every frame went out on the public sync; reading
+   0x0740/0x0741 back showed `14 24` after "configuring" `0x2B`. Fixed: a real `WriteRegisters(0x0D)` burst.
+2. **A parity filler silently consumed a table iteration.** Adding `0 C,` to keep `HERE` even (R28) also added one to the
+   walker's count, so `SetDioIrqParams` was never sent: every IRQ read came back `0x0000` and TxDone looked "never
+   latched" while the chip was transmitting happily. Fixed by bumping the command count with the filler.
+3. **Bandwidth code confusion.** The SX126x bandwidth field is not monotonic: **125 kHz = 0x04, 250 kHz = 0x05,
+   500 kHz = 0x06** (RadioLib's own header, from the datasheet). Writing 5 for "125" or 4 for "250" changes the air rate
+   silently.
+4. **`GetRssiInst` is not a witness.** docs/29 already recorded −105 dBm next to a 14 dBm transmitter; this session
+   reproduced the trap (−93 dBm, unchanged by a 9 dB power increase) and briefly believed it. Only decoded packets count.
+
+### N.6 The register-level measurement recipe
+
+* read back what you wrote: `NSSLO 29 >BYTE <hi> >BYTE <lo> >BYTE 1 >BYTE` then three `RD-BYTE`s (data follows the
+  length byte with no status prefix) — that is how the 0x74/0x2B no-op was caught;
+* a table entry costs `1 + len` bytes, so an odd total flips `HERE`'s parity and R28 then refuses every later
+  definition with `ERR_DICT`;
+* `GetIrqStatus` reports only what `SetDioIrqParams` enabled; with the mask unset the status word answers `0x0000`
+  forever, which looks exactly like a deaf radio;
+* never call a word the loaded file does not define: one bad name sets the sticky error flag and **every** later word
+  fails, which reads like "the board died after TX";
+* a bare `TX` uses the payload length left by the table (26), so a 32-byte frame goes out **truncated** and the receiver
+  drops it after a failed decrypt without a trace. Always set the length first.
+
+### N.7 Still unproven
+
+The peer decodes **Meshtastic→Meshtastic** on the same two boards (both directions), and our receiver decodes **its**
+frames, but it has **not** yet decoded ours: eleven transmit configurations (five carriers × two sync pairs, plus the
+measured pair alone) all reached `TxDone` with a verified frame in the radio buffer (`ff ff ff ff 24 be ea 02 …`) and
+none were acknowledged by the peer's log or rebroadcast echo. Frame content is ruled out (N.4), so the next suspects are
+on the peer's receive path, and the next step is to capture our own transmission with a second receiver rather than
+infer its absence from the peer's silence.
+
+### N.8 Our side is now verified end to end (and the peer still stays silent)
+
+Three independent checks, none of which involve the peer's cooperation:
+
+1. **Frame content, judged by Meshtastic's own library** — `probe/repl/tests/mesh_frame_check.py`, 12/12:
+   header layout and flag bits, nonce = `id‖from‖0000`, the ciphertext decrypting to `mesh_pb2.Data` with
+   `portnum = TEXT_MESSAGE_APP` and the intended payload, a byte-identical protobuf re-encode, and the channel byte
+   equal to `meshtastic.util.generate_channel_hash("LongFast", psk)` = **0x08** (the same function also shows `""` → 0x02,
+   which is the wrong byte that cost this session most).
+2. **On-air bytes** — `probe/repl/tests/mesh_loop_check.py`: one of our boards transmits the frame at the peer's carrier
+   (869.480 MHz), preset (SF11/BW250/CR4-5) and sync pair (0x2B,0x24); the other decodes it and the bytes read back out
+   of the radio are **byte-identical** to the built frame, `IRQ 0x0016` (RxDone + Preamble + HeaderValid).
+3. **Link level, measured by `GetPacketStatus`** (not the lying `GetRssiInst`):
+
+   | direction | RSSI | SNR |
+   |---|---|---|
+   | our TX → our RX | **−20 dBm** | **+6.5 dB** |
+   | peer TX → our RX | **−14 dBm** | **+5.25 … +6.0 dB** |
+
+   Same order of magnitude, so the peer's receiver has every reason to hear us.
+
+The peer still decodes none of it, and the following are ruled out by measurement: frame content (N.4, above), carrier
+(80 kHz scan, N.1), sync pair (N.2), preset, link budget, its `rebroadcastMode` (ALL), its `security.isManaged` (false),
+its `ignoreIncoming` (empty), and its node database entry for us (a brand-new `from` number `0x11223344` is dropped just
+the same). `Meshtastic↔Meshtastic` between the very same two boards works in both directions, so its receiver is sound.
+
+The remaining lever is therefore that **firmware build** (2.7.15.567b8ea), not our frame: the next experiment is to put a
+different Meshtastic release on the peer board and repeat `mesh_frame_check.py` + the transmit test unchanged.
+
+### N.9 A newer firmware changes nothing, and the ACK probe proves the silence
+
+The remaining hypothesis was "that particular build". Upgrading the peer from **2.7.15** to the current release
+**2.7.26.54e0d8d** (release artefacts verified by md5 against `firmware-heltec-v3-2.7.26.54e0d8d.mt.json`, flashed with
+`factory.bin` at 0x0 *and* `littlefs-…bin` at the partition table's `spiffs` offset **0x670000** — without the
+filesystem the app boots but never completes the client handshake) gives an identical air interface:
+
+| property | 2.7.15 | 2.7.26 |
+|---|---|---|
+| decodes at our RX | 869.480 MHz | 869.480–869.550 MHz |
+| sync pair | `2B 24` | `2B 24` |
+| channel byte | `0x08` | `0x08` |
+| flags | `0x63` | `0x63` |
+
+and it still decodes none of our frames — fourteen transmissions across 869.46 … 869.54 MHz at the measured sync pair.
+
+The decisive test is the **ACK probe**: a directed packet (`to` = the peer's node number) with the `want_ack` flag
+(`0x6b`). A receiver that decodes such a packet **must** answer with an ACK, and their transmissions are exactly what our
+receiver can decode — so an ACK would be proof of decode with no ambiguity. Three attempts produced no ACK and no
+rebroadcast echo; the peer's own console never showed the text.
+
+So the situation is fully characterised: our frame is valid (their own library says so), its on-air bytes are identical to
+the built frame, the carrier/preset/sync/channel are measured from their own transmissions, the link budget is healthy,
+their receiver provably works (Meshtastic↔Meshtastic both directions on these two boards), and **two firmware builds
+still reject it**. What is left is not visible from outside that firmware: the next step is a build with its radio/decrypt
+LOG_DEBUG visible (or a third Meshtastic node as an independent witness), not another change to our frame.
+
+### N.10 The PA was configured for the wrong power band — measured, not suspected
+
+Every negative transmit result so far was taken while our table asked `SetTxParams` for **22 dBm** and left
+`SetPaConfig` at the ≤17 dBm pair (`paDutyCycle 0x02`, `hpMax 0x02`). The SX1262 does not correct that mismatch: it
+drives the low-power PA and the extra decibels are simply absent.
+
+Measured on the two boards, same receiver, same physical arrangement (our board receiving, `GetPacketStatus` after a
+decoded frame):
+
+| transmitter | requested | measured at our receiver |
+|---|---|---|
+| stock Meshtastic 2.7.26 | 14 dBm | **−33 dBm** |
+| our table, low-power PA config | 22 dBm | **−35 dBm** |
+| our table, high-power PA config `0x04/0x07` | 22 dBm | **−33 dBm** |
+
+So before the fix we were radiating **less than the node we were trying to reach, at a lower requested power**. A
+receiver on the other side of a marginal link sees nothing at all in that state, while our own receiver a few
+centimetres away still decoded us — which is exactly the misleading signature that kept the transmit question open.
+
+`R35` (probe/repl/tools/lint_forth.py) now rejects any table that asks for more than 17 dBm while keeping the low-power
+PA pair, and `tests/lint_rules_selftest.py` re-introduces precisely this mismatch and requires the rule to name it.
+
+### N.11 A broken link looks exactly like a broken transmitter
+
+With the boards moved further apart, **stock Meshtastic ↔ stock Meshtastic failed in both directions** (0 decodes each
+way, same channel, 14 dBm) while our own firmware on the same two boards still decoded 2 of 3 frames at −33 dBm.
+
+That is the control the probe rules demand: before any frame of ours is judged, the peer's receiver must be shown to
+work in the current physical arrangement. `tests/mesh_interop.py` encodes the order (roles → control → our TX → their
+TX → named verdict) so a dead link can never again be recorded as a transmitter fault.
+
+### N.12 The peer reports a systematic −45.7 kHz offset
+
+`GetPacketStatus`/`FEI` on every packet the peer sends reads **−45.7 kHz**, repeatably, at both spacings (−45772 Hz,
+−45776 Hz). That is the *combined* carrier error of the two boards, so it cannot be split without a reciprocal
+measurement; at BW250 the LoRa CFO tolerance is far wider (≈±62 kHz), so this is recorded as an observation, not yet a
+correction. A transmit-carrier sweep across 869.400…869.480 MHz (5 kHz steps, 3 frames each) was inconclusive because it
+was run while the link was already dead (N.11).
+
+### N.13 What is measured about the transmit direction, and what is not
+
+With the stock node's own device log flowing (`security.debug_log_api_enabled`), every claim below is its verdict, not our
+inference. Parameters swept, each with `TxDone` confirmed on our side:
+
+| dimension | values tried | stock-node reaction |
+|---|---|---|
+| transmit power | −9, −5, 0, 5, 10, 14, 17, 22 dBm | none |
+| preamble | 16, 32, 64, 128, 255, 1024 symbols | preamble-only detections at background rate |
+| carrier | 869.380 … 869.600 MHz in 10 kHz steps | none |
+| PA config | 0x02/0x02, 0x04/0x07, deviceSel 0/1, hpMax 7, duty 5,7 | none |
+| LDRO | off, `0x08` (SX127x form), `0x01` (SX126x form) | none |
+| IQ | standard, inverted | none |
+| sync word | 0x14/0x24 (measured), 0x2B/0x24 | none |
+| frame content | our frame, the stock node's own frame replayed, 17-byte minimal frame | none |
+| board roles | our stack on ec:2c:18; our stack on be:24 | identical result |
+
+Controls that make those negatives meaningful:
+
+* Our **receive** path decodes the stock node 2–3 of 4 frames, `IRQ 0x0016`, RSSI −18 dBm, using the same table family.
+* Our **transmit** is decoded by our own second board 4 of 4 at −19…−22 dBm, and the frame is byte-identical to what the
+  stock node's own library builds from the same text.
+* On-chip registers read back as intended after our init: sync `0x14/0x24`, clamp `0x08D8 = 0x5E`, `RxGain 0x08AC = 0x96`
+  (receive table), `OCP 0x08E7 = 0x38` (≈162 mA), `0x08B5 = 0x04` (the stock node patches bit 0 of this to 0x05 for RX
+  sensitivity; that is a receive-only difference).
+* Their router logs `No suitable channel found for decoding, hash was 0x%x!` for any frame it receives and cannot match.
+  Across every run above that line never appears, so the frames are not reaching the router at all.
+
+One quantitative asymmetry remains, and it is a transmit-output observation, not a protocol one: at the *same* receiver,
+the stock node's 14 dBm arrives at −18 dBm while our 14 dBm arrives at −23 dBm, and our 22 dBm only reaches −22 dBm —
+i.e. our PA delivers about 5 dB less at equal settings and stops scaling above ~15 dBm, even though `SetTxParams`,
+`SetPaConfig`, OCP and ramp all read back as expected. `R35` now guards the one configuration error that produced this
+shape before (power band vs PA pair).
+
+A measurement trap worth recording: a variant that **failed to load** still produced two "preamble detected" lines in the
+stock node's log, which is the same count we had been reading as evidence of our own signal. Detection counts are only
+evidence when compared against a no-transmission baseline.

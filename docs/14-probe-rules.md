@@ -331,3 +331,25 @@ And the counter-rule worth writing down: **`#c <desc>` is not a passive read.** 
 verification in the build path the shelf stops drawing (4 420 B first frame, no card titles); with it off the same
 store is 16/16. A check that damages what it checks is a diagnostic behind a flag (`APPSTORE_VERIFY=1`), not a build
 step, and the tool itself now has an open question against it.
+
+## R30–R33 — the SX1262 command tables (added after a session that lost a day to them)
+
+A driver's configuration table is DATA. Nothing on the chip refuses a wrong byte, so an invalid entry is silent: the
+register keeps its default and everything downstream is confidently wrong. These four rules are checked by
+`probe/repl/tools/lint_forth.py` and mutation-tested by `probe/repl/tests/lint_rules_selftest.py`, which re-introduces
+each bug below and requires the linter to name it.
+
+| rule | what it refuses | the bug it came from |
+|---|---|---|
+| **R30** spi opcode | a table entry whose first byte is not a vendor opcode (`RADIOLIB_SX126X_CMD_*`) | `2 C, 116 C, 43 C` — opcode `0x74` is not a command, so the sync word was **never written** and the chip kept the public pair |
+| **R31** table stride / count | an entry whose length prefix runs past the block, or a `N ALL`/`NCMDS` count that does not cover the last real command | a parity filler `0 C,` is an ITERATION too: `15 ALL` skipped `SetDioIrqParams` and every IRQ read came back `0x0000` |
+| **R32** frame length | a `SETLEN`/`CLKN` length that disagrees with the frame block (one trailing zero pad allowed for R28 parity) | a bare `TX` sent the table's default 26 B, truncating a 32 B frame; the receiver dropped it after a failed decrypt, silently |
+| **R33** tx clamp | a table that sets TX parameters without the antenna-mismatch workaround (`0x08D8 |= 0x1E`, datasheet ch.15) | the C reference driver had always done this and our Forth table never did, leaving the PA unclamped |
+
+Two false positives were fixed in the same pass, because a gate that cries wolf gets switched off:
+
+* **R16** counted `TBL CFGG !` as writing *into* `TBL`. It stores TBL's **address**, so every command table in every
+  phase was reported as state. A store now only counts when it targets the name (`NAME !`, `NAME + C!`).
+* **R16** needs `\ SCRATCH: NAME` **one name per line**; a combined `\ SCRATCH: ST SCRATCH: TZ` is invisible to the rule
+  (all six AES phases now declare theirs that way), and **R1** no longer applies to `--phase` sources, which are
+  uploaded line by line so their `\` comments are legal.

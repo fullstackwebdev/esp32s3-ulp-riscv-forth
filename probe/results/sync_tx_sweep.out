@@ -1,0 +1,4 @@
+  finished sweep for MSB 0x14
+  finished sweep for MSB 0x2b
+{"decoded_lines": 0, "log": "/home/user/research/esp32-rv32/probe/results/sync_tx_sweep.log"}
+EXIT=0

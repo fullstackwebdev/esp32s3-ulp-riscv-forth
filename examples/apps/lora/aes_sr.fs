@@ -35,7 +35,8 @@
 CREATE TZ 0 C, 0 C,
 : TZW ( b o -- ) TZ + C! ;
 : TZ@ ( o -- b ) TZ + C@ ;
-\ SCRATCH: ST SCRATCH: TZ
+\ SCRATCH: ST
+\ SCRATCH: TZ
 CREATE ST
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,

@@ -1,4 +1,4 @@
-\ aes_ark.fs - AES AddRoundKey on the state at buffer 224 (round in 223).
+\ aes_ark.fs - AES AddRoundKey on the state at buffer 224 (round in 240).
 \ W is the 44 round-key words for the LongFast PSK (constant data).
 \ GUARDRAIL: TZ/ST/RB are SCRATCH, freed with the phase.
 \ Pads: NSS 8, SCK 9, MOSI 10, MISO 11, BUSY 13, ALIAS WINDOW.
@@ -47,7 +47,9 @@ CREATE W
   195 C, 231 C, 253 C, 169 C, 114 C, 99 C, 223 C, 145 C,
   13 C, 65 C, 23 C, 116 C, 104 C, 113 C, 155 C, 101 C,
 
-\ SCRATCH: ST SCRATCH: TZ SCRATCH: RR
+\ SCRATCH: ST
+\ SCRATCH: TZ
+\ SCRATCH: RR
 CREATE TZ
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
@@ -55,13 +57,14 @@ CREATE ST
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
 CREATE RB 0 C, 0 C,
+\ SCRATCH: RB
 
 : LB ( i -- i ) DUP RD-BYTE SWAP ST + C! ;
-: LH ( -- ) NSSLO 30 >BYTE 223 >BYTE RD-BYTE DROP
+: LH ( -- ) NSSLO 30 >BYTE 240 >BYTE RD-BYTE DROP
   RD-BYTE 0 RB + C! ;
 : LS ( -- ) LH 0 BEGIN DUP 16 < WHILE LB 1+ REPEAT DROP NSSHI ;
 : SBF ( i -- i ) DUP ST + C@ >BYTE ;
-: SH ( -- ) NSSLO 14 >BYTE 223 >BYTE 0 RB + C@ >BYTE ;
+: SH ( -- ) NSSLO 14 >BYTE 240 >BYTE 0 RB + C@ >BYTE ;
 : SS ( -- ) SH 0 BEGIN DUP 16 < WHILE SBF 1+ REPEAT DROP NSSHI ;
 
 : ARB ( i -- i ) DUP DUP ST + C@ OVER RB C@ 16 * + W + C@ XOR SWAP ST + C! ;
