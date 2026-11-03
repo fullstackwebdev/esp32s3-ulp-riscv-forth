@@ -58,6 +58,9 @@ Each rule was earned by a real bug (see docs/24-dispatch.md, docs/25-program-lib
                 read came back 0x0000.
   R32 frame length  the length used with SETLEN/CLKN differs from the frame block's real size: a truncated frame is
                 dropped by the receiver with no trace.
+  R35 pa config  SetPaConfig left at the <=17 dBm pair (0x02/0x02) while SetTxParams asks for more. Measured: asking
+     for 22 dBm that way radiated LESS than a stock node at 14 dBm (-35 dBm vs -33 dBm at the same receiver), so the
+     peer's receiver never even saw a preamble.
   R33 tx clamp  a table that sets TX params without the antenna-mismatch workaround (register 0x08D8): the PA stays
                 unclamped and a foreign receiver may not demodulate us at all.
 
@@ -689,6 +692,21 @@ def check_source_shape(src, phase=False, repl=False, limit=63, source_path=None)
             findings.append((blk_line, "R34 sync pair",
                              f"`{name}` writes a LoRa sync word but there is no sync.conf beside it: record the measured "
                              "pair there instead of trusting a copied constant"))
+        # R35: SetPaConfig must match the power SetTxParams asks for. Measured on the board: a table asking for 22 dBm
+        # while keeping the <=17 dBm PA pair (paDutyCycle 0x02 / hpMax 0x02) measured -35 dBm at a receiver where the
+        # peer's own 14 dBm measured -33 dBm. We were QUIETER than the node we were trying to reach, which looks exactly
+        # like "the peer is deaf" rather than "the PA is misconfigured".
+        txp = [ent for _, ent in entries if len(ent) >= 3 and ent[0] == 0x8E]
+        pa = [ent for _, ent in entries if len(ent) >= 5 and ent[0] == 0x95]
+        if txp and pa:
+            power = txp[0][1] - 256 if txp[0][1] > 127 else txp[0][1]
+            duty, hpmax = pa[0][1], pa[0][2]
+            if power > 17 and (hpmax < 0x07 or duty < 0x04):
+                findings.append((blk_line, "R35 pa config",
+                                 f"`{name}` asks for {power} dBm but keeps the low-power PA config "
+                                 f"(paDutyCycle 0x{duty:02X} / hpMax 0x{hpmax:02X}): above 17 dBm the SX1262 needs "
+                                 "0x04/0x07, otherwise it radiates LESS than a stock node at 14 dBm and the peer "
+                                 "never detects a preamble"))
         # R31: the count must step over every REAL entry and must not run off the end. Trailing zero-length entries
         # may be left unrun - they command nothing.
         last_real = 0

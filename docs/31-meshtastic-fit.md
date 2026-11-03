@@ -902,3 +902,42 @@ the built frame, the carrier/preset/sync/channel are measured from their own tra
 their receiver provably works (Meshtastic↔Meshtastic both directions on these two boards), and **two firmware builds
 still reject it**. What is left is not visible from outside that firmware: the next step is a build with its radio/decrypt
 LOG_DEBUG visible (or a third Meshtastic node as an independent witness), not another change to our frame.
+
+### N.10 The PA was configured for the wrong power band — measured, not suspected
+
+Every negative transmit result so far was taken while our table asked `SetTxParams` for **22 dBm** and left
+`SetPaConfig` at the ≤17 dBm pair (`paDutyCycle 0x02`, `hpMax 0x02`). The SX1262 does not correct that mismatch: it
+drives the low-power PA and the extra decibels are simply absent.
+
+Measured on the two boards, same receiver, same physical arrangement (our board receiving, `GetPacketStatus` after a
+decoded frame):
+
+| transmitter | requested | measured at our receiver |
+|---|---|---|
+| stock Meshtastic 2.7.26 | 14 dBm | **−33 dBm** |
+| our table, low-power PA config | 22 dBm | **−35 dBm** |
+| our table, high-power PA config `0x04/0x07` | 22 dBm | **−33 dBm** |
+
+So before the fix we were radiating **less than the node we were trying to reach, at a lower requested power**. A
+receiver on the other side of a marginal link sees nothing at all in that state, while our own receiver a few
+centimetres away still decoded us — which is exactly the misleading signature that kept the transmit question open.
+
+`R35` (probe/repl/tools/lint_forth.py) now rejects any table that asks for more than 17 dBm while keeping the low-power
+PA pair, and `tests/lint_rules_selftest.py` re-introduces precisely this mismatch and requires the rule to name it.
+
+### N.11 A broken link looks exactly like a broken transmitter
+
+With the boards moved further apart, **stock Meshtastic ↔ stock Meshtastic failed in both directions** (0 decodes each
+way, same channel, 14 dBm) while our own firmware on the same two boards still decoded 2 of 3 frames at −33 dBm.
+
+That is the control the probe rules demand: before any frame of ours is judged, the peer's receiver must be shown to
+work in the current physical arrangement. `tests/mesh_interop.py` encodes the order (roles → control → our TX → their
+TX → named verdict) so a dead link can never again be recorded as a transmitter fault.
+
+### N.12 The peer reports a systematic −45.7 kHz offset
+
+`GetPacketStatus`/`FEI` on every packet the peer sends reads **−45.7 kHz**, repeatably, at both spacings (−45772 Hz,
+−45776 Hz). That is the *combined* carrier error of the two boards, so it cannot be split without a reciprocal
+measurement; at BW250 the LoRa CFO tolerance is far wider (≈±62 kHz), so this is recorded as an observation, not yet a
+correction. A transmit-carrier sweep across 869.400…869.480 MHz (5 kHz steps, 3 frames each) was inconclusive because it
+was run while the link was already dead (N.11).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mutation-test the SX1262 table rules (R30-R33): re-introduce each bug we actually shipped and require the linter
+"""Mutation-test the SX1262 table rules (R30-R35): re-introduce each bug we actually shipped and require the linter
 to name it.
 
     python3 tests/lint_rules_selftest.py
@@ -25,6 +25,9 @@ CASES = [
     # R34: the sync pair must match the MEASURED constant in sync.conf. 0x2B/0x24 is the pair that produced CrcErr on a
     # real packet, so a table that writes it is the drift this rule exists for.
     ("R34 sync pair", "  5 C, 13 C, 7 C, 64 C, 20 C, 36 C,", "  5 C, 13 C, 7 C, 64 C, 43 C, 36 C,"),
+    # R35: asking for more than 17 dBm while keeping the low-power PA pair. This is the exact shape that measured 2 dB
+    # QUIETER than a stock node at 14 dBm, so the mutant must keep SetPaConfig at 0x02/0x02 and only raise the demand.
+    ("R35 pa config", "  3 C, 142 C, 14 C, 4 C,", "  3 C, 142 C, 22 C, 4 C,"),
 ]
 
 
