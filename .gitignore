@@ -74,3 +74,17 @@ __pycache__/
 # reproduces this directory exactly. Committing 26 MB of extracted source made every later diff unreadable
 # and duplicated bytes the cache already owns.
 external/
+
+# --- publishing: things that must not go into a shared repo -------------------
+# GUARDRAIL: a full 8 MB flash dump carries the NVS partition, which holds the node's X25519 keypair. Publishing a dump
+# leaks that device's private key, so dumps stay local; the checksums + identity notes beside them are the evidence.
+backup/*8MB*.bin
+probe/results/reverify.bin
+# GUARDRAIL: Meshtastic's firmware is GPL-3.0 and its source is a 1905-file tree. Redistributing the binaries would drag
+# the licence and the vendored source into a research repo, so keep the recipe + checksums and fetch upstream instead.
+backup/firmware-2.7.26/*.bin
+# GUARDRAIL: the vendored Meshtastic tree (cached tarball extraction) is third-party source, 24 MB and 1905 files; it
+# buries our own work in every listing. It is fetched on demand - see docs/SHARING.md.
+probe/results/ms-src/
+probe/results/scons45/
+probe/results/scons45.tar.gz

@@ -192,6 +192,51 @@ Builds are long-running; run them in `tmux` with `nice`, not in the foreground.
 
 ---
 
+## The radio: LoRa and Meshtastic, in Forth on the ULP
+
+The same Forth machine also drives an SX1262 LoRa radio, entirely from the coprocessor: an SPI driver, an interrupt
+path, a buffer adopt, and an **AES-128-CTR implementation in Forth** split across six store phases (1328 bytes of
+working state does not fit the 999-byte phase window, so the state is handed over in the radio's own 256-byte buffer).
+
+Two claims are proven end to end, on hardware:
+
+* Our transmitter's frame is **byte-identical** to what Meshtastic's own Python library builds from the same text
+  (`probe/repl/tests/mesh_frame_check.py`, 12/12), and a live frame captured from a stock node was decrypted with our
+  nonce + PSK to the exact `Data` protobuf.
+* A stock Meshtastic 2.7.26 node's transmissions are **decoded by our stack** (`IRQ 0x0016`, −18 dBm, 2–3 of 4 frames).
+
+The reverse direction is **not** solved and the repo says so plainly: no stock node has ever decoded one of our
+transmissions — hundreds of frames across every power, preamble, carrier, PA configuration, LDRO, IQ, sync and frame
+content we control, with our firmware on either physical board. Both stock receivers are demonstrably alive
+(stock↔stock exchanges text both ways in the same session), and the stock node's own log never shows a packet reaching
+its router. Everything measured on our side is correct, so the open question is squarely on the air interface.
+
+Six silent bugs were found and fixed on the way, each now enforced by a lint rule with a mutation test that re-breaks
+the code on purpose and requires the rule to name it — see `probe/repl/tools/lint_forth.py` rules **R30–R35** and
+`probe/repl/tests/lint_rules_selftest.py`.
+
+| where | what |
+| --- | --- |
+| [`docs/27-spi-lora.md`](docs/27-spi-lora.md) | the SPI LoRa driver, block by block |
+| [`docs/28-sx126x-ulp.md`](docs/28-sx126x-ulp.md) | the SX1262 from the ULP: registers, timing, traps |
+| [`docs/29-lora-measurements.md`](docs/29-lora-measurements.md) | every number taken off the air, with the instrument used |
+| [`docs/30-forth-lora-driver.md`](docs/30-forth-lora-driver.md) | the Forth driver and its budget |
+| [`docs/31-meshtastic-fit.md`](docs/31-meshtastic-fit.md) | **wire facts measured from a real node** — carrier, sync, channel hash, nonce, plus Appendix N (this era) |
+| [`docs/32-handoff-meshtastic-interop.md`](docs/32-handoff-meshtastic-interop.md) | **exact state at handoff**: every experiment, every result, the traps, ranked hypotheses |
+| [`examples/apps/lora/sync.conf`](examples/apps/lora/sync.conf) | the one source of truth for the sync pair, with its IRQ evidence in comments |
+
+Run the radio gates:
+
+```sh
+python3 probe/repl/tools/lintgate.py --repl examples/apps/lora/lorainit.fs examples/apps/lora/lora_rx.fs \
+        examples/apps/lora/loratx.fs examples/apps/lora/lora1.fs
+python3 probe/repl/tests/lint_rules_selftest.py     # 6 mutants, each must fire
+bash probe/repl/tests/run.sh                        # the driver's wire bytes vs the C reference
+```
+
+Scope note: all radio work was done against **hardware on this desk**. No API, backend or third-party service was
+probed; the protocol facts come from a stock node's own over-the-air emissions and from its published source.
+
 ## Where things live
 
 | path | what it holds |
@@ -206,3 +251,10 @@ Builds are long-running; run them in `tmux` with `nice`, not in the foreground.
 | `archive/` | superseded trees and old build logs, kept rather than deleted — see `archive/README.md` |
 | `cache/` | the write-once fetch cache; it grows and is never pruned |
 
+
+---
+
+## Publishing
+
+`docs/SHARING.md` records what is published, what is deliberately not (raw flash dumps contain per-device keys;
+Meshtastic's GPL firmware is fetched rather than redistributed), and the exact commands to publish this repo.
