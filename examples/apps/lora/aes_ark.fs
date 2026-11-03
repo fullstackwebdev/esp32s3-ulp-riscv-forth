@@ -47,7 +47,9 @@ CREATE W
   195 C, 231 C, 253 C, 169 C, 114 C, 99 C, 223 C, 145 C,
   13 C, 65 C, 23 C, 116 C, 104 C, 113 C, 155 C, 101 C,
 
-\ SCRATCH: ST SCRATCH: TZ SCRATCH: RR
+\ SCRATCH: ST
+\ SCRATCH: TZ
+\ SCRATCH: RR
 CREATE TZ
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
@@ -55,6 +57,7 @@ CREATE ST
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C, 0 C,
 CREATE RB 0 C, 0 C,
+\ SCRATCH: RB
 
 : LB ( i -- i ) DUP RD-BYTE SWAP ST + C! ;
 : LH ( -- ) NSSLO 30 >BYTE 240 >BYTE RD-BYTE DROP

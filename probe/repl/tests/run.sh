@@ -67,6 +67,11 @@ python3 tools/fsplit.py --selftest || { echo "FAIL  fsplit selftest" >&2; fail=1
 # a missing DUP (underflow three steps later), a leaked digit (a stack cell per colour change), a word used before
 # it is defined, and a backslash comment that compiled as words. Run its selftest, then lint every example.
 python3 tools/lint_forth.py --selftest >/dev/null || { echo "FAIL  linter selftest" >&2; fail=1; }
+# GUARDRAIL: R30-R33 (the SX1262 command tables) were added after a session in which four table bugs reached the board -
+# an opcode that is not a command, a count that skips commands after a parity filler, a truncated transmit length, and a
+# missing antenna-mismatch clamp. A rule with no mutant test is a rule that quietly stops matching, so the mutants run
+# here: each one re-introduces a bug we actually shipped and requires the linter to name it.
+python3 tests/lint_rules_selftest.py >/dev/null || { echo "FAIL  linter table-rule mutants" >&2; fail=1; }
 # GUARDRAIL: hashcheck is the only gate that sees the 12-bit dictionary identity - two names with the same hash
 # means the chip REFUSES the definition and answers `NAME?` two lines later, which cost 165 probe cycles once. It
 # existed as a hand-run tool, so drift went unnoticed; `DIO1PAD` in the driver collides with baked `AP1` and only

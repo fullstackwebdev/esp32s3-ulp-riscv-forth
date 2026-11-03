@@ -71,7 +71,9 @@ CREATE TBL
   3 C, 142 C, 14 C, 4 C,
   3 C, 143 C, 0 C, 0 C,
   5 C, 139 C, 11 C, 5 C, 1 C, 0 C,
-  5 C, 13 C, 7 C, 64 C, 43 C, 36 C, 0 C,
+  5 C, 13 C, 7 C, 64 C, 43 C, 36 C,
+  4 C, 13 C, 8 C, 216 C, 94 C,
+  0 C, 0 C,
   7 C, 140 C, 0 C, 8 C, 0 C, 4 C, 1 C, 0 C,
   9 C, 8 C, 255 C, 255 C, 0 C,
   0 C, 0 C, 0 C, 0 C, 0 C,
@@ -84,7 +86,7 @@ CREATE CFGLEN 0 ,
   BEGIN DUP WHILE CFGPTR @ C@ >BYTE 1 ADV 1- REPEAT DROP ;
 : XFER ( -- ) NSSLO CFGPTR @ C@ 1 ADV CLKN NSSHI ;
 : ALL ( n -- ) BEGIN DUP WHILE XFER 1- REPEAT DROP ;
-: NCMDS ( -- n ) 16 ;
+: NCMDS ( -- n ) 18 ;
 : RADIO-INIT ( -- ok )
   42160 INEN 42168 INEN 42172 INEN
   1 8 PIN! 1 12 PIN! 0 9 PIN!
