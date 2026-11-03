@@ -137,8 +137,3 @@ two phases (992 B receive, 939 B transmit). Frames are byte-identical to Meshtas
 stock Meshtastic 2.7.26 node is decoded by this stack (`IRQ 0x0016`, −18 dBm). The transmit direction into a
 stock node is unsolved: `docs/32-handoff-meshtastic-interop.md` records every experiment and the current
 state. Wire facts are in `docs/31-meshtastic-fit.md` (Appendix N).
-
-## Licence
-
-MIT for this repository's code and prose (`LICENSE`); third-party material keeps its own licence and is not
-vendored. See `NOTICE.md` and `docs/SHARING.md`.

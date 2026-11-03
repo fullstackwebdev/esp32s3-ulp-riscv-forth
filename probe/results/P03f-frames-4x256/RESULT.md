@@ -95,7 +95,7 @@ SUMMARY baseline_valid=yes frames=4 workload=WORK positions=187 tested=187 misma
 ```
 
 `chk=4f99db40`, `disp=187`, `positions=187`, `mismatches=0` — identical to P03d's `run.log`. That
-is what licenses the §4.1 `PAGE_SHIFT` edit: at 512 B it is a pure no-op, proven by digest, not argued.
+is what justifies the §4.1 `PAGE_SHIFT` edit: at 512 B it is a pure no-op, proven by digest, not argued.
 
 ### 2.4 The RMW workload (P03e's `+!`) at both layouts (`rmw/run-rmw-4x256.log`, `rmw/run-rmw-4x512.log`)
 

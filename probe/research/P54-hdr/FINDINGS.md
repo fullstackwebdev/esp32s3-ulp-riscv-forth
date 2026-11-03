@@ -143,7 +143,7 @@ addresses, and an `lh`/`lw` there **traps** on rv32 (F-78). So:
 - every access to the header area is a **byte** access (`mem[h]`, `wr16 + wr8`, `C@`/`C!`);
 - the two old asserts are replaced by the invariants the new layout actually needs:
   `_Static_assert(MEMSZ <= 2048)` (10-bit `xt/2` ⇒ code area under 2 KiB) and
-  `_Static_assert(HDRTOP <= MEMSZ)` (this is what licences `find()`'s unchecked `mem[...]` reads: the loop
+  `_Static_assert(HDRTOP <= MEMSZ)` (this is what justifies `find()`'s unchecked `mem[...]` reads: the loop
   bounds `h + 3 <= HDRTOP`, so `h + 2 < MEMSZ` is *proved*, not hoped).
 
 ### 2.3 `image_boot_assert`: the `& 3` test had to change or it would halt every correct image
