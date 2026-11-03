@@ -846,3 +846,32 @@ measured pair alone) all reached `TxDone` with a verified frame in the radio buf
 none were acknowledged by the peer's log or rebroadcast echo. Frame content is ruled out (N.4), so the next suspects are
 on the peer's receive path, and the next step is to capture our own transmission with a second receiver rather than
 infer its absence from the peer's silence.
+
+### N.8 Our side is now verified end to end (and the peer still stays silent)
+
+Three independent checks, none of which involve the peer's cooperation:
+
+1. **Frame content, judged by Meshtastic's own library** — `probe/repl/tests/mesh_frame_check.py`, 12/12:
+   header layout and flag bits, nonce = `id‖from‖0000`, the ciphertext decrypting to `mesh_pb2.Data` with
+   `portnum = TEXT_MESSAGE_APP` and the intended payload, a byte-identical protobuf re-encode, and the channel byte
+   equal to `meshtastic.util.generate_channel_hash("LongFast", psk)` = **0x08** (the same function also shows `""` → 0x02,
+   which is the wrong byte that cost this session most).
+2. **On-air bytes** — `probe/repl/tests/mesh_loop_check.py`: one of our boards transmits the frame at the peer's carrier
+   (869.480 MHz), preset (SF11/BW250/CR4-5) and sync pair (0x2B,0x24); the other decodes it and the bytes read back out
+   of the radio are **byte-identical** to the built frame, `IRQ 0x0016` (RxDone + Preamble + HeaderValid).
+3. **Link level, measured by `GetPacketStatus`** (not the lying `GetRssiInst`):
+
+   | direction | RSSI | SNR |
+   |---|---|---|
+   | our TX → our RX | **−20 dBm** | **+6.5 dB** |
+   | peer TX → our RX | **−14 dBm** | **+5.25 … +6.0 dB** |
+
+   Same order of magnitude, so the peer's receiver has every reason to hear us.
+
+The peer still decodes none of it, and the following are ruled out by measurement: frame content (N.4, above), carrier
+(80 kHz scan, N.1), sync pair (N.2), preset, link budget, its `rebroadcastMode` (ALL), its `security.isManaged` (false),
+its `ignoreIncoming` (empty), and its node database entry for us (a brand-new `from` number `0x11223344` is dropped just
+the same). `Meshtastic↔Meshtastic` between the very same two boards works in both directions, so its receiver is sound.
+
+The remaining lever is therefore that **firmware build** (2.7.15.567b8ea), not our frame: the next experiment is to put a
+different Meshtastic release on the peer board and repeat `mesh_frame_check.py` + the transmit test unchanged.
