@@ -88,3 +88,8 @@ backup/firmware-2.7.26/*.bin
 probe/results/ms-src/
 probe/results/scons45/
 probe/results/scons45.tar.gz
+# GUARDRAIL: three 0-byte files named pathlib/subprocess/sys were created by a shell redirect that dropped its target and
+# then committed; they read as broken Python modules to anyone browsing the repo. Keep them out and ignore the pattern.
+/pathlib
+/subprocess
+/sys
