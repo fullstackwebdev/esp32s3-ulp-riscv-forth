@@ -42,6 +42,8 @@ def main():
     ap.add_argument("--text", default="hi from ulp")
     ap.add_argument("--portnum", type=int, default=1)          # TEXT_MESSAGE_APP
     ap.add_argument("--hop-limit", type=int, default=3)
+    ap.add_argument("--want-ack", action="store_true",
+                    help="set the want_ack flag so a peer that decodes the packet must answer with an ACK")
     a = ap.parse_args()
     frm, to, pid = int(a.frm, 0), int(a.to, 0), int(a.id, 0)
     data = bytes([0x08]) + varint(a.portnum) + bytes([0x12]) + varint(len(a.text.encode())) + a.text.encode()
@@ -49,7 +51,9 @@ def main():
     psk = bytes.fromhex(DEFAULT_PSK)
     ct = subprocess.run(["openssl", "enc", "-aes-128-ctr", "-K", psk.hex(), "-iv", nonce.hex()],
                         input=data, capture_output=True, check=True).stdout
-    flags = (a.hop_limit & 0x07) | ((a.hop_limit & 0x07) << 5)     # hop_limit | hop_start, want_ack and via_mqtt off
+    # GUARDRAIL: want_ack (bit 3) is the only way to make a silent peer prove it decoded us: a receiver that decodes a
+    # directed packet with want_ack must transmit an ACK, and their transmissions are exactly what our receiver CAN decode.
+    flags = (a.hop_limit & 0x07) | ((a.hop_limit & 0x07) << 5) | (0x08 if a.want_ack else 0x00)
     header = (to.to_bytes(4, "little") + frm.to_bytes(4, "little") + pid.to_bytes(4, "little")
               + bytes([flags, 0x08, 0x00, 0x00]))                  # flags, channel hash, next_hop, relay
     frame = header + ct

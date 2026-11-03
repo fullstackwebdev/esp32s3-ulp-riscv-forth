@@ -875,3 +875,30 @@ the same). `Meshtastic↔Meshtastic` between the very same two boards works in b
 
 The remaining lever is therefore that **firmware build** (2.7.15.567b8ea), not our frame: the next experiment is to put a
 different Meshtastic release on the peer board and repeat `mesh_frame_check.py` + the transmit test unchanged.
+
+### N.9 A newer firmware changes nothing, and the ACK probe proves the silence
+
+The remaining hypothesis was "that particular build". Upgrading the peer from **2.7.15** to the current release
+**2.7.26.54e0d8d** (release artefacts verified by md5 against `firmware-heltec-v3-2.7.26.54e0d8d.mt.json`, flashed with
+`factory.bin` at 0x0 *and* `littlefs-…bin` at the partition table's `spiffs` offset **0x670000** — without the
+filesystem the app boots but never completes the client handshake) gives an identical air interface:
+
+| property | 2.7.15 | 2.7.26 |
+|---|---|---|
+| decodes at our RX | 869.480 MHz | 869.480–869.550 MHz |
+| sync pair | `2B 24` | `2B 24` |
+| channel byte | `0x08` | `0x08` |
+| flags | `0x63` | `0x63` |
+
+and it still decodes none of our frames — fourteen transmissions across 869.46 … 869.54 MHz at the measured sync pair.
+
+The decisive test is the **ACK probe**: a directed packet (`to` = the peer's node number) with the `want_ack` flag
+(`0x6b`). A receiver that decodes such a packet **must** answer with an ACK, and their transmissions are exactly what our
+receiver can decode — so an ACK would be proof of decode with no ambiguity. Three attempts produced no ACK and no
+rebroadcast echo; the peer's own console never showed the text.
+
+So the situation is fully characterised: our frame is valid (their own library says so), its on-air bytes are identical to
+the built frame, the carrier/preset/sync/channel are measured from their own transmissions, the link budget is healthy,
+their receiver provably works (Meshtastic↔Meshtastic both directions on these two boards), and **two firmware builds
+still reject it**. What is left is not visible from outside that firmware: the next step is a build with its radio/decrypt
+LOG_DEBUG visible (or a third Meshtastic node as an independent witness), not another change to our frame.
