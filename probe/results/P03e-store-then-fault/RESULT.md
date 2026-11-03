@@ -214,7 +214,7 @@ applies *before* the store-repetition question does.
 
 ## 5. Doc deltas (not applied) and the next step
 
-The pass branch's "delete the unobserved-risk paragraph" is **not** licensed by this run: no sweep
+The pass branch's "delete the unobserved-risk paragraph" is **not** justified by this run: no sweep
 was executed, so store-then-fault remains unobserved. The RMW finding is a new, separate constraint
 and needs a line of its own.
 

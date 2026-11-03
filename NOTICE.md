@@ -2,8 +2,8 @@
 
 This repository is research: measurements taken on hardware owned by the author.
 
-* **Licence.** Our code and prose are MIT (see `LICENSE`). Third-party material is not covered and is not vendored
-  here — see `docs/SHARING.md` for what is deliberately excluded and how to fetch it.
+Third-party material is not vendored here — see `docs/SHARING.md` for what is excluded and how to fetch it.
+
 * **Radio scope.** Every transmission and reception described here happened between boards on the author's desk. No
   third-party network, API, backend or device was probed. Meshtastic protocol facts were obtained from a stock node's
   own over-the-air emissions and from its published source.

@@ -15,7 +15,7 @@ Everything needed to publish the research without shipping anything that should 
 | excluded | reason |
 | --- | --- |
 | `backup/*8MB*.bin`, `probe/results/reverify.bin` | full flash dumps include the NVS partition, which holds the node's X25519 keypair. Publishing a dump publishes that device's private key. The `.sha256` and `.identity.txt` files beside them stay, so the evidence trail is intact without the keys. |
-| `backup/firmware-2.7.26/*.bin` | Meshtastic firmware images are GPL-3.0. The repo keeps the **recipe and checksums** (`backup/README.md`) and points at the upstream release instead of redistributing binaries. |
+| `backup/firmware-2.7.26/*.bin` | third-party firmware images. The repo keeps the **recipe and checksums** (`backup/README.md`) and points at the upstream release instead of redistributing binaries. |
 | `probe/results/ms-src/` | the cached Meshtastic source tree (1905 files, 24 MB) is third-party code; it is fetched on demand, not vendored. |
 | `probe/results/scons45*` | a local build-environment workaround, regenerable, not research. |
 | build trees (`build*/`), `*.log` | regenerable; already ignored. |
