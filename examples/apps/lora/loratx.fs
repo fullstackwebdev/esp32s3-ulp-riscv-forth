@@ -76,8 +76,6 @@
 CREATE TBL
   2 C, 128 C, 0 C,
   2 C, 150 C, 1 C,
-  2 C, 8 C, 56 C,
-  0 C,
   5 C, 151 C, 2 C, 0 C, 1 C, 64 C,
   2 C, 137 C, 127 C,
   2 C, 157 C, 1 C,
@@ -106,7 +104,7 @@ CREATE CFGPTR 0 ,
 : RADSET ( -- ) RADG 1 8 PIN! ;
 : RADS2 ( -- ) 1 12 PIN! 0 9 PIN! 0 12 PIN! ;
 : RADS3 ( -- ) 2 MS 1 12 PIN! 5 MS ;
-: RCFG ( -- ok ) TBL CFGPTR ! 20 ALL 1 ;
+: RCFG ( -- ok ) TBL CFGPTR ! 18 ALL 1 ;
 : RDY ( -- ) RADG RADSET RADS2 RADS3 1 MS ;
 : RADIO-INIT ( -- ok )
   RDY 13 PIN@ 0= 0= IF 0 EXIT THEN RCFG ;
