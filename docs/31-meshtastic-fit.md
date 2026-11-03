@@ -762,3 +762,87 @@ block read plus a ~1 KB paste, not a jump. Consequences, measured and labelled:
 
 That is the real price of phase chaining on this machine, and it is why lever 1 above (fewer hops per block) is
 worth 46 bytes of somebody's afternoon.
+
+## Appendix N — what a real Meshtastic node actually puts on the air (measured)
+
+A stock node (firmware **2.7.15.567b8ea**, HELTEC_V3, node `0x02BBBBBB`) was put on the bench next to our board and
+every claim below is a **measurement** against it, not a reading of the sources.
+
+### N.1 The carrier is not where the region definition says
+
+Tuning our receiver in 20 kHz steps around the region-derived 869.400 MHz and decoding while the peer transmitted gave:
+
+| our RX frequency | result |
+|---|---|
+| 869.320 – 869.400 MHz | `PreambleDetected` + `HeaderError` |
+| 869.480 MHz | **`RxDone` + `PreambleDetected` + `HeaderValid`** |
+
+The peer's packet decodes only at **869.480 MHz**, 80 kHz (92 ppm) from the derived value — far too large to be crystal
+error, so it is a frequency-plan/constant difference, not drift. Two boards of ours agree with each other either way, so
+this was invisible until a foreign transmitter went on the air. **Measure the peer's carrier; never derive it.**
+
+### N.2 The sync word is on the chip *default* second byte
+
+RadioLib's `setSyncWord(sw, controlBits = 0x44)` writes `{sw, 0x44}` to 0x0740. The peer's chip instead matches
+`{0x2B, 0x24}` — the MSB that Meshtastic asks for, with 0x0741 left at the chip default. Measured on a clean receiver:
+
+| our 0x0740/0x0741 | peer's frame |
+|---|---|
+| `2B 44` | `PreambleDetected` only — never reaches sync |
+| `2B 24` | `RxDone` + `PreambleDetected` + `HeaderValid` |
+
+### N.3 Channel hash comes from the *runtime* name, not the stored one
+
+The node's channel 0 reports `name: ""` and `psk: default`, which hashes to `xorHash("") ^ xorHash(psk) = 0x02`. A
+**captured** packet carries channel **0x08**, i.e. `xorHash("LongFast") ^ xorHash(psk)`: the firmware fills the name from
+the modem preset at runtime. Deriving the hash from the stored name gives a byte that makes the receiver skip the packet
+outright — the single most expensive wrong assumption of this session.
+
+### N.4 What is encrypted, and the proof that our crypto is exact
+
+The 16-byte header is clear: `to(4) from(4) id(4) flags channel next_hop relay`. The ciphertext covers the **`Data`
+message**, not a `MeshPacket` wrapper. Decrypting a captured frame with our own nonce+key construction produced:
+
+```
+header  ffffffff 182cec02 87e1b290 63 08 0000        flags 0x63 = hop_limit 3, hop_start 3
+nonce   87e1b290000000 182cec02 00000000             packetId u64 LE || from u32 LE || 4 zero bytes
+plaintext 0801120f "hello from mesh" 4800            Data{ portnum: TEXT_MESSAGE_APP(1), payload: "hello from mesh" }
+```
+
+So the AES-128-CTR nonce, the key, the CTR counter and the protobuf layout in this repository are **byte-exact**.
+
+### N.5 Bugs this session found in our own code
+
+1. **The sync write was not a command at all.** The table entry was `2 C, 116 C, 43 C` — opcode `0x74`, which does not
+   exist on the SX126x. The chip kept its default `0x14/0x24` and every frame went out on the public sync; reading
+   0x0740/0x0741 back showed `14 24` after "configuring" `0x2B`. Fixed: a real `WriteRegisters(0x0D)` burst.
+2. **A parity filler silently consumed a table iteration.** Adding `0 C,` to keep `HERE` even (R28) also added one to the
+   walker's count, so `SetDioIrqParams` was never sent: every IRQ read came back `0x0000` and TxDone looked "never
+   latched" while the chip was transmitting happily. Fixed by bumping the command count with the filler.
+3. **Bandwidth code confusion.** The SX126x bandwidth field is not monotonic: **125 kHz = 0x04, 250 kHz = 0x05,
+   500 kHz = 0x06** (RadioLib's own header, from the datasheet). Writing 5 for "125" or 4 for "250" changes the air rate
+   silently.
+4. **`GetRssiInst` is not a witness.** docs/29 already recorded −105 dBm next to a 14 dBm transmitter; this session
+   reproduced the trap (−93 dBm, unchanged by a 9 dB power increase) and briefly believed it. Only decoded packets count.
+
+### N.6 The register-level measurement recipe
+
+* read back what you wrote: `NSSLO 29 >BYTE <hi> >BYTE <lo> >BYTE 1 >BYTE` then three `RD-BYTE`s (data follows the
+  length byte with no status prefix) — that is how the 0x74/0x2B no-op was caught;
+* a table entry costs `1 + len` bytes, so an odd total flips `HERE`'s parity and R28 then refuses every later
+  definition with `ERR_DICT`;
+* `GetIrqStatus` reports only what `SetDioIrqParams` enabled; with the mask unset the status word answers `0x0000`
+  forever, which looks exactly like a deaf radio;
+* never call a word the loaded file does not define: one bad name sets the sticky error flag and **every** later word
+  fails, which reads like "the board died after TX";
+* a bare `TX` uses the payload length left by the table (26), so a 32-byte frame goes out **truncated** and the receiver
+  drops it after a failed decrypt without a trace. Always set the length first.
+
+### N.7 Still unproven
+
+The peer decodes **Meshtastic→Meshtastic** on the same two boards (both directions), and our receiver decodes **its**
+frames, but it has **not** yet decoded ours: eleven transmit configurations (five carriers × two sync pairs, plus the
+measured pair alone) all reached `TxDone` with a verified frame in the radio buffer (`ff ff ff ff 24 be ea 02 …`) and
+none were acknowledged by the peer's log or rebroadcast echo. Frame content is ruled out (N.4), so the next suspects are
+on the peer's receive path, and the next step is to capture our own transmission with a second receiver rather than
+infer its absence from the peer's silence.

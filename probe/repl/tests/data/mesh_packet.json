@@ -1,0 +1,16 @@
+{
+  "plain": "0801120c68692066726f6d20756c7021",
+  "nonce": "1d4a3b2c0000000024beea0200000000",
+  "ct": "c61087c4afc8b825eec20bee3bbe8b0c",
+  "header": "ffffffff24beea021d4a3b2c63080000",
+  "frame": "ffffffff24beea021d4a3b2c63080000c61087c4afc8b825eec20bee3bbe8b0c",
+  "from_": 44739242,
+  "to": 4294967295,
+  "id": 742083101,
+  "psk": "d4f1bb3a20290759f0bcffabcf4e6901",
+  "text": "hi from ulp!",
+  "channel_hash": 8,
+  "portnum": 1,
+  "flags": 99,
+  "note": "measured from a captured real packet: Data is encrypted, channel hash 0x08"
+}

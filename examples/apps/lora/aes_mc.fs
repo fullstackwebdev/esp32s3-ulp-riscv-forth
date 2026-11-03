@@ -34,11 +34,11 @@ CREATE RB 0 C, 0 C, 0 C, 0 C,
 : STZW ( b o -- ) ST + C! ;
 
 : LB ( i -- i ) DUP RD-BYTE SWAP ST + C! ;
-: LH ( -- ) NSSLO 30 >BYTE 223 >BYTE RD-BYTE DROP
+: LH ( -- ) NSSLO 30 >BYTE 240 >BYTE RD-BYTE DROP
   RD-BYTE 0 RB + C! ;
 : LS ( -- ) LH 0 BEGIN DUP 16 < WHILE LB 1+ REPEAT DROP NSSHI ;
 : SBF ( i -- i ) DUP ST + C@ >BYTE ;
-: SH ( -- ) NSSLO 14 >BYTE 223 >BYTE 0 RB + C@ >BYTE ;
+: SH ( -- ) NSSLO 14 >BYTE 240 >BYTE 0 RB + C@ >BYTE ;
 : SS SH 0 BEGIN DUP 16 < WHILE SBF 1+ REPEAT DROP NSSHI ;
 
 : XT ( a -- 2a )

@@ -95,3 +95,12 @@ python -m esptool --port /dev/ttyACM1 --baud 460800 read_flash 0x0 0x800000 back
 **Identify before committing to 8 MB** — the check that actually works is the app description string at
 `0x10000 + 0x30`, which for our firmware is not an `esp-idf:` line, plus a full-region hash compared against
 `probe/repl/build/*.bin`. Do not use substring counts: `repl` is in every IDF image.
+
+## 2026-11-02 — these two images are BOTH Meshtastic
+
+Verified by string content, not by filename: `esp32s3-xxxxxxxxxxxx-…` (named for our board) contains
+`start meshradio init` and 38 `meshtastic` strings, and the Heltec dump contains 42; neither contains our Forth
+interpreter (`ERR_DICT` count is 0 in both). The file name records *which board it was read from*, not *what was running
+on it* — at capture time our board was already carrying Meshtastic. **Our firmware is not backed up as a binary and does
+not need to be: it is built from this repository (`probe/repl`, `idf.py -p <port> flash`).** Restoring the `eabe24` dump
+therefore gives you Meshtastic, not our stack.
