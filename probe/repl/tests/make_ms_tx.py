@@ -64,8 +64,12 @@ def main():
         "\\ the reference packet in tests/data/mesh_packet.json.")
     # GUARDRAIL: SETLEN carries the preamble length as a literal (0,16); the receiver's duty-cycled wake window is
     # derived from ITS preamble length, so our TX preamble has to be long enough to be caught in any wake slice.
+    # GUARDRAIL: the preamble length is TWO bytes (MSB first) in SetPacketParams. Writing a value > 255 as a single
+    # byte silently produces a different length, so a long-preamble "is anyone listening" test would transmit a short
+    # preamble and prove nothing.
+    p_msb, p_lsb = (args.preamble >> 8) & 0xFF, args.preamble & 0xFF
     rebuilt = rebuilt.replace("140 >BYTE 0 >BYTE 16 >BYTE 0 >BYTE",
-                              f"140 >BYTE 0 >BYTE {args.preamble} >BYTE 0 >BYTE")
+                              f"140 >BYTE {p_msb} >BYTE {p_lsb} >BYTE 0 >BYTE")
     rebuilt = rebuilt.replace("GO ( -- st ) 27 SETLEN TXBUF 27 CLKN", f"GO ( -- st ) {len(frame)} SETLEN TXBUF {len(frame)} CLKN")
     for ln in rebuilt.splitlines():
         if len(ln) > 63:

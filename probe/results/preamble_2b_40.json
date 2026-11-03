@@ -1,0 +1,9 @@
+{
+  "sent": 40,
+  "preamble_events": 2,
+  "header_events": 0,
+  "decrypt_attempts": 0,
+  "no_suitable_channel": 0,
+  "our_packet_decoded": 0,
+  "crc_or_header_errs": 0
+}

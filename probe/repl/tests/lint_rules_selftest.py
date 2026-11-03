@@ -18,15 +18,21 @@ SRC = REPO / "examples/apps/lora/loratx.fs"
 WORK = REPO / "probe/results/lint_mutants"
 
 CASES = [
-    ("R30 spi opcode", "  5 C, 13 C, 7 C, 64 C, 43 C, 36 C,", "  2 C, 116 C, 43 C,"),
+    ("R30 spi opcode", "  5 C, 13 C, 7 C, 64 C, 20 C, 36 C,", "  2 C, 116 C, 43 C,"),
     ("R31 table count", "CFGPTR ! 18 ALL", "CFGPTR ! 15 ALL"),
     ("R32 frame length", "GO ( -- st ) 27 SETLEN TXBUF 27 CLKN", "GO ( -- st ) 26 SETLEN TXBUF 26 CLKN"),
     ("R33 tx clamp", "  4 C, 13 C, 8 C, 216 C, 94 C,\n  0 C,", ""),
+    # R34: the sync pair must match the MEASURED constant in sync.conf. 0x2B/0x24 is the pair that produced CrcErr on a
+    # real packet, so a table that writes it is the drift this rule exists for.
+    ("R34 sync pair", "  5 C, 13 C, 7 C, 64 C, 20 C, 36 C,", "  5 C, 13 C, 7 C, 64 C, 43 C, 36 C,"),
 ]
 
 
 def main():
     WORK.mkdir(parents=True, exist_ok=True)
+    # R34 resolves sync.conf next to the source under test, so the mutants need a copy of the real constant.
+    import shutil
+    shutil.copy(SRC.parent / "sync.conf", WORK / "sync.conf")
     src = SRC.read_text()
     fails = []
     for expect, old, new in CASES:

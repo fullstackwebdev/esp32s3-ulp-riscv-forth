@@ -81,6 +81,7 @@ word that genuinely passes values must say so, and that declaration is documenta
     proves it does not fire on good code and still fires on bad code that was written before the rule existed. A rule
     that starts flagging 01_arith.fs is a false positive; a rule that stops flagging bad_r07.fs is a false negative.
 """
+import pathlib
 import re
 import sys
 
@@ -378,7 +379,7 @@ def collect_vocab(src):
     return v
 
 
-def check_source_shape(src, phase=False, repl=False, limit=63):
+def check_source_shape(src, phase=False, repl=False, limit=63, source_path=None):
     """R21-R24: rules about the FILE, not about a definition's stack effect.
 
     Every one of these is from the 2026-11-01 LoRa bring-up, and every one of them produced a failure with NO error
@@ -593,7 +594,10 @@ def check_source_shape(src, phase=False, repl=False, limit=63):
     blocks = c_blocks(scan_lines)
     text_all = "\n".join(scan_lines)
     walks = {int(m.group(1)) for m in re.finditer(r"(\d+)\s+ALL\b", text_all)}
-    walks |= {int(m.group(1)) for m in re.finditer(r"CMDS[^;]*?(-?\d+)\s*;", text_all)}
+    # GUARDRAIL: the count regex must not cross a newline. `NCMDS ALL` inside RADIO-INIT followed by an unrelated
+    # `1 ;` later made the linter read a count of 1 and report a working driver as broken - a false positive that would
+    # have had us "fixing" a correct table.
+    walks |= {int(m.group(1)) for m in re.finditer(r"NCMDS[^\n;]*?(-?\d+)\s*;", text_all)}
     for name, (blk_line, data) in blocks.items():
         if not data or len(data) < 3:
             continue
@@ -660,6 +664,31 @@ def check_source_shape(src, phase=False, repl=False, limit=63):
                                  f"`{name}` sets TX params (0x8E) but never writes register 0x08D8: the SX1262 "
                                  "antenna-mismatch workaround (datasheet ch.15) is missing, so the PA is unclamped and "
                                  "the transmitted spectrum can be too distorted for a foreign receiver to demodulate"))
+        # R34: the sync word pair is a MEASURED constant and lives in `sync.conf` next to the sources. Copying it into
+        # tables by hand let the four files drift (0x2B in one, 0x14 in another), so a receive test could pass while the
+        # transmitter was configured differently - and the symptom was "the peer is deaf", not "two files disagree".
+        conf = pathlib.Path(source_path).parent / "sync.conf" if source_path else None
+        sync_pairs = [(ent[3], ent[4]) for _, ent in entries
+                      if len(ent) >= 5 and ent[0] == 0x0D and ent[1] == 0x07 and ent[2] == 0x40]
+        if sync_pairs and conf and conf.exists():
+            want = dict((k.lower(), int(v, 16)) for k, v in
+                        re.findall(r"^\s*(\w+)\s*=\s*0x([0-9a-fA-F]+)", conf.read_text(), re.M))
+            msb, lsb = want.get("sync_msb"), want.get("sync_lsb")
+            if msb is None or lsb is None:
+                findings.append((blk_line, "R34 sync pair",
+                                 "sync.conf does not record both sync_msb and sync_lsb as 0x.. values"))
+            else:
+                for m, l in sync_pairs:
+                    if (m, l) != (msb, lsb):
+                        findings.append((blk_line, "R34 sync pair",
+                                         f"`{name}` writes sync 0x{m:02X}/0x{l:02X} but sync.conf records "
+                                         f"0x{msb:02X}/0x{lsb:02X} as the MEASURED pair (its comments carry the IRQ "
+                                         "evidence). One source of truth, or a receiver and a transmitter end up on "
+                                         "different sync words"))
+        elif sync_pairs and (conf is None or not conf.exists()):
+            findings.append((blk_line, "R34 sync pair",
+                             f"`{name}` writes a LoRa sync word but there is no sync.conf beside it: record the measured "
+                             "pair there instead of trusting a copied constant"))
         # R31: the count must step over every REAL entry and must not run off the end. Trailing zero-length entries
         # may be left unrun - they command nothing.
         last_real = 0
@@ -685,9 +714,9 @@ def check_source_shape(src, phase=False, repl=False, limit=63):
     return findings
 
 
-def lint_definitions(src, base=None, repl=False, limit=63, phase=False):
+def lint_definitions(src, base=None, repl=False, limit=63, phase=False, source_path=None):
     """Yield findings for a source file. R1 runs over raw lines; R2/R3/R4 run per definition."""
-    findings = check_source_shape(src, repl=repl, limit=limit)
+    findings = check_source_shape(src, phase=phase, repl=repl, limit=limit, source_path=source_path)
     # GUARDRAIL: R1 must scan OUTSIDE parentheses and `."` strings. The earlier regex missed a comment that followed
     # code on the same line, and the app then compiled the words `poll:` and `the` - which is exactly what R1 exists for.
     i, line_no, in_str = 0, 1, False
@@ -1258,14 +1287,15 @@ def main(argv):  # GUARDRAIL: argument order matters - `--use` files must be col
             base.update(collect_vocab(open(argv[i + 1]).read())); i += 2
         else:
             rest.append(argv[i]); i += 1
-    src = open(rest[0]).read()
+    path = rest[0]
+    src = open(path).read()
     # GUARDRAIL: the block checks need the splitter, and a file that cannot be split must fail HERE rather than at the
     # first upload - the chip already has a compiled dictionary when it reports it.
     # GUARDRAIL: `--repl` skips the block checks as well as R1. `check_blocks` cuts the source into 92 B blocks, and a
     # typed load is never cut - it reported "REFUSING: no interpret-state boundary inside one 92 B block" on a driver that
     # the board accepts line by line, which is a true statement about an upload path nobody uses.
     limit = 92 if store else 63
-    findings = (lint_definitions(src, base, repl=repl, limit=limit, phase=phase)
+    findings = (lint_definitions(src, base, repl=repl, limit=limit, phase=phase, source_path=path)
                 + ([] if repl and not store else check_blocks(src, base))
                 + (lint_phase(src) if phase else []))
     for ln, rule, msg in findings:
