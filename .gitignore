@@ -102,3 +102,8 @@ probe/repl/stale/
 # username into history even after every source file was scrubbed. Ignore the bytecode, keep the .py.
 __pycache__/
 *.pyc
+
+# GUARDRAIL: a git bundle of the pre-sanitize history is zlib-compressed, so a byte scan for the scrubbed strings finds
+# nothing and it sails into a commit anyway — that one file carried every identifier we had just removed. Keep backups
+# of old history OUTSIDE the repository, never in it.
+*.bundle
