@@ -97,3 +97,8 @@ probe/results/scons45.tar.gz
 # GUARDRAIL: probe/repl/stale held generated CMake trees (grabRef.cmake and friends). Build output is regenerable and it
 # dragged third-party boilerplate, including licence text, into the tree; keep it on disk, out of the index.
 probe/repl/stale/
+
+# GUARDRAIL: .pyc files are build output, but they also embed the absolute source path, so tracking them leaked the local
+# username into history even after every source file was scrubbed. Ignore the bytecode, keep the .py.
+__pycache__/
+*.pyc
