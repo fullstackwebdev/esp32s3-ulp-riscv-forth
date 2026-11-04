@@ -63,11 +63,11 @@ DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log
   level: DEBUG
 }
 
-DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'"q\x08\x98\xd8\xb0\x17\x12P\n\t!02BBBBBB\x12\x0fMeshtastic 2c18\x1a\x042c18"\x06<\x0f\x02\xec,\x18(+B acmO\xf8\xc0MQ}L${\xc0H\x19f\xfc*\x9an\xd7\xee\x10\x08d=\xea\xc6\xbc\xb6&8H\x00\x1a\x002\x14\x08e\x15\xcb\xa1\x89@\x1d\x00\x00\x00\x00%\x00\x00\x00\x00(\xe2\x03P\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'"q\x08\x98\xd8\xb0\x17\x12P\n\t!02AAAAAA\x12\x0fMeshtastic 2c18\x1a\x042c18"\x06<\x0f\x02\xec,\x18(+B acmO\xf8\xc0MQ}L${\xc0H\x19f\xfc*\x9an\xd7\xee\x10\x08d=\xea\xc6\xbc\xb6&8H\x00\x1a\x002\x14\x08e\x15\xcb\xa1\x89@\x1d\x00\x00\x00\x00%\x00\x00\x00\x00(\xe2\x03P\x01'
 DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: node_info {
   num: 45857723
   user {
-    id: "!02BBBBBB"
+    id: "!02AAAAAA"
     long_name: "Meshtastic 2c18"
     short_name: "2c18"
     macaddr: "<\017\002\354,\030"
@@ -87,7 +87,7 @@ DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: nod
   is_favorite: true
 }
 
-DEBUG file:mesh_interface.py _handleFromRadio line:1344 Received nodeinfo: {'num': 45857723, 'user': {'id': '!02BBBBBB', 'longName': 'Meshtastic 2c18', 'shortName': '2c18', 'macaddr': 'PA8C7CwY', 'hwModel': 'HELTEC_V3', 'publicKey': 'YWNtT/jATVF9TCR7wEgZZvwqmm7X7hAIZD3qxry2Jjg=', 'isUnmessagable': False}, 'position': {}, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.301, 'channelUtilization': 0.0, 'airUtilTx': 0.0, 'uptimeSeconds': 482}, 'isFavorite': True}
+DEBUG file:mesh_interface.py _handleFromRadio line:1344 Received nodeinfo: {'num': 45857723, 'user': {'id': '!02AAAAAA', 'longName': 'Meshtastic 2c18', 'shortName': '2c18', 'macaddr': 'PA8C7CwY', 'hwModel': 'HELTEC_V3', 'publicKey': 'YWNtT/jATVF9TCR7wEgZZvwqmm7X7hAIZD3qxry2Jjg=', 'isUnmessagable': False}, 'position': {}, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.301, 'channelUtilization': 0.0, 'airUtilTx': 0.0, 'uptimeSeconds': 482}, 'isFavorite': True}
 DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Send device metadata\x1a\rSerialConsole \n"
 DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
   message: "Send device metadata"
@@ -765,7 +765,7 @@ DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: pac
 }
 
 DEBUG file:mesh_interface.py _handlePacketFromRadio line:1646 Got a response for requestId 1236973063
-DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.routing: packet={'from': 45857723, 'to': 45857723, 'decoded': {'portnum': 'ROUTING_APP', 'payload': b'\x18\x00', 'requestId': 1236973063, 'routing': {'errorReason': 'NONE', 'raw': error_reason: NONE }}, 'id': 2492379118, 'hopLimit': 3, 'priority': 'ACK', 'pkiEncrypted': True, 'raw': from: 45857723 to: 45857723 decoded { portnum: ROUTING_APP payload: "\030\000" request_id: 1236973063 } id: 2492379118 hop_limit: 3 priority: ACK pki_encrypted: true , 'fromId': '!02BBBBBB', 'toId': '!02BBBBBB'} 
+DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.routing: packet={'from': 45857723, 'to': 45857723, 'decoded': {'portnum': 'ROUTING_APP', 'payload': b'\x18\x00', 'requestId': 1236973063, 'routing': {'errorReason': 'NONE', 'raw': error_reason: NONE }}, 'id': 2492379118, 'hopLimit': 3, 'priority': 'ACK', 'pkiEncrypted': True, 'raw': from: 45857723 to: 45857723 decoded { portnum: ROUTING_APP payload: "\030\000" request_id: 1236973063 } id: 2492379118 hop_limit: 3 priority: ACK pki_encrypted: true , 'fromId': '!02AAAAAA', 'toId': '!02AAAAAA'} 
 DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Got client heartbeat\x1a\rSerialConsole \n"
 DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
   message: "Got client heartbeat"
@@ -861,11 +861,11 @@ DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log
   level: DEBUG
 }
 
-DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'"[\x08\x98\xd8\xb0\x17\x12P\n\t!02BBBBBB\x12\x0fMeshtastic 2c18\x1a\x042c18"\x06<\x0f\x02\xec,\x18(+B acmO\xf8\xc0MQ}L${\xc0H\x19f\xfc*\x9an\xd7\xee\x10\x08d=\xea\xc6\xbc\xb6&8H\x00\x1a\x00P\x01'
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'"[\x08\x98\xd8\xb0\x17\x12P\n\t!02AAAAAA\x12\x0fMeshtastic 2c18\x1a\x042c18"\x06<\x0f\x02\xec,\x18(+B acmO\xf8\xc0MQ}L${\xc0H\x19f\xfc*\x9an\xd7\xee\x10\x08d=\xea\xc6\xbc\xb6&8H\x00\x1a\x00P\x01'
 DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: node_info {
   num: 45857723
   user {
-    id: "!02BBBBBB"
+    id: "!02AAAAAA"
     long_name: "Meshtastic 2c18"
     short_name: "2c18"
     macaddr: "<\017\002\354,\030"
@@ -878,7 +878,7 @@ DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: nod
   is_favorite: true
 }
 
-DEBUG file:mesh_interface.py _handleFromRadio line:1344 Received nodeinfo: {'num': 45857723, 'user': {'id': '!02BBBBBB', 'longName': 'Meshtastic 2c18', 'shortName': '2c18', 'macaddr': 'PA8C7CwY', 'hwModel': 'HELTEC_V3', 'publicKey': 'YWNtT/jATVF9TCR7wEgZZvwqmm7X7hAIZD3qxry2Jjg=', 'isUnmessagable': False}, 'position': {}, 'isFavorite': True}
+DEBUG file:mesh_interface.py _handleFromRadio line:1344 Received nodeinfo: {'num': 45857723, 'user': {'id': '!02AAAAAA', 'longName': 'Meshtastic 2c18', 'shortName': '2c18', 'macaddr': 'PA8C7CwY', 'hwModel': 'HELTEC_V3', 'publicKey': 'YWNtT/jATVF9TCR7wEgZZvwqmm7X7hAIZD3qxry2Jjg=', 'isUnmessagable': False}, 'position': {}, 'isFavorite': True}
 DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b"2'\n\x14Send device metadata\x1a\rSerialConsole \n"
 DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
   message: "Send device metadata"
@@ -1601,9 +1601,9 @@ DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log
   level: INFO
 }
 
-DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n)Send owner !02BBBBBB/Meshtastic 2c18/2c18\x1a\x08NodeInfo \x14'
+DEBUG file:mesh_interface.py _handleFromRadio line:1321 in mesh_interface.py _handleFromRadio() fromRadioBytes: b'27\n)Send owner !02AAAAAA/Meshtastic 2c18/2c18\x1a\x08NodeInfo \x14'
 DEBUG file:mesh_interface.py _handleFromRadio line:1333 Received from radio: log_record {
-  message: "Send owner !02BBBBBB/Meshtastic 2c18/2c18"
+  message: "Send owner !02AAAAAA/Meshtastic 2c18/2c18"
   source: "NodeInfo"
   level: INFO
 }
@@ -1876,9 +1876,9 @@ decoded {
 id: 3640716488
 hop_limit: 3
 priority: BACKGROUND
-, 'fromId': '!02BBBBBB', 'toId': '^all'}
+, 'fromId': '!02AAAAAA', 'toId': '^all'}
 DEBUG file:__init__.py _onTelemetryReceive line:248 updating deviceMetrics metrics for 45857723 to {'batteryLevel': 101, 'voltage': 4.299, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'uptimeSeconds': 62}
-DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.telemetry: packet={'from': 45857723, 'to': 4294967295, 'decoded': {'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x00\x12\x13\x08e\x15h\x91\x89@\x1d\xda@\xd7?%\x82\x9a\xe5<(>', 'telemetry': {'time': 611, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.299, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'uptimeSeconds': 62}, 'raw': time: 611 device_metrics { battery_level: 101 voltage: 4.299 channel_utilization: 1.68166661 air_util_tx: 0.0280277766 uptime_seconds: 62 } }}, 'id': 3640716488, 'hopLimit': 3, 'priority': 'BACKGROUND', 'raw': from: 45857723 to: 4294967295 decoded { portnum: TELEMETRY_APP payload: "\rc\002\000\000\022\023\010e\025h\221\211@\035\332@\327?%\202\232\345<(>" } id: 3640716488 hop_limit: 3 priority: BACKGROUND , 'fromId': '!02BBBBBB', 'toId': '^all'} 
+DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.telemetry: packet={'from': 45857723, 'to': 4294967295, 'decoded': {'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x00\x12\x13\x08e\x15h\x91\x89@\x1d\xda@\xd7?%\x82\x9a\xe5<(>', 'telemetry': {'time': 611, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.299, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'uptimeSeconds': 62}, 'raw': time: 611 device_metrics { battery_level: 101 voltage: 4.299 channel_utilization: 1.68166661 air_util_tx: 0.0280277766 uptime_seconds: 62 } }}, 'id': 3640716488, 'hopLimit': 3, 'priority': 'BACKGROUND', 'raw': from: 45857723 to: 4294967295 decoded { portnum: TELEMETRY_APP payload: "\rc\002\000\000\022\023\010e\025h\221\211@\035\332@\327?%\202\232\345<(>" } id: 3640716488 hop_limit: 3 priority: BACKGROUND , 'fromId': '!02AAAAAA', 'toId': '^all'} 
 DEBUG file:__main__.py onReceive line:84 in onReceive() d:{'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x00\x12\x13\x08e\x15h\x91\x89@\x1d\xda@\xd7?%\x82\x9a\xe5<(>', 'telemetry': {'time': 611, 'deviceMetrics': {'batteryLevel': 101, 'voltage': 4.299, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'uptimeSeconds': 62}, 'raw': time: 611
 device_metrics {
   battery_level: 101
@@ -1936,9 +1936,9 @@ decoded {
 id: 1815043273
 hop_limit: 3
 priority: BACKGROUND
-, 'fromId': '!02BBBBBB', 'toId': '^all'}
+, 'fromId': '!02AAAAAA', 'toId': '^all'}
 DEBUG file:__init__.py _onTelemetryReceive line:248 updating localStats metrics for 45857723 to {'uptimeSeconds': 62, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'numPacketsTx': 1, 'numOnlineNodes': 1, 'numTotalNodes': 1, 'heapTotalBytes': 249024, 'heapFreeBytes': 75964, 'noiseFloor': -120}
-DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.telemetry: packet={'from': 45857723, 'to': 4294967295, 'decoded': {'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x002%\x08>\x15\xda@\xd7?\x1d\x82\x9a\xe5< \x018\x01@\x01`\xc0\x99\x0fh\xbc\xd1\x04x\x88\xff\xff\xff\xff\xff\xff\xff\xff\x01', 'telemetry': {'time': 611, 'localStats': {'uptimeSeconds': 62, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'numPacketsTx': 1, 'numOnlineNodes': 1, 'numTotalNodes': 1, 'heapTotalBytes': 249024, 'heapFreeBytes': 75964, 'noiseFloor': -120}, 'raw': time: 611 local_stats { uptime_seconds: 62 channel_utilization: 1.68166661 air_util_tx: 0.0280277766 num_packets_tx: 1 num_online_nodes: 1 num_total_nodes: 1 heap_total_bytes: 249024 heap_free_bytes: 75964 noise_floor: -120 } }}, 'id': 1815043273, 'hopLimit': 3, 'priority': 'BACKGROUND', 'raw': from: 45857723 to: 4294967295 decoded { portnum: TELEMETRY_APP payload: "\rc\002\000\0002%\010>\025\332@\327?\035\202\232\345< \0018\001@\001`\300\231\017h\274\321\004x\210\377\377\377\377\377\377\377\377\001" } id: 1815043273 hop_limit: 3 priority: BACKGROUND , 'fromId': '!02BBBBBB', 'toId': '^all'} 
+DEBUG file:mesh_interface.py _handlePacketFromRadio line:1668 Publishing meshtastic.receive.telemetry: packet={'from': 45857723, 'to': 4294967295, 'decoded': {'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x002%\x08>\x15\xda@\xd7?\x1d\x82\x9a\xe5< \x018\x01@\x01`\xc0\x99\x0fh\xbc\xd1\x04x\x88\xff\xff\xff\xff\xff\xff\xff\xff\x01', 'telemetry': {'time': 611, 'localStats': {'uptimeSeconds': 62, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'numPacketsTx': 1, 'numOnlineNodes': 1, 'numTotalNodes': 1, 'heapTotalBytes': 249024, 'heapFreeBytes': 75964, 'noiseFloor': -120}, 'raw': time: 611 local_stats { uptime_seconds: 62 channel_utilization: 1.68166661 air_util_tx: 0.0280277766 num_packets_tx: 1 num_online_nodes: 1 num_total_nodes: 1 heap_total_bytes: 249024 heap_free_bytes: 75964 noise_floor: -120 } }}, 'id': 1815043273, 'hopLimit': 3, 'priority': 'BACKGROUND', 'raw': from: 45857723 to: 4294967295 decoded { portnum: TELEMETRY_APP payload: "\rc\002\000\0002%\010>\025\332@\327?\035\202\232\345< \0018\001@\001`\300\231\017h\274\321\004x\210\377\377\377\377\377\377\377\377\001" } id: 1815043273 hop_limit: 3 priority: BACKGROUND , 'fromId': '!02AAAAAA', 'toId': '^all'} 
 DEBUG file:__main__.py onReceive line:84 in onReceive() d:{'portnum': 'TELEMETRY_APP', 'payload': b'\rc\x02\x00\x002%\x08>\x15\xda@\xd7?\x1d\x82\x9a\xe5< \x018\x01@\x01`\xc0\x99\x0fh\xbc\xd1\x04x\x88\xff\xff\xff\xff\xff\xff\xff\xff\x01', 'telemetry': {'time': 611, 'localStats': {'uptimeSeconds': 62, 'channelUtilization': 1.6816666, 'airUtilTx': 0.028027777, 'numPacketsTx': 1, 'numOnlineNodes': 1, 'numTotalNodes': 1, 'heapTotalBytes': 249024, 'heapFreeBytes': 75964, 'noiseFloor': -120}, 'raw': time: 611
 local_stats {
   uptime_seconds: 62
